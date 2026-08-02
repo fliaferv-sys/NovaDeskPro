@@ -1270,7 +1270,7 @@ def dashboard_view(request):
     is_admin = False
 
     if hasattr(user, 'role'):
-        is_technician = user.role in ['TECHNICIAN', 'SUPERVISOR', 'ADMIN']
+        is_technician = user.role in TICKET_DEPARTMENT_ROLES
         is_admin = user.role == 'ADMIN'
 
     department = get_user_department(request.user)
