@@ -291,7 +291,7 @@ class StockStatusFilter(admin.SimpleListFilter):
     title = "Estado del stock"
     parameter_name = "stock_status"
 
-    def lookups(self, request, model_admin):
+    def lookups(self, request, _model_admin):
         return (
             ("out", "Sin stock"),
             ("low", "Stock bajo"),
