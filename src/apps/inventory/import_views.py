@@ -14,6 +14,8 @@ from django.core.files.storage import default_storage
 from django.http import FileResponse
 from django.shortcuts import redirect, render
 
+from apps.accounts.access import can_manage_inventory
+
 from .forms import AssetImportForm
 from .services.excel_import import (
     generate_asset_import_template,
@@ -33,21 +35,7 @@ IMPORT_SESSION_KEY = "asset_import_temporary_file"
 # PERMISOS
 # ==========================================================
 
-def can_import_assets(user):
-    """
-    Permite importar activos a:
-    - Administradores
-    - Supervisores
-    - Superusuarios
-    """
 
-    return (
-        user.is_superuser
-        or user.role in {
-            "ADMIN",
-            "SUPERVISOR",
-        }
-    )
 
 
 # ==========================================================
@@ -113,7 +101,7 @@ def save_temporary_import_file(
 
 @login_required
 def asset_import_template_view(request):
-    if not can_import_assets(request.user):
+    if not can_manage_inventory(request.user):
         raise PermissionDenied(
             "No tiene permisos para descargar "
             "la plantilla de importación."
@@ -138,7 +126,7 @@ def asset_import_template_view(request):
 
 @login_required
 def asset_import_view(request):
-    if not can_import_assets(request.user):
+    if not can_manage_inventory(request.user):
         raise PermissionDenied(
             "No tiene permisos para importar activos."
         )
