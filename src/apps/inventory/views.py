@@ -460,10 +460,6 @@ def technical_history_create_view(request, asset_pk):
         },
     )
 
-from django.contrib.auth.decorators import login_required
-from django.shortcuts import render
-
-from .models import Asset
 
 @login_required
 def my_asset_list(request):
