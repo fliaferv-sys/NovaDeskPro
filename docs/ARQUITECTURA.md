@@ -1,6 +1,6 @@
 # Arquitectura de NovaDesk Pro
 
-NovaDesk Pro es una aplicacion Django modular. El proyecto ejecutable vive en
+NovaDesk Pro es una aplicación Django modular. El proyecto ejecutable vive en
 `src/`, la configuracion global en `src/config/` y los dominios en
 `src/apps/`.
 
