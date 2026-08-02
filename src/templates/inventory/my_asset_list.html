@@ -1,0 +1,529 @@
+{% extends "layouts/base.html" %}
+
+{% load static %}
+
+{% block title %}Mis equipos asignados | NovaDesk Pro{% endblock %}
+
+{% block content %}
+<div class="my-assets-page">
+
+    <!-- ========================================================== -->
+    <!--  ENCABEZADO -->
+    <!-- ========================================================== -->
+
+    <div class="page-header">
+        <div class="page-header-left">
+            <h1>
+                <i class="bi bi-pc-display"></i>
+                Mis equipos asignados
+            </h1>
+            <p>
+                <i class="bi bi-info-circle"></i>
+                Aquí puedes ver los equipos registrados a tu nombre.
+            </p>
+        </div>
+
+        <div class="page-header-actions">
+    {% if request.user.role == "ADMIN" or request.user.is_superuser %}
+        <a href="{% url 'inventory:asset_list' %}" class="btn btn-outline">
+            <i class="bi bi-arrow-left"></i>
+            Volver al inventario
+        </a>
+    {% else %}
+        <a href="/" class="btn btn-outline">
+            <i class="bi bi-house-door"></i>
+            Panel principal
+        </a>
+    {% endif %}
+    <a href="{% url 'tickets:ticket_create' %}" class="btn btn-primary">
+        <i class="bi bi-plus-circle"></i>
+        Nuevo ticket general
+    </a>
+</div>
+    </div>
+
+    <!-- ========================================================== -->
+    <!--  ESTADÍSTICAS RÁPIDAS -->
+    <!-- ========================================================== -->
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <span>Total de equipos</span>
+            <strong>{{ total_count }}</strong>
+            <div class="stat-label">Asignados a ti</div>
+        </div>
+        <div class="stat-card stat-operative">
+            <span>Operativos</span>
+            <strong>{{ operative_count }}</strong>
+            <div class="stat-label">Funcionando correctamente</div>
+        </div>
+        <div class="stat-card stat-maintenance">
+            <span>En mantenimiento</span>
+            <strong>{{ maintenance_count }}</strong>
+            <div class="stat-label">Requieren atención</div>
+        </div>
+    </div>
+
+    <!-- ========================================================== -->
+    <!--  TABLA DE EQUIPOS -->
+    <!-- ========================================================== -->
+
+    {% if assets %}
+
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th style="width:60px;">Tipo</th>
+                    <th>Código</th>
+                    <th>Marca / Modelo</th>
+                    <th>N° Serie</th>
+                    <th>PATRIMONIO</th>
+                    <th>Estado</th>
+                    <th>Ubicación</th>
+                    <th style="text-align:center;">Acción</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for asset in assets %}
+                <tr>
+                    <td>
+                        <span class="equipo-icono" title="{{ asset.asset_type.name|default:'Equipo' }}">
+                            {% if asset.asset_type.name|lower == "computadora" or asset.asset_type.name|lower == "laptop" %}
+                                <i class="bi bi-laptop"></i>
+                            {% elif asset.asset_type.name|lower == "impresora" %}
+                                <i class="bi bi-printer"></i>
+                            {% elif asset.asset_type.name|lower == "tablet" %}
+                                <i class="bi bi-tablet"></i>
+                            {% elif asset.asset_type.name|lower == "monitor" %}
+                                <i class="bi bi-display"></i>
+                            {% elif asset.asset_type.name|lower == "telefono" or asset.asset_type.name|lower == "celular" %}
+                                <i class="bi bi-phone"></i>
+                            {% else %}
+                                <i class="bi bi-pc-display"></i>
+                            {% endif %}
+                        </span>
+                    </td>
+                    <td>
+                        <span class="equipo-nombre">{{ asset.internal_code }}</span>
+                        <span class="equipo-detalle">{{ asset.asset_type.name|default:"Sin tipo" }}</span>
+                    </td>
+                    <td>
+                        <strong>{{ asset.brand|default:"-" }}</strong>
+                        <span class="equipo-detalle">{{ asset.model|default:"-" }}</span>
+                    </td>
+                    <td>{{ asset.serial_number|default:"-" }}</td>
+                    <td>{{ asset.asset_tag|default:"—" }}</td>
+                    <td>
+                        {% if asset.status == "OPERATIVE" %}
+                            <span class="badge badge-success">
+                                <i class="bi bi-check-circle"></i> Operativo
+                            </span>
+                        {% elif asset.status == "MAINTENANCE" %}
+                            <span class="badge badge-warning">
+                                <i class="bi bi-exclamation-triangle"></i> En mantenimiento
+                            </span>
+                        {% elif asset.status == "ASSIGNED" %}
+                            <span class="badge badge-info">
+                                <i class="bi bi-person-check"></i> Asignado
+                            </span>
+                        {% elif asset.status == "REPAIR" %}
+                            <span class="badge badge-warning">
+                                <i class="bi bi-tools"></i> En reparación
+                            </span>
+                        {% elif asset.status == "DISPOSED" %}
+                            <span class="badge badge-danger">
+                                <i class="bi bi-x-circle"></i> Dado de baja
+                            </span>
+                        {% else %}
+                            <span class="badge badge-secondary">
+                                {{ asset.get_status_display|default:"-" }}
+                            </span>
+                        {% endif %}
+                    </td>
+                    <td>{{ asset.location|default:"-" }}</td>
+                    <td style="text-align:center;">
+                        {% if asset.status != "DISPOSED" %}
+                            <a href="{% url 'tickets:ticket_create' %}?asset={{ asset.id }}" class="btn btn-sm btn-success">
+                                <i class="bi bi-chat-dots"></i> Reportar
+                            </a>
+                        {% else %}
+                            <span style="color:#667085;font-size:13px;">
+                                <i class="bi bi-lock"></i> No aplica
+                            </span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="table-footer">
+        <span>
+            <i class="bi bi-database"></i>
+            Mostrando {{ assets|length }} de {{ total_count }} equipos activos asignados a tu nombre
+        </span>
+    </div>
+
+    {% else %}
+
+    <!-- ========================================================== -->
+    <!--  ESTADO VACÍO -->
+    <!-- ========================================================== -->
+
+    <div class="empty-state">
+        <i class="bi bi-inbox"></i>
+        <h3>No tienes equipos asignados</h3>
+        <p>
+            Si crees que esto es un error, contacta al departamento de TI
+            para revisar tu asignación de activos.
+        </p>
+        <a href="#" class="btn btn-primary">
+            <i class="bi bi-envelope"></i> Contactar a TI
+        </a>
+    </div>
+
+    {% endif %}
+
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* ============================================================ */
+    /*  PÁGINA MIS EQUIPOS */
+    /* ============================================================ */
+
+    .my-assets-page {
+        padding: 24px;
+        background: #f4f6f9;
+        min-height: 100vh;
+    }
+
+    /* ============================================================ */
+    /*  ENCABEZADO */
+    /* ============================================================ */
+
+    .page-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 16px;
+        margin-bottom: 24px;
+        padding: 20px 24px;
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+    }
+
+    .page-header-left h1 {
+        font-size: 24px;
+        font-weight: 700;
+        color: #101828;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 0;
+    }
+
+    .page-header-left h1 i {
+        color: #123a63;
+    }
+
+    .page-header-left p {
+        color: #667085;
+        font-size: 14px;
+        margin: 4px 0 0;
+    }
+
+    .page-header-actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+
+    .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 18px;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: 14px;
+        border: none;
+        cursor: pointer;
+        text-decoration: none;
+        transition: all 0.2s;
+    }
+
+    .btn-primary {
+        background: #123a63;
+        color: white;
+    }
+
+    .btn-primary:hover {
+        background: #0e2a4a;
+        color: white;
+    }
+
+    .btn-outline {
+        background: white;
+        color: #123a63;
+        border: 1px solid #123a63;
+    }
+
+    .btn-outline:hover {
+        background: #f0f4f9;
+        color: #123a63;
+    }
+
+    .btn-success {
+        background: #198754;
+        color: white;
+    }
+
+    .btn-success:hover {
+        background: #146c43;
+        color: white;
+    }
+
+    .btn-sm {
+        padding: 6px 14px;
+        font-size: 13px;
+    }
+
+    /* ============================================================ */
+    /*  ESTADÍSTICAS */
+    /* ============================================================ */
+
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 16px;
+        margin-bottom: 24px;
+    }
+
+    .stat-card {
+        background: white;
+        border-radius: 12px;
+        padding: 16px 20px;
+        border: 1px solid #eaecf0;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+    }
+
+    .stat-card span {
+        display: block;
+        font-size: 13px;
+        color: #667085;
+    }
+
+    .stat-card strong {
+        font-size: 28px;
+        color: #101828;
+    }
+
+    .stat-card .stat-label {
+        font-size: 13px;
+        color: #667085;
+        margin-top: 2px;
+    }
+
+    .stat-operative {
+        border-left: 4px solid #198754;
+    }
+
+    .stat-maintenance {
+        border-left: 4px solid #ffc107;
+    }
+
+    /* ============================================================ */
+    /*  TABLA */
+    /* ============================================================ */
+
+    .table-container {
+        overflow-x: auto;
+        border-radius: 12px;
+        background: white;
+        border: 1px solid #eaecf0;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+    }
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        min-width: 820px;
+    }
+
+    thead {
+        background: #f8fafc;
+    }
+
+    th {
+        padding: 14px 16px;
+        text-align: left;
+        font-size: 12px;
+        text-transform: uppercase;
+        color: #344054;
+        font-weight: 600;
+        border-bottom: 1px solid #eaecf0;
+    }
+
+    td {
+        padding: 14px 16px;
+        border-bottom: 1px solid #eaecf0;
+        vertical-align: middle;
+    }
+
+    tbody tr:hover {
+        background: #fafbfc;
+    }
+
+    .equipo-icono {
+        font-size: 20px;
+        color: #123a63;
+    }
+
+    .equipo-nombre {
+        font-weight: 600;
+        color: #101828;
+    }
+
+    .equipo-detalle {
+        display: block;
+        font-size: 13px;
+        color: #667085;
+        font-weight: 400;
+    }
+
+    /* ============================================================ */
+    /*  BADGES */
+    /* ============================================================ */
+
+    .badge {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 600;
+    }
+
+    .badge-success {
+        background: #d1e7dd;
+        color: #0f5132;
+    }
+
+    .badge-warning {
+        background: #fff3cd;
+        color: #664d03;
+    }
+
+    .badge-danger {
+        background: #f8d7da;
+        color: #842029;
+    }
+
+    .badge-info {
+        background: #cff4fc;
+        color: #055160;
+    }
+
+    .badge-secondary {
+        background: #e9ecef;
+        color: #344054;
+    }
+
+    /* ============================================================ */
+    /*  PIE DE TABLA */
+    /* ============================================================ */
+
+    .table-footer {
+        margin-top: 12px;
+        text-align: right;
+        color: #667085;
+        font-size: 13px;
+    }
+
+    /* ============================================================ */
+    /*  ESTADO VACÍO */
+    /* ============================================================ */
+
+    .empty-state {
+        text-align: center;
+        padding: 60px 20px;
+        background: white;
+        border-radius: 12px;
+        border: 1px solid #eaecf0;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+    }
+
+    .empty-state i {
+        font-size: 56px;
+        color: #d0d5dd;
+        margin-bottom: 16px;
+    }
+
+    .empty-state h3 {
+        font-size: 20px;
+        color: #101828;
+        margin-bottom: 8px;
+    }
+
+    .empty-state p {
+        color: #667085;
+        max-width: 400px;
+        margin: 0 auto 20px;
+    }
+
+    /* ============================================================ */
+    /*  RESPONSIVE */
+    /* ============================================================ */
+
+    @media (max-width: 768px) {
+        .my-assets-page {
+            padding: 12px;
+        }
+
+        .page-header {
+            flex-direction: column;
+            align-items: flex-start;
+            padding: 16px;
+        }
+
+        .page-header-actions {
+            width: 100%;
+        }
+
+        .page-header-actions .btn {
+            flex: 1;
+            justify-content: center;
+        }
+
+        .stats-grid {
+            grid-template-columns: 1fr 1fr;
+        }
+
+        td,
+        th {
+            padding: 10px 12px;
+            font-size: 13px;
+        }
+
+        .btn-sm {
+            font-size: 12px;
+            padding: 4px 10px;
+        }
+    }
+
+    @media (max-width: 480px) {
+        .stats-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .page-header-left h1 {
+            font-size: 20px;
+        }
+    }
+</style>
+{% endblock %}

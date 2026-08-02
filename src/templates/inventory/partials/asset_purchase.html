@@ -1,0 +1,45 @@
+<!-- ======================================================
+     GARANTÍA Y COMPRA
+     ====================================================== -->
+
+     <div class="table-card">
+
+        <h3>🛡 Garantía y compra</h3>
+    
+        <div class="asset-info-grid">
+    
+            <div class="asset-info-item">
+                <span>Fecha de compra</span>
+    
+                <strong>
+                    {% if asset.purchase_date %}
+                        {{ asset.purchase_date|date:"d/m/Y" }}
+                    {% else %}
+                        No registrada
+                    {% endif %}
+                </strong>
+            </div>
+    
+            <div class="asset-info-item">
+                <span>Garantía hasta</span>
+    
+                <strong>
+                    {% if asset.warranty_expiration %}
+                        {{ asset.warranty_expiration|date:"d/m/Y" }}
+                    {% else %}
+                        No registrada
+                    {% endif %}
+                </strong>
+            </div>
+    
+            <div class="asset-info-item">
+                <span>Proveedor</span>
+    
+                <strong>
+                    {{ asset.supplier|default:"No registrado" }}
+                </strong>
+            </div>
+    
+        </div>
+    
+    </div>

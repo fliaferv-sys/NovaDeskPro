@@ -1,0 +1,191 @@
+<!-- ======================================================
+     HISTORIAL TÉCNICO DEL EQUIPO
+     ====================================================== -->
+
+     <div class="table-card">
+
+        <div class="table-header">
+    
+            <div>
+                <h3>🔧 Historia clínica del equipo</h3>
+    
+                <p class="page-subtitle">
+                    Diagnósticos, reparaciones y mantenimientos realizados.
+                </p>
+            </div>
+    
+            <div class="technical-history-header-actions">
+    
+                <span class="attachment-count">
+                    {{ interventions.count }}
+                    intervención{{ interventions.count|pluralize:"es" }}
+                </span>
+    
+                {% if can_register_intervention %}
+    
+                    <a
+                        href="{% url 'inventory:technical_history_create' asset.pk %}"
+                        class="btn-primary">
+    
+                        + Nueva intervención
+    
+                    </a>
+    
+                {% endif %}
+    
+            </div>
+    
+        </div>
+    
+        <div class="technical-summary-grid">
+    
+            <div class="technical-summary-item">
+                <span>Intervenciones</span>
+                <strong>{{ interventions.count }}</strong>
+            </div>
+    
+            <div class="technical-summary-item">
+                <span>Costo acumulado</span>
+                <strong>Gs. {{ total_intervention_cost|floatformat:0 }}</strong>
+            </div>
+    
+            <div class="technical-summary-item">
+                <span>Última intervención</span>
+    
+                <strong>
+                    {% if interventions %}
+                        {{ interventions.0.intervention_date|date:"d/m/Y" }}
+                    {% else %}
+                        Sin registros
+                    {% endif %}
+                </strong>
+            </div>
+    
+        </div>
+    
+        <div class="technical-timeline">
+    
+            {% for intervention in interventions %}
+    
+                <article class="technical-timeline-item">
+    
+                    <div class="technical-timeline-marker">
+                        🔧
+                    </div>
+    
+                    <div class="technical-timeline-content">
+    
+                        <div class="technical-timeline-heading">
+    
+                            <div>
+    
+                                <strong>
+                                    {{ intervention.get_intervention_type_display }}
+                                </strong>
+    
+                                <span>
+                                    {{ intervention.intervention_date|date:"d/m/Y H:i" }}
+                                </span>
+    
+                            </div>
+    
+                            {% if intervention.cost %}
+                                <span class="technical-cost">
+                                    Gs. {{ intervention.cost|floatformat:0 }}
+                                </span>
+                            {% endif %}
+    
+                        </div>
+    
+                        <div class="technical-meta">
+    
+                            <span>
+                                👨‍🔧
+                                {{ intervention.technician.first_name }}
+                                {{ intervention.technician.last_name }}
+                            </span>
+    
+                            {% if intervention.duration_minutes %}
+                                <span>
+                                    ⏱ {{ intervention.duration_minutes }} minutos
+                                </span>
+                            {% endif %}
+    
+                            {% if intervention.ticket %}
+                                <a
+                                    href="{% url 'tickets:ticket_detail' intervention.ticket.pk %}">
+    
+                                    🎫 {{ intervention.ticket.ticket_number }}
+    
+                                </a>
+                            {% endif %}
+    
+                        </div>
+    
+                        {% if intervention.diagnosis %}
+    
+                            <div class="technical-detail-block">
+                                <span>Diagnóstico</span>
+                                <p>{{ intervention.diagnosis|linebreaksbr }}</p>
+                            </div>
+    
+                        {% endif %}
+    
+                        <div class="technical-detail-block">
+                            <span>Trabajo realizado</span>
+                            <p>{{ intervention.action_taken|linebreaksbr }}</p>
+                        </div>
+    
+                        {% if intervention.components_replaced %}
+    
+                            <div class="technical-detail-block">
+                                <span>Componentes reemplazados</span>
+                                <p>
+                                    {{ intervention.components_replaced|linebreaksbr }}
+                                </p>
+                            </div>
+    
+                        {% endif %}
+    
+                        {% if intervention.notes %}
+    
+                            <div class="technical-detail-block">
+                                <span>Observaciones</span>
+                                <p>{{ intervention.notes|linebreaksbr }}</p>
+                            </div>
+    
+                        {% endif %}
+    
+                    </div>
+    
+                </article>
+    
+            {% empty %}
+    
+                <div class="empty-attachments">
+    
+                    <div class="empty-attachments-icon">🔧</div>
+    
+                    <p>
+                        Este equipo todavía no tiene intervenciones técnicas.
+                    </p>
+    
+                    {% if can_register_intervention %}
+    
+                        <a
+                            href="{% url 'inventory:technical_history_create' asset.pk %}"
+                            class="btn-primary">
+    
+                            Registrar primera intervención
+    
+                        </a>
+    
+                    {% endif %}
+    
+                </div>
+    
+            {% endfor %}
+    
+        </div>
+    
+    </div>

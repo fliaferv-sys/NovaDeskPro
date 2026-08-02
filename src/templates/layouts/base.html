@@ -1,0 +1,288 @@
+{% load static %}
+
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0">
+
+    <meta name="theme-color" content="#0a1a3a">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="NovaDesk">
+    <link rel="manifest" href="{% url 'web_app_manifest' %}">
+    <link rel="apple-touch-icon" href="{% static 'icons/novadesk-pwa.svg' %}">
+
+    <!-- =====================================================
+         TÍTULO DE LA PÁGINA
+         ===================================================== -->
+
+    <title>
+        {% block title %}
+            {% if institution_settings %}
+                {{ institution_settings.system_name }}
+            {% else %}
+                NovaDesk Pro
+            {% endif %}
+        {% endblock %}
+    </title>
+
+    {% if institution_settings and institution_settings.favicon %}
+        <link
+            rel="icon"
+            type="image/png"
+            href="{{ institution_settings.favicon.url }}"
+        >
+    {% endif %}
+
+    <!-- =====================================================
+         VARIABLES CSS DINÁMICAS POR DEPARTAMENTO
+         ===================================================== -->
+
+    <style>
+        :root {
+            --primary-color: {{ department.primary_color|default:"#0a1a3a" }};
+            --secondary-color: {{ department.secondary_color|default:"#f68b1e" }};
+            --primary-light: {{ department.primary_color|default:"#0a1a3a" }}15;
+            --secondary-light: {{ department.secondary_color|default:"#f68b1e" }}15;
+        }
+
+        /* =====================================================
+             APLICAR COLORES DINÁMICOS
+             ===================================================== */
+
+        /* Sidebar */
+        .sidebar {
+            background: var(--primary-color) !important;
+        }
+
+        .sidebar-brand {
+            background: var(--primary-color) !important;
+        }
+
+        .sidebar-menu-link:hover,
+        .sidebar-menu-link.active {
+            background: var(--secondary-color) !important;
+            color: white !important;
+        }
+
+        .sidebar-menu-link.active i,
+        .sidebar-menu-link:hover i {
+            color: white !important;
+        }
+
+        /* Botones */
+        .btn-primary {
+            background: var(--secondary-color) !important;
+            border-color: var(--secondary-color) !important;
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-color) !important;
+            border-color: var(--primary-color) !important;
+        }
+
+        /* Badges y acentos */
+        .badge-primary {
+            background: var(--primary-color) !important;
+        }
+
+        .badge-secondary {
+            background: var(--secondary-color) !important;
+        }
+
+        /* Enlaces */
+        a:not(.btn):not(.sidebar-menu-link):not(.navbar-brand):not(.dropdown-item) {
+            color: var(--primary-color);
+        }
+
+        a:not(.btn):not(.sidebar-menu-link):not(.navbar-brand):not(.dropdown-item):hover {
+            color: var(--secondary-color);
+        }
+
+        /* Tablas - hover */
+        .table tbody tr:hover {
+            background: var(--primary-light) !important;
+        }
+
+        /* Cards - bordes de acento */
+        .card-accent {
+            border-top: 4px solid var(--secondary-color) !important;
+        }
+
+        /* Select y focus */
+        select:focus,
+        input:focus,
+        textarea:focus {
+            border-color: var(--secondary-color) !important;
+            box-shadow: 0 0 0 3px var(--secondary-light) !important;
+        }
+
+        /* Dashboard KPI */
+        .kpi-card .kpi-icon {
+            background: var(--primary-light);
+            color: var(--primary-color);
+        }
+
+        .kpi-card .kpi-value {
+            color: var(--primary-color);
+        }
+
+        /* Notificaciones */
+        .notification-toast {
+            border-left-color: var(--secondary-color) !important;
+        }
+
+        /* Tabs */
+        .nav-tabs .nav-link.active {
+            color: var(--primary-color) !important;
+            border-bottom-color: var(--secondary-color) !important;
+        }
+
+        /* Paginación */
+        .page-item.active .page-link {
+            background: var(--primary-color) !important;
+            border-color: var(--primary-color) !important;
+        }
+
+        .page-link:hover {
+            color: var(--secondary-color) !important;
+        }
+    </style>
+
+    <!-- GRIDSTACK - DASHBOARD INTERACTIVO -->
+    <link
+        rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/gridstack/dist/gridstack.min.css">
+
+    <!-- =====================================================
+         CSS PRINCIPAL DE NOVADESK PRO
+         ===================================================== -->
+
+    <link
+         rel="stylesheet"
+         href="{% static 'css/novadesk.css' %}?v=21.6.4">
+
+    <!-- =====================================================
+         BOOTSTRAP ICONS
+         ===================================================== -->
+
+    <link
+        rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+
+    <!-- =====================================================
+         CONTENIDO ADICIONAL DEL HEAD
+         ===================================================== -->
+
+    {% block extra_head %}
+    {% endblock %}
+
+    <!-- =====================================================
+         ESTILOS ADICIONALES POR PÁGINA
+         ===================================================== -->
+
+    {% block extra_css %}
+    {% endblock %}
+
+</head>
+
+<body>
+
+    <!-- =====================================================
+         LAYOUT PRINCIPAL
+         ===================================================== -->
+
+    <!-- =============================================
+         BARRA SUPERIOR
+         ============================================= -->
+
+    {% include "layouts/navbar.html" %}
+
+    <div class="app-layout">
+
+        <!-- =================================================
+             MENÚ LATERAL
+             ================================================= -->
+
+        {% include "layouts/sidebar.html" %}
+
+        <!-- =================================================
+             ÁREA PRINCIPAL
+             ================================================= -->
+
+        <div class="app-main">
+
+            <!-- =============================================
+                 CONTENIDO DE CADA PÁGINA
+                 ============================================= -->
+
+            <main class="app-content">
+
+                {% block content %}
+                {% endblock %}
+
+            </main>
+
+        </div>
+
+    </div>
+
+    <!-- =====================================================
+         CHART.JS
+         GRÁFICOS DEL DASHBOARD EJECUTIVO
+         ===================================================== -->
+
+    <script
+        src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js">
+    </script>
+
+    <!-- =====================================================
+         GRIDSTACK
+         DASHBOARD ARRASTRABLE Y REDIMENSIONABLE
+         ===================================================== -->
+
+    <script
+        src="https://cdn.jsdelivr.net/npm/gridstack/dist/gridstack-all.js">
+    </script>
+
+    <!-- =====================================================
+         JAVASCRIPT PRINCIPAL DE NOVADESK PRO
+         ===================================================== -->
+
+    <script
+        src="{% static 'js/novadesk.js' %}?v=17.0.0"
+        defer>
+    </script>
+
+    <script
+        src="{% static 'js/navbar_menu.js' %}?v=1.0.1"
+        defer>
+    </script>
+
+    <script
+        src="{% static 'js/sidebar.js' %}?v=1.0.0"
+        defer>
+    </script>
+
+    <script
+        src="{% static 'js/pwa.js' %}?v=1.0.0"
+        defer>
+    </script>
+
+    <!-- =====================================================
+         JAVASCRIPT ESPECÍFICO DE CADA PÁGINA
+         ===================================================== -->
+
+    {% block extra_js %}
+    {% endblock %}
+
+</body>
+
+</html>

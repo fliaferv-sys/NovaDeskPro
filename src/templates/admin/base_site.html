@@ -1,0 +1,126 @@
+{% extends "admin/base.html" %}
+{% load i18n static %}
+
+{% block title %}
+    {% if subtitle %}
+        {{ subtitle }} |
+    {% endif %}
+
+    {{ title }} | NovaDesk Pro
+{% endblock %}
+
+{% block branding %}
+
+<div class="novadesk-admin-branding">
+
+    <div class="novadesk-admin-title">
+
+        <a href="{% url 'admin:index' %}">
+            NovaDesk Pro — Administración
+        </a>
+
+        <span>
+            Gestión TI
+        </span>
+
+    </div>
+
+   <div class="admin-navigation-buttons">
+
+    <button
+        type="button"
+        class="admin-back-button"
+        onclick="window.history.back();"
+    >
+        ← Volver
+    </button>
+
+    <a
+        href="{% url 'dashboard:executive_dashboard' %}"
+        class="admin-home-button"
+    >
+        Ir a NovaDesk
+    </a>
+
+</div>
+
+</div>
+
+{% endblock %}
+
+{% block nav-global %}
+{% endblock %}
+
+{% block extrastyle %}
+
+{{ block.super }}
+
+<style>
+
+    .novadesk-admin-branding {
+        display: flex;
+        width: 100%;
+        align-items: center;
+        justify-content: space-between;
+        gap: 20px;
+    }
+
+    .novadesk-admin-title {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .novadesk-admin-title a {
+        color: inherit;
+        font-size: 20px;
+        font-weight: 700;
+        text-decoration: none;
+    }
+
+    .novadesk-admin-title span {
+        color: rgba(255, 255, 255, 0.75);
+        font-size: 12px;
+        font-weight: 400;
+    }
+
+    .novadesk-back-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 8px 13px;
+        border: 1px solid rgba(255, 255, 255, 0.35);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.12);
+        color: #ffffff;
+        font-size: 13px;
+        font-weight: 600;
+        text-decoration: none;
+        white-space: nowrap;
+        transition:
+            background 0.2s ease,
+            border-color 0.2s ease;
+    }
+
+    .novadesk-back-button:hover {
+        border-color: rgba(255, 255, 255, 0.65);
+        background: rgba(255, 255, 255, 0.22);
+        color: #ffffff;
+    }
+
+    @media (max-width: 700px) {
+        .novadesk-admin-branding {
+            align-items: flex-start;
+            flex-direction: column;
+        }
+
+        .novadesk-back-button {
+            width: 100%;
+        }
+    }
+
+</style>
+
+{% endblock %}
+
+

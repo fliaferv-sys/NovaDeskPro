@@ -1,0 +1,1041 @@
+{% extends "layouts/base.html" %}
+{% load static %}
+
+{% block title %}
+Dashboard Ejecutivo
+{% endblock %}
+
+{% block content %}
+
+<!-- ======================================================
+     ENCABEZADO Y CONTROLES
+     ====================================================== -->
+
+<div class="executive-header">
+
+    <div>
+        <h1 class="page-title">
+            Dashboard Ejecutivo
+        </h1>
+
+        <p class="page-subtitle">
+            Panorama general de soporte técnico, inventario,
+            custodia y rendimiento operativo.
+        </p>
+    </div>
+
+    <div class="dashboard-toolbar">
+
+        <button
+            type="button"
+            id="dashboardEditButton"
+            class="btn-primary">
+    
+            <i class="bi bi-sliders"></i>
+            Personalizar
+    
+        </button>
+    
+        <button
+            type="button"
+            id="dashboardSaveButton"
+            class="btn-primary"
+            hidden>
+    
+            <i class="bi bi-floppy"></i>
+            Guardar
+    
+        </button>
+    
+        <button
+            type="button"
+            id="dashboardResetButton"
+            class="btn-secondary"
+            hidden>
+    
+            <i class="bi bi-arrow-counterclockwise"></i>
+            Restaurar
+    
+        </button>
+    
+    </div>>
+    
+
+
+</div>
+
+
+<!-- ======================================================
+     GRIDSTACK
+     ====================================================== -->
+
+<div class="grid-stack dashboard-grid">
+
+
+    <!-- ==================================================
+         WIDGET 1 — INDICADORES
+         ================================================== -->
+
+    <div
+        class="grid-stack-item"
+        gs-id="dashboard-kpis"
+        gs-x="0"
+        gs-y="0"
+        gs-w="12"
+        gs-h="4"
+        gs-min-w="6"
+        gs-min-h="3">
+
+        <div class="grid-stack-item-content dashboard-widget">
+
+            <div class="dashboard-widget-handle">
+
+                <div>
+                    <h3>
+                        <i class="bi bi-grid-1x2"></i>
+                        Indicadores principales
+                    </h3>
+
+                    <p>
+                        Resumen general del estado del sistema.
+                    </p>
+                </div>
+
+                <i class="bi bi-grip-horizontal dashboard-drag-icon"></i>
+
+            </div>
+
+            <div class="dashboard-widget-body">
+
+                <div class="executive-kpi-grid">
+
+                    <a
+                        href="{% url 'tickets:ticket_list' %}"
+                        class="executive-kpi-card">
+
+                        <div class="executive-kpi-icon executive-kpi-icon-blue">
+                            <i class="bi bi-ticket-perforated"></i>
+                        </div>
+
+                        <div>
+                            <span>Total de tickets</span>
+                            <strong>{{ total_tickets }}</strong>
+                            <small>{{ open_tickets }} abiertos</small>
+                        </div>
+
+                    </a>
+
+
+                    <a
+                        href="{% url 'tickets:ticket_list' %}"
+                        class="executive-kpi-card">
+
+                        <div class="executive-kpi-icon executive-kpi-icon-orange">
+                            <i class="bi bi-hourglass-split"></i>
+                        </div>
+
+                        <div>
+                            <span>En proceso</span>
+                            <strong>{{ in_progress_tickets }}</strong>
+                            <small>{{ critical_tickets }} críticos</small>
+                        </div>
+
+                    </a>
+
+
+                    <a
+                        href="{% url 'inventory:asset_list' %}"
+                        class="executive-kpi-card">
+
+                        <div class="executive-kpi-icon executive-kpi-icon-green">
+                            <i class="bi bi-pc-display"></i>
+                        </div>
+
+                        <div>
+                            <span>Activos registrados</span>
+                            <strong>{{ total_assets }}</strong>
+                            <small>{{ operational_assets }} operativos</small>
+                        </div>
+
+                    </a>
+
+
+                    <a
+                        href="{% url 'inventory:asset_list' %}"
+                        class="executive-kpi-card">
+
+                        <div class="executive-kpi-icon executive-kpi-icon-red">
+                            <i class="bi bi-exclamation-triangle"></i>
+                        </div>
+
+                        <div>
+                            <span>Fuera de servicio</span>
+                            <strong>{{ out_of_service_assets }}</strong>
+                            <small>{{ maintenance_assets }} en mantenimiento</small>
+                        </div>
+
+                    </a>
+
+
+                    <a
+                        href="{% url 'deliveries:custody_movement_list' %}"
+                        class="executive-kpi-card">
+
+                        <div class="executive-kpi-icon executive-kpi-icon-purple">
+                            <i class="bi bi-box-seam"></i>
+                        </div>
+
+                        <div>
+                            <span>Equipos entregados</span>
+                            <strong>{{ delivered_assets }}</strong>
+                            <small>{{ available_assets }} disponibles</small>
+                        </div>
+
+                    </a>
+
+
+                    <a
+                        href="{% url 'deliveries:custody_movement_list' %}"
+                        class="executive-kpi-card">
+
+                        <div class="executive-kpi-icon executive-kpi-icon-cyan">
+                            <i class="bi bi-arrow-left-right"></i>
+                        </div>
+
+                        <div>
+                            <span>Movimientos</span>
+                            <strong>{{ total_movements }}</strong>
+                            <small>{{ completed_movements }} completados</small>
+                        </div>
+
+                    </a>
+
+
+                    <div class="executive-kpi-card">
+
+                        <div class="executive-kpi-icon executive-kpi-icon-yellow">
+                            <i class="bi bi-shield-exclamation"></i>
+                        </div>
+
+                        <div>
+                            <span>Garantías por vencer</span>
+                            <strong>{{ warranty_expiring_assets }}</strong>
+                            <small>Próximos 30 días</small>
+                        </div>
+
+                    </div>
+
+
+                    <div class="executive-kpi-card">
+
+                        <div class="executive-kpi-icon executive-kpi-icon-gray">
+                            <i class="bi bi-file-earmark-signature"></i>
+                        </div>
+
+                        <div>
+                            <span>Firmas pendientes</span>
+                            <strong>{{ pending_signature_movements }}</strong>
+                            <small>Movimientos pendientes</small>
+                        </div>
+
+                    </div>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- ==================================================
+         WIDGET 2 — CARGA POR TÉCNICO
+         ================================================== -->
+
+    <div
+        class="grid-stack-item"
+        gs-id="technician-workload"
+        gs-x="0"
+        gs-y="4"
+        gs-w="12"
+        gs-h="5"
+        gs-min-w="6"
+        gs-min-h="4">
+
+        <div class="grid-stack-item-content dashboard-widget">
+
+            <div class="dashboard-widget-handle">
+
+                <div>
+                    <h3>
+                        <i class="bi bi-person-workspace"></i>
+                        Carga de trabajo por técnico
+                    </h3>
+
+                    <p>
+                        Tickets pendientes y cerrados por técnico.
+                    </p>
+                </div>
+
+                <div class="dashboard-widget-controls">
+
+                    <select
+                        class="dashboard-chart-selector"
+                        data-chart-selector
+                        data-chart-target="technicianWorkloadChart"
+                        disabled>
+
+                        <option value="bar-horizontal">
+                            Barras horizontales
+                        </option>
+
+                        <option value="bar">
+                            Barras verticales
+                        </option>
+
+                    </select>
+
+                    <i class="bi bi-grip-horizontal dashboard-drag-icon"></i>
+
+                </div>
+
+            </div>
+
+            <div class="dashboard-widget-body dashboard-chart-body">
+
+                <canvas id="technicianWorkloadChart"></canvas>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- ==================================================
+         WIDGET 3 — TICKETS POR ESTADO
+         ================================================== -->
+
+    <div
+        class="grid-stack-item"
+        gs-id="ticket-status"
+        gs-x="0"
+        gs-y="9"
+        gs-w="6"
+        gs-h="5"
+        gs-min-w="4"
+        gs-min-h="4">
+
+        <div class="grid-stack-item-content dashboard-widget">
+
+            <div class="dashboard-widget-handle">
+
+                <div>
+                    <h3>
+                        <i class="bi bi-ticket-perforated"></i>
+                        Tickets por estado
+                    </h3>
+
+                    <p>
+                        Distribución actual de solicitudes.
+                    </p>
+                </div>
+
+                <div class="dashboard-widget-controls">
+
+                    <select
+                        class="dashboard-chart-selector"
+                        data-chart-selector
+                        data-chart-target="ticketStatusChart"
+                        disabled>
+
+                        <option value="doughnut">
+                            Dona
+                        </option>
+
+                        <option value="pie">
+                            Torta
+                        </option>
+
+                        <option value="bar">
+                            Barras verticales
+                        </option>
+
+                        <option value="bar-horizontal">
+                            Barras horizontales
+                        </option>
+
+                        <option value="polarArea">
+                            Polar
+                        </option>
+
+                    </select>
+
+                    <i class="bi bi-grip-horizontal dashboard-drag-icon"></i>
+
+                </div>
+
+            </div>
+
+            <div class="dashboard-widget-body dashboard-chart-body">
+
+                <canvas id="ticketStatusChart"></canvas>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- ==================================================
+         WIDGET 4 — ESTADO DEL INVENTARIO
+         ================================================== -->
+
+    <div
+        class="grid-stack-item"
+        gs-id="asset-status"
+        gs-x="6"
+        gs-y="9"
+        gs-w="6"
+        gs-h="5"
+        gs-min-w="4"
+        gs-min-h="4">
+
+        <div class="grid-stack-item-content dashboard-widget">
+
+            <div class="dashboard-widget-handle">
+
+                <div>
+                    <h3>
+                        <i class="bi bi-pc-display"></i>
+                        Estado del inventario
+                    </h3>
+
+                    <p>
+                        Condición operativa de los activos.
+                    </p>
+                </div>
+
+                <div class="dashboard-widget-controls">
+
+                    <select
+                        class="dashboard-chart-selector"
+                        data-chart-selector
+                        data-chart-target="assetStatusChart"
+                        disabled>
+
+                        <option value="doughnut">
+                            Dona
+                        </option>
+
+                        <option value="pie">
+                            Torta
+                        </option>
+
+                        <option value="bar">
+                            Barras verticales
+                        </option>
+
+                        <option value="bar-horizontal">
+                            Barras horizontales
+                        </option>
+
+                        <option value="polarArea">
+                            Polar
+                        </option>
+
+                    </select>
+
+                    <i class="bi bi-grip-horizontal dashboard-drag-icon"></i>
+
+                </div>
+
+            </div>
+
+            <div class="dashboard-widget-body dashboard-chart-body">
+
+                <canvas id="assetStatusChart"></canvas>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- ==================================================
+         WIDGET 5 — TICKETS POR MES
+         ================================================== -->
+
+    <div
+        class="grid-stack-item"
+        gs-id="tickets-month"
+        gs-x="0"
+        gs-y="14"
+        gs-w="6"
+        gs-h="5"
+        gs-min-w="5"
+        gs-min-h="4">
+
+        <div class="grid-stack-item-content dashboard-widget">
+
+            <div class="dashboard-widget-handle">
+
+                <div>
+                    <h3>
+                        <i class="bi bi-graph-up-arrow"></i>
+                        Tickets de los últimos seis meses
+                    </h3>
+
+                    <p>
+                        Evolución mensual de solicitudes.
+                    </p>
+                </div>
+
+                <div class="dashboard-widget-controls">
+
+                    <select
+                        class="dashboard-chart-selector"
+                        data-chart-selector
+                        data-chart-target="ticketsByMonthChart"
+                        disabled>
+
+                        <option value="line">
+                            Línea
+                        </option>
+
+                        <option value="bar">
+                            Barras verticales
+                        </option>
+
+                        <option value="bar-horizontal">
+                            Barras horizontales
+                        </option>
+
+                    </select>
+
+                    <i class="bi bi-grip-horizontal dashboard-drag-icon"></i>
+
+                </div>
+
+            </div>
+
+            <div class="dashboard-widget-body dashboard-chart-body">
+
+                <canvas id="ticketsByMonthChart"></canvas>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- ==================================================
+         WIDGET 6 — ACTIVOS POR DEPARTAMENTO
+         ================================================== -->
+
+    <div
+        class="grid-stack-item"
+        gs-id="assets-department"
+        gs-x="6"
+        gs-y="14"
+        gs-w="6"
+        gs-h="5"
+        gs-min-w="5"
+        gs-min-h="4">
+
+        <div class="grid-stack-item-content dashboard-widget">
+
+            <div class="dashboard-widget-handle">
+
+                <div>
+                    <h3>
+                        <i class="bi bi-building"></i>
+                        Activos por departamento
+                    </h3>
+
+                    <p>
+                        Distribución por dependencia.
+                    </p>
+                </div>
+
+                <div class="dashboard-widget-controls">
+
+                    <select
+                        class="dashboard-chart-selector"
+                        data-chart-selector
+                        data-chart-target="assetsByDepartmentChart"
+                        disabled>
+
+                        <option value="bar-horizontal">
+                            Barras horizontales
+                        </option>
+
+                        <option value="bar">
+                            Barras verticales
+                        </option>
+
+                        <option value="pie">
+                            Torta
+                        </option>
+
+                        <option value="doughnut">
+                            Dona
+                        </option>
+
+                        <option value="polarArea">
+                            Polar
+                        </option>
+
+                    </select>
+
+                    <i class="bi bi-grip-horizontal dashboard-drag-icon"></i>
+
+                </div>
+
+            </div>
+
+            <div class="dashboard-widget-body dashboard-chart-body">
+
+                <canvas id="assetsByDepartmentChart"></canvas>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- ==================================================
+         WIDGET 7 — RANKING
+         ================================================== -->
+
+    <div
+        class="grid-stack-item"
+        gs-id="technician-ranking"
+        gs-x="0"
+        gs-y="19"
+        gs-w="6"
+        gs-h="5"
+        gs-min-w="5"
+        gs-min-h="4">
+
+        <div class="grid-stack-item-content dashboard-widget">
+
+            <div class="dashboard-widget-handle">
+
+                <div>
+                    <h3>
+                        <i class="bi bi-trophy"></i>
+                        Ranking de técnicos
+                    </h3>
+
+                    <p>
+                        Rendimiento según actividad registrada.
+                    </p>
+                </div>
+
+                <i class="bi bi-grip-horizontal dashboard-drag-icon"></i>
+
+            </div>
+
+            <div class="dashboard-widget-body dashboard-scroll-body">
+
+                <div class="technician-ranking-list">
+
+                    {% for item in technician_ranking %}
+
+                        <div class="technician-ranking-item">
+
+                            <div class="technician-ranking-position">
+                                {{ forloop.counter }}
+                            </div>
+
+                            <div class="technician-ranking-user">
+
+                                <div class="technician-ranking-avatar">
+
+                                    {{ item.technician.first_name|first|default:"T" }}
+                                    {{ item.technician.last_name|first }}
+
+                                </div>
+
+                                <div>
+                                    <strong>
+                                        {{ item.technician.first_name }}
+                                        {{ item.technician.last_name }}
+                                    </strong>
+
+                                    <span>
+                                        {{ item.pending }} pendientes ·
+                                        {{ item.closed }} cerrados
+                                    </span>
+                                </div>
+
+                            </div>
+
+                            <div class="technician-performance">
+
+                                <strong>
+                                    {{ item.percentage }}%
+                                </strong>
+
+                                <span class="performance-badge performance-{{ item.performance_class }}">
+                                    {{ item.performance_label }}
+                                </span>
+
+                            </div>
+
+                        </div>
+
+                    {% empty %}
+
+                        <div class="executive-empty-state">
+
+                            <i class="bi bi-person-workspace"></i>
+
+                            <p>
+                                No existen técnicos registrados.
+                            </p>
+
+                        </div>
+
+                    {% endfor %}
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- ==================================================
+         WIDGET 8 — GARANTÍAS
+         ================================================== -->
+
+    <div
+        class="grid-stack-item"
+        gs-id="warranty-alerts"
+        gs-x="6"
+        gs-y="19"
+        gs-w="6"
+        gs-h="5"
+        gs-min-w="5"
+        gs-min-h="4">
+
+        <div class="grid-stack-item-content dashboard-widget">
+
+            <div class="dashboard-widget-handle">
+
+                <div>
+                    <h3>
+                        <i class="bi bi-shield-exclamation"></i>
+                        Garantías próximas a vencer
+                    </h3>
+
+                    <p>
+                        Vencimientos durante los próximos 30 días.
+                    </p>
+                </div>
+
+                <i class="bi bi-grip-horizontal dashboard-drag-icon"></i>
+
+            </div>
+
+            <div class="dashboard-widget-body dashboard-scroll-body">
+
+                <div class="executive-alert-list">
+
+                    {% for asset in warranty_alerts %}
+
+                        <a
+                            href="{% url 'inventory:asset_detail' asset.pk %}"
+                            class="executive-alert-item">
+
+                            <div class="executive-alert-icon">
+
+                                <i class="bi bi-shield-exclamation"></i>
+
+                            </div>
+
+                            <div class="executive-alert-content">
+
+                                <strong>
+                                    {{ asset.internal_code }}
+                                </strong>
+
+                                <span>
+                                    {{ asset.brand|default:"Sin marca" }}
+                                    {{ asset.model|default:"" }}
+                                </span>
+
+                                <small>
+                                    Vence:
+                                    {{ asset.warranty_expiration|date:"d/m/Y" }}
+                                </small>
+
+                            </div>
+
+                        </a>
+
+                    {% empty %}
+
+                        <div class="executive-empty-state executive-empty-success">
+
+                            <i class="bi bi-shield-check"></i>
+
+                            <p>
+                                No existen garantías próximas a vencer.
+                            </p>
+
+                        </div>
+
+                    {% endfor %}
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- ==================================================
+         WIDGET 9 — ÚLTIMOS TICKETS
+         ================================================== -->
+
+    <div
+        class="grid-stack-item"
+        gs-id="recent-tickets"
+        gs-x="0"
+        gs-y="24"
+        gs-w="6"
+        gs-h="5"
+        gs-min-w="5"
+        gs-min-h="4">
+
+        <div class="grid-stack-item-content dashboard-widget">
+
+            <div class="dashboard-widget-handle">
+
+                <div>
+                    <h3>
+                        <i class="bi bi-clock-history"></i>
+                        Últimos tickets
+                    </h3>
+
+                    <p>
+                        Solicitudes registradas recientemente.
+                    </p>
+                </div>
+
+                <i class="bi bi-grip-horizontal dashboard-drag-icon"></i>
+
+            </div>
+
+            <div class="dashboard-widget-body dashboard-scroll-body">
+
+                <div class="executive-activity-list">
+
+                    {% for ticket in recent_tickets %}
+
+                        <a
+                            href="{% url 'tickets:ticket_detail' ticket.pk %}"
+                            class="executive-activity-item">
+
+                            <div class="executive-activity-icon">
+
+                                <i class="bi bi-ticket-perforated"></i>
+
+                            </div>
+
+                            <div class="executive-activity-content">
+
+                                <div>
+
+                                    <strong>
+                                        {{ ticket.ticket_number }}
+                                    </strong>
+
+                                    <span class="badge badge-status-{{ ticket.status|lower }}">
+                                        {{ ticket.get_status_display }}
+                                    </span>
+
+                                </div>
+
+                                <p>
+                                    {{ ticket.title }}
+                                </p>
+
+                                <small>
+                                    {{ ticket.created_at|date:"d/m/Y H:i" }}
+                                </small>
+
+                            </div>
+
+                        </a>
+
+                    {% empty %}
+
+                        <div class="executive-empty-state">
+                            <p>No existen tickets recientes.</p>
+                        </div>
+
+                    {% endfor %}
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- ==================================================
+         WIDGET 10 — ÚLTIMOS MOVIMIENTOS
+         ================================================== -->
+
+    <div
+        class="grid-stack-item"
+        gs-id="recent-movements"
+        gs-x="6"
+        gs-y="24"
+        gs-w="6"
+        gs-h="5"
+        gs-min-w="5"
+        gs-min-h="4">
+
+        <div class="grid-stack-item-content dashboard-widget">
+
+            <div class="dashboard-widget-handle">
+
+                <div>
+                    <h3>
+                        <i class="bi bi-box-seam"></i>
+                        Últimos movimientos
+                    </h3>
+
+                    <p>
+                        Entregas y custodias recientes.
+                    </p>
+                </div>
+
+                <i class="bi bi-grip-horizontal dashboard-drag-icon"></i>
+
+            </div>
+
+            <div class="dashboard-widget-body dashboard-scroll-body">
+
+                <div class="executive-activity-list">
+
+                    {% for movement in recent_movements %}
+
+                        <a
+                            href="{% url 'deliveries:custody_movement_detail' movement.pk %}"
+                            class="executive-activity-item">
+
+                            <div class="executive-activity-icon executive-activity-icon-purple">
+
+                                <i class="bi bi-box-seam"></i>
+
+                            </div>
+
+                            <div class="executive-activity-content">
+
+                                <div>
+
+                                    <strong>
+                                        {{ movement.movement_number }}
+                                    </strong>
+
+                                    <span class="custody-status custody-status-{{ movement.status|lower }}">
+                                        {{ movement.get_status_display }}
+                                    </span>
+
+                                </div>
+
+                                <p>
+                                    {{ movement.get_movement_type_display }}
+                                    · {{ movement.asset.internal_code }}
+                                </p>
+
+                                <small>
+                                    {{ movement.movement_date|date:"d/m/Y H:i" }}
+                                </small>
+
+                            </div>
+
+                        </a>
+
+                    {% empty %}
+
+                        <div class="executive-empty-state">
+                            <p>No existen movimientos recientes.</p>
+                        </div>
+
+                    {% endfor %}
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</div>
+
+
+<!-- ======================================================
+     DATOS JSON
+     ====================================================== -->
+
+{{ ticket_status_labels|json_script:"ticket-status-labels" }}
+{{ ticket_status_values|json_script:"ticket-status-values" }}
+
+{{ asset_status_labels|json_script:"asset-status-labels" }}
+{{ asset_status_values|json_script:"asset-status-values" }}
+
+{{ department_labels|json_script:"department-labels" }}
+{{ department_values|json_script:"department-values" }}
+
+{{ ticket_month_labels|json_script:"ticket-month-labels" }}
+{{ ticket_month_values|json_script:"ticket-month-values" }}
+
+{{ technician_workload_labels|json_script:"technician-workload-labels" }}
+{{ technician_pending_values|json_script:"technician-pending-values" }}
+{{ technician_closed_values|json_script:"technician-closed-values" }}
+
+{{ saved_dashboard_layout|json_script:"saved-dashboard-layout" }}
+{{ saved_dashboard_chart_types|json_script:"saved-dashboard-chart-types" }}
+
+<div
+    id="dashboardPreferenceConfig"
+    data-save-url="{% url 'dashboard:save_preference' %}"
+    data-reset-url="{% url 'dashboard:reset_preference' %}"
+    hidden>
+</div>
+
+{% endblock %}
+
+
+{% block extra_js %}
+
+<script
+    src="{% static 'js/dashboard_charts.js' %}?v=18.2.0"
+    defer>
+</script>
+
+<script
+    src="{% static 'js/dashboard_grid.js' %}?v=19.6.1"
+    defer>
+</script>
+
+{% endblock %}

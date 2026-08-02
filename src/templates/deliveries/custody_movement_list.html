@@ -1,0 +1,837 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}
+Equipos para Entrega
+{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+
+    <div>
+        <h1 class="page-title">
+            Equipos para Entrega
+        </h1>
+
+        <p class="page-subtitle">
+            Control de entregas, devoluciones y reasignaciones de equipos.
+        </p>
+    </div>
+
+</div>
+
+
+<!-- ==================================================
+KPI
+================================================== -->
+
+<div class="delivery-kpi-grid">
+
+    <a href="?estado=por_agrupar" class="delivery-kpi-card kpi-filter-card {% if status_filter == 'por_agrupar' %}active{% endif %}">
+        <span>Equipos para Entrega</span>
+        <strong>{{ total_equipos }}</strong>
+        <small>Sin agrupar</small>
+    </a>
+
+    <a href="?estado=agrupados" class="delivery-kpi-card delivery-kpi-grouped kpi-filter-card {% if status_filter == 'agrupados' %}active{% endif %}">
+        <span>Agrupados por Configurar</span>
+        <strong>{{ equipos_agrupados }}</strong>
+        <small>Acta creada, preparación pendiente</small>
+    </a>
+
+    <a href="?estado=preparados" class="delivery-kpi-card delivery-kpi-completed kpi-filter-card {% if status_filter == 'preparados' %}active{% endif %}">
+        <span>Equipos Preparados</span>
+        <strong>{{ equipos_preparados }}</strong>
+        <small>Configurados, esperan autorización</small>
+    </a>
+
+    <a href="?estado=firma" class="delivery-kpi-card delivery-kpi-pending kpi-filter-card {% if status_filter == 'firma' %}active{% endif %}">
+        <span>Firma de Autorizacion</span>
+        <strong>{{ pendiente_firma }}</strong>
+        <small>Pendientes de firma</small>
+    </a>
+
+    <a href="?estado=entregados" class="delivery-kpi-card delivery-kpi-draft kpi-filter-card {% if status_filter == 'entregados' %}active{% endif %}">
+        <span>Total Entregados</span>
+        <strong>{{ equipos_entregados }}</strong>
+        <small>Proceso finalizado</small>
+    </a>
+
+</div>
+
+
+<!-- ==================================================
+TABLA DE MOVIMIENTOS
+================================================== -->
+
+<div class="table-card">
+
+    <form
+        method="post"
+        action="{% url 'deliveries:group_selected_custody_movements' %}"
+        id="custody-actions-form">
+
+        {% csrf_token %}
+
+        <div class="table-header">
+
+            <div>
+                <h3>📦 Movimientos de custodia</h3>
+
+                <p class="page-subtitle">
+                    Equipos que continúan activos dentro del proceso de entrega.
+                </p>
+            </div>
+
+            <span class="attachment-count">
+                {{ movements|length }}
+                movimiento{{ movements|length|pluralize }}
+            </span>
+
+        </div>
+
+        {% if can_manage_deliveries and movements %}
+            {% if status_filter == "por_agrupar" %}
+                <div class="custody-group-toolbar">
+                    <span>Seleccione los equipos que pertenecerán a la misma acta.</span>
+                    <button type="submit" class="btn-prepare" id="group-selected-button" disabled>
+                        Crear acta agrupada <span id="group-selected-count"></span>
+                    </button>
+                </div>
+            {% endif %}
+        {% endif %}
+
+        <div class="table-responsive">
+
+            {% if status_filter == "agrupados" or status_filter == "preparados" or status_filter == "firma" %}
+            {% regroup movements by delivery_batch as grouped_batches %}
+            <table class="table grouped-batches-table">
+                <thead>
+                    <tr>
+                        <th>Acta agrupada</th>
+                        <th>Cantidad</th>
+                        <th>Equipos incluidos</th>
+                        <th>{% if status_filter == "firma" or status_filter == "preparados" %}Autorización{% else %}Estado{% endif %}</th>
+                        <th>Acción</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for group in grouped_batches %}
+                        <tr>
+                            <td>
+                                <strong>{{ group.grouper.batch_number }}</strong>
+                                <div class="table-secondary-text">
+                                    Creada {{ group.grouper.created_at|date:"d/m/Y H:i" }}
+                                </div>
+                            </td>
+                            <td><strong>{{ group.list|length }} equipo(s)</strong></td>
+                            <td>
+                                <div class="grouped-assets-list grouped-assets-list-visible">
+                                    {% for movement in group.list %}
+                                        <div>
+                                            <strong>{{ movement.asset.internal_code }}</strong>
+                                            — {{ movement.asset.get_asset_type_display }}
+                                            — {{ movement.asset.brand }} {{ movement.asset.model }}
+                                        </div>
+                                    {% endfor %}
+                                </div>
+                            </td>
+                            <td>
+                                {% if status_filter == "firma" %}
+                                    <span class="custody-status custody-status-pending_signature">Autorización registrada</span>
+                                {% elif status_filter == "preparados" %}
+                                    <span class="custody-status custody-status-prepared">Esperando autorización del Director DTI</span>
+                                {% elif group.list.0.batch_configured %}
+                                    <span class="custody-status custody-status-prepared">Configurado</span>
+                                {% else %}
+                                    <span class="custody-status custody-status-in_delivery_process">Configuración pendiente</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <div class="grouped-batch-actions">
+                                    {% if status_filter == "firma" %}
+                                    <a href="{% url 'deliveries:delivery_batch_detail' group.grouper.pk %}"
+                                       class="btn-secondary grouped-detail-button">
+                                        👁 Ver detalle y documentación
+                                    </a>
+                                    {% elif status_filter == "preparados" %}
+                                    <button type="submit"
+                                            formaction="{% url 'deliveries:delivery_batch_send_to_signature' group.grouper.pk %}"
+                                            formmethod="post"
+                                            class="btn-warning batch-prepare-button">
+                                        ✍️ Autorizar entrega — Director DTI
+                                    </button>
+                                    <a href="{% url 'deliveries:delivery_batch_detail' group.grouper.pk %}"
+                                       class="btn-secondary grouped-detail-button">
+                                        👁 Ver detalle del acta
+                                    </a>
+                                    {% else %}
+                                    <a href="{% url 'deliveries:delivery_batch_configure' group.grouper.pk %}"
+                                       class="document-detail-link">
+                                        {% if group.list.0.batch_configured %}Editar configuración{% else %}Configurar acta y equipos{% endif %}
+                                    </a>
+                                    <a href="{% url 'deliveries:delivery_batch_detail' group.grouper.pk %}"
+                                       class="btn-secondary grouped-detail-button">
+                                        👁 Ver detalle del acta
+                                    </a>
+                                    {% if group.list.0.batch_configured %}
+                                        <button type="submit"
+                                                formaction="{% url 'deliveries:delivery_batch_prepare' group.grouper.pk %}"
+                                                formmethod="post"
+                                                class="btn-prepare batch-prepare-button">
+                                            Confirmar equipos preparados
+                                        </button>
+                                    {% endif %}
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                    {% empty %}
+                        <tr><td colspan="5" class="table-muted">No existen actas en esta etapa.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <table class="table">
+
+                <thead>
+                    <tr>
+                        <th>
+                            <input
+                                type="checkbox"
+                                id="select-all"
+                                aria-label="Seleccionar todos">
+                        </th>
+
+                        <th>Número</th>
+                        <th>Activo</th>
+                        <th>Marca / modelo</th>
+                        <th>Ubicación</th>
+                        <th>Identificación</th>
+                        <th>Usuario / lote</th>
+                        <th>Movimiento / estado</th>
+                        <th>Documentación</th>
+                        <th>Fecha</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+
+                    {% for movement in movements %}
+
+                        <tr>
+
+                            <td>
+                                {% if not movement.delivery_batch %}
+                                    <input
+                                        type="checkbox"
+                                        class="row-checkbox"
+                                        name="selected_ids"
+                                        value="{{ movement.asset.id }}"
+                                        aria-label="Seleccionar {{ movement.asset.internal_code }}">
+                                {% else %}
+                                    <span title="Este equipo ya pertenece a un acta">—</span>
+                                {% endif %}
+                            </td>
+
+                            <td>
+                                <strong>
+                                    <a
+                                        href="{% if movement.delivery_batch %}{% url 'deliveries:delivery_batch_detail' movement.delivery_batch.pk %}{% else %}{% url 'deliveries:custody_movement_detail' movement.pk %}{% endif %}"
+                                        class="movement-detail-link">
+
+                                        {% if movement.delivery_batch %}
+                                            {{ movement.delivery_batch.batch_number }}
+                                        {% else %}
+                                            {{ movement.movement_number }}
+                                        {% endif %}
+
+                                    </a>
+                                </strong>
+                                {% if movement.delivery_batch %}
+                                    <div class="table-secondary-text">{{ movement.movement_number }}</div>
+                                {% endif %}
+                            </td>
+
+                            <td>
+                                <strong>
+                                    {{ movement.asset.internal_code|default:"—" }}
+                                </strong>
+                                <div class="table-secondary-text">
+                                    {{ movement.asset.get_asset_type_display|default:"—" }}
+                                </div>
+                            </td>
+
+                            <td>
+                                {{ movement.asset.brand|default:"—" }}
+                                <div class="table-secondary-text">
+                                    {{ movement.asset.model|default:"—" }}
+                                </div>
+                            </td>
+
+                            <td>
+                                {{ movement.asset.branch|default:"—" }}
+                                <div class="table-secondary-text">
+                                    {{ movement.department|default:movement.asset.department|default:"—" }}
+                                </div>
+                            </td>
+
+                            <td>
+                                <span title="Patrimonio">Pat.: {{ movement.asset.patrimonial_code|default:"—" }}</span>
+                                <div class="table-secondary-text" title="Número de serie">
+                                    Serie: {{ movement.asset.serial_number|default:"—" }}
+                                </div>
+                            </td>
+
+                            <td>
+                                {% if movement.recipient %}
+                                    {{ movement.recipient.get_full_name|default:movement.recipient.username }}
+                                {% elif movement.asset.assigned_user %}
+                                    {{ movement.asset.assigned_user.get_full_name|default:movement.asset.assigned_user.username }}
+                                {% else %}
+                                    <span class="table-muted">Sin usuario</span>
+                                {% endif %}
+                                <div class="table-secondary-text">
+                                    Lote: {{ movement.asset.acquisition_batch|default:"—" }}
+                                </div>
+                            </td>
+
+                            <td>
+                                <div>{{ movement.get_movement_type_display }}</div>
+                                <div class="table-secondary-text">
+                                    Activo: {{ movement.asset.get_operational_status_display|default:"—" }}
+                                </div>
+                                <span
+                                    class="
+                                        custody-status
+                                        custody-status-{{ movement.status|lower }}
+                                    ">
+
+                                    {{ movement.get_status_display }}
+
+                                </span>
+                            </td>
+
+                            <td>
+
+                                <div class="document-status-column">
+
+                                    {% if status_filter == "agrupados" and movement.delivery_batch %}
+                                        {% ifchanged movement.delivery_batch_id %}
+                                            {% if movement.batch_configured %}
+                                                <a href="{% url 'deliveries:delivery_batch_configure' movement.delivery_batch.pk %}"
+                                                   class="document-detail-link">Editar configuración</a>
+                                                <button
+                                                    type="submit"
+                                                    formaction="{% url 'deliveries:delivery_batch_prepare' movement.delivery_batch.pk %}"
+                                                    formmethod="post"
+                                                    class="btn-prepare batch-prepare-button">
+                                                    Confirmar equipos preparados
+                                                </button>
+                                            {% else %}
+                                                <a href="{% url 'deliveries:delivery_batch_configure' movement.delivery_batch.pk %}"
+                                                   class="btn-prepare batch-prepare-button">
+                                                    Configurar acta y equipos
+                                                </a>
+                                            {% endif %}
+                                        {% else %}
+                                            <span class="table-muted">Misma acta agrupada</span>
+                                        {% endifchanged %}
+                                    {% else %}
+
+                                    {% if movement.delivery_form_uploaded and movement.patrimonial_form_uploaded %}
+
+                                        <span class="document-status document-status-complete">
+                                            ✅ Documentos completos
+                                        </span>
+
+                                    {% elif movement.delivery_form_uploaded %}
+
+                                        <span class="document-status document-status-warning">
+                                            ⚠️ Falta hoja patrimonial
+                                        </span>
+
+                                    {% elif movement.patrimonial_form_uploaded %}
+
+                                        <span class="document-status document-status-warning">
+                                            ⚠️ Falta hoja de entrega
+                                        </span>
+
+                                    {% else %}
+
+                                        <span class="document-status document-status-missing">
+                                            ❌ Faltan ambos documentos
+                                        </span>
+
+                                    {% endif %}
+
+                                    <a
+                                        href="{% url 'deliveries:custody_movement_detail' movement.pk %}"
+                                        class="document-detail-link">
+
+                                        {% if movement.status == "PENDING_SIGNATURE" %}
+                                            📎 Ver / adjuntar
+                                        {% else %}
+                                            👁 Ver detalle
+                                        {% endif %}
+
+                                    </a>
+
+                                    {% endif %}
+
+                                </div>
+
+                            </td>
+
+                            <td>
+                                {{ movement.movement_date|date:"d/m/Y H:i" }}
+                            </td>
+
+                        </tr>
+
+                    {% empty %}
+
+                        <tr>
+                            <td colspan="10">
+
+                                <div class="delivery-empty-state">
+
+                                    <div class="delivery-empty-icon">
+                                        📦
+                                    </div>
+
+                                    <p>
+                                        Todavía no existen movimientos activos de custodia.
+                                    </p>
+
+                                    <p class="page-subtitle">
+                                        Para iniciar una entrega, seleccione los equipos desde Inventario
+                                        y envíelos a un acta agrupada.
+                                    </p>
+
+                                    {% if can_manage_deliveries %}
+
+                                        <a
+                                            href="{% url 'inventory:asset_list' %}"
+                                            class="btn-primary">
+
+                                            Ir a Inventario y seleccionar equipos
+
+                                        </a>
+
+                                    {% endif %}
+
+                                </div>
+
+                            </td>
+                        </tr>
+
+                    {% endfor %}
+
+                </tbody>
+
+            </table>
+            {% endif %}
+
+        </div>
+
+
+        <!-- ==================================================
+        ACCIONES MASIVAS
+        ================================================== -->
+
+    </form>
+
+</div>
+
+
+<!-- ==================================================
+SELECCIONAR TODOS
+================================================== -->
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const selectAll = document.getElementById("select-all");
+    const checkboxes = document.querySelectorAll(".row-checkbox");
+    const groupButton = document.getElementById("group-selected-button");
+    const groupCount = document.getElementById("group-selected-count");
+
+    if (!selectAll) {
+        return;
+    }
+
+    function updateSelectionState() {
+        const checkedCount = document.querySelectorAll(".row-checkbox:checked").length;
+        selectAll.checked = checkboxes.length > 0 && checkedCount === checkboxes.length;
+        selectAll.indeterminate = checkedCount > 0 && checkedCount < checkboxes.length;
+        if (groupButton) groupButton.disabled = checkedCount === 0;
+        if (groupCount) groupCount.textContent = checkedCount ? `(${checkedCount})` : "";
+    }
+
+    selectAll.addEventListener("change", function () {
+        checkboxes.forEach(function (checkbox) {
+            checkbox.checked = selectAll.checked;
+        });
+        updateSelectionState();
+    });
+
+    checkboxes.forEach(function (checkbox) {
+        checkbox.addEventListener("change", function () {
+            updateSelectionState();
+        });
+    });
+    updateSelectionState();
+});
+</script>
+
+
+<style>
+    .delivery-kpi-grid {
+        width: 100%;
+        max-width: 100%;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    }
+
+    .delivery-kpi-grouped {
+        border-left: 5px solid #7f56d9;
+    }
+
+    .kpi-filter-card {
+        min-width: 0;
+        box-sizing: border-box;
+        color: inherit !important;
+        text-decoration: none;
+        cursor: pointer;
+        transition: transform .18s ease, box-shadow .18s ease, outline-color .18s ease;
+    }
+
+    .kpi-filter-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(16, 24, 40, .10);
+    }
+
+    .kpi-filter-card.active {
+        outline: 3px solid #2e90fa;
+        outline-offset: 2px;
+    }
+
+    .kpi-filter-card small {
+        color: #667085;
+        font-size: 12px;
+    }
+
+    .kpi-filter-card > span {
+        font-size: 14px;
+    }
+
+    @media (max-width: 700px) {
+        .delivery-kpi-grid { grid-template-columns: 1fr; }
+    }
+
+    .custody-filter-tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 0 16px 14px;
+    }
+
+    .custody-filter-tab {
+        padding: 7px 12px;
+        border: 1px solid #d0d5dd;
+        border-radius: 999px;
+        background: #fff;
+        color: #344054 !important;
+        font-size: 12px;
+        font-weight: 700;
+        text-decoration: none;
+    }
+
+    .custody-filter-tab.active {
+        border-color: var(--primary-color);
+        background: var(--primary-color);
+        color: #fff !important;
+    }
+
+    .custody-group-toolbar {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        margin: 0 16px 14px;
+        padding: 12px 14px;
+        border: 1px solid #b2ddff;
+        border-radius: 10px;
+        background: #eff8ff;
+        color: #1849a9;
+        font-size: 13px;
+        font-weight: 600;
+    }
+
+    .custody-group-toolbar .btn-prepare:disabled {
+        cursor: not-allowed;
+        opacity: .5;
+    }
+
+    .table-responsive {
+        display: block;
+        width: 100%;
+        max-width: 100%;
+        overflow-x: auto;
+        overflow-y: hidden;
+        overscroll-behavior-inline: contain;
+        padding-bottom: 8px;
+        scrollbar-color: #98a2b3 #eaecf0;
+        scrollbar-width: auto;
+    }
+
+    .table-card,
+    #custody-actions-form {
+        min-width: 0;
+        max-width: 100%;
+        box-sizing: border-box;
+    }
+
+    .table-responsive .table {
+        width: 100%;
+        min-width: 1160px;
+        table-layout: auto;
+    }
+
+    .table-responsive .grouped-batches-table {
+        min-width: 900px;
+    }
+
+    .table-responsive .grouped-batches-table th {
+        width: auto;
+        min-width: 120px;
+    }
+
+    .grouped-assets-detail summary {
+        color: #175cd3;
+        font-weight: 700;
+        cursor: pointer;
+    }
+
+    .grouped-assets-list {
+        display: grid;
+        gap: 6px;
+        margin-top: 9px;
+        padding: 10px;
+        border-radius: 8px;
+        background: #f8fafc;
+    }
+
+    .grouped-assets-list-visible {
+        margin-top: 0;
+    }
+
+    .grouped-batch-actions {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 9px;
+    }
+
+    .table-responsive .grouped-batches-table th:last-child {
+        min-width: 360px;
+    }
+
+    .grouped-detail-button {
+        padding: 7px 10px;
+        font-size: 13px;
+        white-space: nowrap;
+    }
+
+    .table-responsive th,
+    .table-responsive td {
+        vertical-align: middle;
+        padding: 8px 6px;
+        overflow-wrap: break-word;
+        font-size: 12px;
+    }
+
+    .table-responsive th:first-child { min-width: 28px; }
+    .table-responsive th:nth-child(2) { min-width: 80px; }
+    .table-responsive th:nth-child(3) { min-width: 100px; }
+    .table-responsive th:nth-child(4) { min-width: 100px; }
+    .table-responsive th:nth-child(5) { min-width: 140px; }
+    .table-responsive th:nth-child(6) { min-width: 130px; }
+    .table-responsive th:nth-child(7) { min-width: 115px; }
+    .table-responsive th:nth-child(8) { min-width: 120px; }
+    .table-responsive th:nth-child(9) { min-width: 125px; }
+    .table-responsive th:nth-child(10) { min-width: 90px; }
+
+    .asset-status-text {
+        color: #344054;
+        font-size: 12px;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+
+    .document-status-column {
+        min-width: 0 !important;
+    }
+
+    .document-status {
+        white-space: normal !important;
+    }
+
+    .custody-status {
+        display: inline-flex;
+        align-items: center;
+        padding: 6px 10px;
+        border: 1px solid transparent;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+
+    .custody-status-in_delivery_process {
+        background: #fff7ed;
+        color: #c2410c;
+        border-color: #fed7aa;
+    }
+
+    .custody-status-prepared {
+        background: #eff6ff;
+        color: #1d4ed8;
+        border-color: #bfdbfe;
+    }
+
+    .custody-status-pending_signature {
+        background: #fefce8;
+        color: #a16207;
+        border-color: #fde68a;
+    }
+
+    .custody-status-delivered {
+        background: #ecfdf3;
+        color: #027a48;
+        border-color: #a6f4c5;
+    }
+
+    .custody-status-cancelled {
+        background: #fef2f2;
+        color: #b42318;
+        border-color: #fecaca;
+    }
+
+    .custody-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 18px;
+    }
+
+    .btn-prepare {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 11px 18px;
+        border: none;
+        border-radius: 10px;
+        background: #2563eb;
+        color: #ffffff;
+        font-size: 14px;
+        font-weight: 700;
+        cursor: pointer;
+    }
+
+    .btn-prepare:hover {
+        background: #1d4ed8;
+    }
+
+    .batch-prepare-button {
+        padding: 8px 11px;
+        font-size: 12px;
+        white-space: normal;
+    }
+
+    .movement-detail-link {
+        color: #2563eb;
+        font-weight: 700;
+        text-decoration: none;
+    }
+
+    .movement-detail-link:hover {
+        color: #1d4ed8;
+        text-decoration: underline;
+    }
+
+    .table-secondary-text {
+        margin-top: 3px;
+        color: #6b7280;
+        font-size: 12px;
+    }
+
+    .table-muted {
+        color: #6b7280;
+        font-size: 13px;
+    }
+
+    .document-status-column {
+        display: flex;
+        min-width: 120px;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 7px;
+    }
+
+    .document-status {
+        display: inline-flex;
+        align-items: center;
+        padding: 5px 8px;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        font-size: 12px;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+
+    .document-status-complete {
+        background: #ecfdf3;
+        color: #027a48;
+        border-color: #a6f4c5;
+    }
+
+    .document-status-warning {
+        background: #fffbeb;
+        color: #92400e;
+        border-color: #fde68a;
+    }
+
+    .document-status-missing {
+        background: #fef2f2;
+        color: #b42318;
+        border-color: #fecaca;
+    }
+
+    .document-detail-link {
+        color: #2563eb;
+        font-size: 12px;
+        font-weight: 700;
+        text-decoration: none;
+    }
+
+    .document-detail-link:hover {
+        color: #1d4ed8;
+        text-decoration: underline;
+    }
+
+    @media (max-width: 900px) {
+        .table-responsive .table {
+            min-width: 900px;
+        }
+
+        .document-status-column {
+            min-width: 0;
+        }
+    }
+</style>
+
+{% endblock %}

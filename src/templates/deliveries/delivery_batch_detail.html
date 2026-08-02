@@ -1,0 +1,440 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}
+Detalle del Acta
+{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+
+    <div>
+        <h1 class="page-title">
+            {{ delivery_batch.batch_number }}
+        </h1>
+
+        <p class="page-subtitle">
+            Acta agrupada de entrega · {{ asset_count }} activo{{ asset_count|pluralize }}
+        </p>
+    </div>
+
+    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+
+    <a href="{% url 'deliveries:delivery_batch_list' %}" class="btn-secondary">
+        ← Volver
+    </a>
+
+    <!-- 👁 VER PDF -->
+    <a href="{% url 'deliveries:delivery_batch_pdf' delivery_batch.pk %}" 
+       target="_blank" 
+       class="btn-primary">
+        👁 Ver PDF
+    </a>
+
+    <!-- 📄 DESCARGAR PDF -->
+    <a href="{% url 'deliveries:delivery_batch_pdf' delivery_batch.pk %}?download=1" 
+       class=btn-success">
+        📄 Descargar PDF
+    </a>
+
+    {% if can_manage_deliveries and delivery_batch.status == "DRAFT" %}
+        {% if batch_configured %}
+            <form method="post" action="{% url 'deliveries:delivery_batch_prepare' delivery_batch.pk %}">
+                {% csrf_token %}
+                <button type="submit" class="btn-primary">🧰 Confirmar equipos preparados</button>
+            </form>
+        {% else %}
+            <a href="{% url 'deliveries:delivery_batch_configure' delivery_batch.pk %}" class="btn-primary">
+                ⚙️ Completar configuración pendiente
+            </a>
+        {% endif %}
+    {% elif can_manage_deliveries and delivery_batch.status == "PREPARED" %}
+        <form method="post" action="{% url 'deliveries:delivery_batch_send_to_signature' delivery_batch.pk %}">
+            {% csrf_token %}
+            <button type="submit" class="btn-warning">✍️ Autorizar entrega — Director DTI</button>
+        </form>
+    {% elif can_manage_deliveries and delivery_batch.status == "PENDING_SIGNATURE" %}
+        <form method="post" action="{% url 'deliveries:delivery_batch_complete' delivery_batch.pk %}">
+            {% csrf_token %}
+            <button type="submit" class="btn-success">
+                ✅ Confirmar entrega
+            </button>
+        </form>
+    {% elif is_locked %}
+        <div style="background:#fee2e2; color:#991b1b; padding:8px 12px; border-radius:8px; font-weight:600;">
+            🔒 Acta cerrada - No se puede modificar
+        </div>
+    {% endif %}
+
+</div>
+
+</div>
+
+{% if delivery_batch.status == "PENDING_SIGNATURE" and not documents_complete %}
+<div class="document-correction-alert" role="alert">
+    <strong>⚠️ La entrega todavía no puede confirmarse</strong>
+    {% if missing_document_labels %}
+        <span>Falta adjuntar: {{ missing_document_labels|join:", " }}.</span>
+    {% endif %}
+    {% if unverified_document_labels %}
+        <span>Falta confirmar las firmas de: {{ unverified_document_labels|join:", " }}.</span>
+    {% endif %}
+    <a href="#batch-documentation">Ir a la documentación que debe corregirse ↓</a>
+</div>
+{% endif %}
+
+
+<!-- ======================================================
+DATOS GENERALES
+====================================================== -->
+
+<div class="custody-detail-grid">
+
+    <div class="custody-main-column">
+
+        <div class="table-card">
+
+            <h3>📋 Información del acta</h3>
+
+            <div class="asset-info-grid">
+
+                <div class="asset-info-item">
+                    <span>Número</span>
+                    <strong>{{ delivery_batch.batch_number }}</strong>
+                </div>
+
+                <div class="asset-info-item">
+                    <span>Estado</span>
+                    <strong class="custody-status custody-status-{{ delivery_batch.status|lower }}">
+                        {{ delivery_batch.get_status_display }}
+                    </strong>
+                </div>
+
+                <div class="asset-info-item">
+                    <span>Fecha</span>
+                    <strong>{{ delivery_batch.delivery_date|date:"d/m/Y H:i" }}</strong>
+                </div>
+
+                <div class="asset-info-item">
+                    <span>Registrado por</span>
+                    <strong>
+                        {{ delivery_batch.created_by.first_name }}
+                        {{ delivery_batch.created_by.last_name }}
+                    </strong>
+                </div>
+
+            </div>
+
+        </div>
+
+
+        <!-- ======================================================
+        ACTIVOS
+        ====================================================== -->
+
+        <div class="table-card">
+
+            <h3>🖥 Activos incluidos</h3>
+
+            <div class="table-responsive">
+
+                <table class="table">
+
+                    <thead>
+                        <tr>
+                            <th>Nombre / Equipo</th>
+                            <th>Patrimonio</th>
+                            <th>Tipo de equipo</th>
+                            <th>Marca / Modelo</th>
+                            <th>N° de Serie</th>
+                            
+                        </tr>
+                    </thead>
+
+                    <tbody>
+
+                        {% for movement in movements %}
+
+                            <tr>
+
+                                <td>
+                                    <strong>
+                                        <a href="{% url 'inventory:asset_detail' movement.asset.pk %}">
+                                            {{ movement.asset.internal_code }}
+                                        </a>
+                                    </strong><br>
+                                    <span style="color:#6b7280; font-size:12px;">
+                                        {{ movement.asset.model|default:"" }}
+                                    </span>
+                                </td>
+
+                                <td>
+                                    {{ movement.asset.patrimonial_code|default:"—" }}
+                                </td>
+
+                                <td>
+                                    {{ movement.asset.get_asset_type_display }}
+                                </td>
+
+                                <td>
+                                    {{ movement.asset.brand|default:"—" }}
+                                    {{ movement.asset.model|default:"" }}
+                                </td>
+
+                                <td>
+                                    {{ movement.asset.serial_number|default:"—" }}
+                                </td>
+
+                               
+
+                            </tr>
+
+                        {% empty %}
+
+                            <tr>
+                                <td colspan="5" class="table-muted">
+                                    No hay activos en esta acta.
+                                </td>
+                            </tr>
+
+                        {% endfor %}
+
+                    </tbody>
+
+                </table>
+
+            </div>
+
+        </div>
+
+
+        <div class="table-card" id="batch-documentation">
+            <h3>📎 Documentación de auditoría del acta</h3>
+            <p class="page-subtitle">
+                Adjunte una sola vez el acta interna DTI y el movimiento patrimonial firmados.
+                Estos documentos respaldan a todos los equipos agrupados.
+            </p>
+
+            <div class="required-document-grid" id="batch-document-form">
+                <section class="required-document-card {% if internal_delivery_uploaded %}document-ready{% endif %}">
+                    <h4>Hoja de entrega agrupada</h4>
+                    <p>Acta interna de entrega DTI firmada por las autoridades correspondientes.</p>
+                    {% if internal_delivery_uploaded %}
+                        <strong class="document-ready-text">✅ Documento adjunto</strong>
+                    {% elif can_manage_deliveries and not is_locked and delivery_batch.status == "PENDING_SIGNATURE" %}
+                        <strong class="document-pending-text">❌ Pendiente</strong>
+                        <form method="post" enctype="multipart/form-data"
+                              action="{% url 'deliveries:upload_delivery_batch_document' delivery_batch.pk %}">
+                            {% csrf_token %}
+                            <input type="hidden" name="document_type" value="INTERNAL_DELIVERY">
+                            <label>Archivo de la hoja de entrega</label>
+                            <input type="file" name="file" accept=".pdf,.jpg,.jpeg,.png" required>
+                            <label class="signature-confirmation">
+                                <input type="checkbox" name="signatures_verified" required>
+                                Confirmo que revisé las firmas del documento
+                            </label>
+                            <button type="submit" class="btn-primary">Subir hoja de entrega</button>
+                        </form>
+                    {% else %}
+                        <strong class="document-pending-text">❌ Pendiente</strong>
+                    {% endif %}
+                </section>
+
+                <section class="required-document-card {% if patrimonial_movement_uploaded %}document-ready{% endif %}">
+                    <h4>Hoja de movimiento patrimonial</h4>
+                    <p>Movimiento de patrimonio firmado que respalda el cambio de custodio.</p>
+                    {% if patrimonial_movement_uploaded %}
+                        <strong class="document-ready-text">✅ Documento adjunto</strong>
+                    {% elif can_manage_deliveries and not is_locked and delivery_batch.status == "PENDING_SIGNATURE" %}
+                        <strong class="document-pending-text">❌ Pendiente</strong>
+                        <form method="post" enctype="multipart/form-data"
+                              action="{% url 'deliveries:upload_delivery_batch_document' delivery_batch.pk %}">
+                            {% csrf_token %}
+                            <input type="hidden" name="document_type" value="PATRIMONIAL_MOVEMENT">
+                            <label>Archivo del movimiento patrimonial</label>
+                            <input type="file" name="file" accept=".pdf,.jpg,.jpeg,.png" required>
+                            <label class="signature-confirmation">
+                                <input type="checkbox" name="signatures_verified" required>
+                                Confirmo que revisé las firmas del documento
+                            </label>
+                            <button type="submit" class="btn-primary">Subir hoja patrimonial</button>
+                        </form>
+                    {% else %}
+                        <strong class="document-pending-text">❌ Pendiente</strong>
+                    {% endif %}
+                </section>
+            </div>
+
+            <div class="table-responsive" style="margin-top:16px;">
+                <table class="table">
+                    <thead><tr><th>Tipo</th><th>Archivo</th><th>Verificación</th><th>Cargado por</th><th>Fecha</th></tr></thead>
+                    <tbody>
+                    {% for document in batch_documents %}
+                        <tr>
+                            <td>{{ document.get_document_type_display }}</td>
+                            <td><a href="{% url 'deliveries:delivery_batch_document_download' batch.pk document.pk %}" target="_blank" rel="noopener">Abrir</a></td>
+                            <td>{% if document.signatures_verified %}✅ Firmas verificadas{% else %}Pendiente{% endif %}</td>
+                            <td>{{ document.uploaded_by.get_full_name|default:document.uploaded_by.username }}</td>
+                            <td>{{ document.uploaded_at|date:"d/m/Y H:i" }}</td>
+                        </tr>
+                    {% empty %}
+                        <tr><td colspan="5">Todavía no se adjuntaron documentos al acta.</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+
+
+    <!-- ======================================================
+    SIDEBAR
+    ====================================================== -->
+
+    <aside class="custody-side-column">
+
+        <div class="table-card">
+
+            <h3>👥 Personas</h3>
+
+            <p>
+                <strong>Receptor:</strong><br>
+                {% if delivery_batch.recipient %}
+                    {{ delivery_batch.recipient.first_name }}
+                    {{ delivery_batch.recipient.last_name }}
+                {% else %}
+                    Sin receptor
+                {% endif %}
+            </p>
+
+            <p>
+                <strong>Responsable:</strong><br>
+                {{ delivery_batch.delivery_responsible.first_name }}
+                {{ delivery_batch.delivery_responsible.last_name }}
+            </p>
+
+            <p>
+                <strong>Director:</strong><br>
+                {% if delivery_batch.authorizing_director %}
+                    {{ delivery_batch.authorizing_director.first_name }}
+                    {{ delivery_batch.authorizing_director.last_name }}
+                {% else %}
+                    Sin director asignado
+                {% endif %}
+            </p>
+
+        </div>
+
+
+        <div class="table-card">
+
+            <h3>📍 Destino</h3>
+
+            <p>
+                <strong>Sede:</strong><br>
+                {{ delivery_batch.destination_branch|default:"No registrada" }}
+            </p>
+
+            <p>
+                <strong>Departamento:</strong><br>
+                {{ delivery_batch.department|default:"No registrado" }}
+            </p>
+
+            <p>
+                <strong>Ubicación:</strong><br>
+                {{ delivery_batch.location|default:"No registrada" }}
+            </p>
+
+        </div>
+
+
+        <div class="table-card">
+
+            <h3>📝 Observaciones</h3>
+
+            <p>
+                {{ delivery_batch.observations|default:"Sin observaciones" }}
+            </p>
+
+        </div>
+
+    </aside>
+
+</div>
+
+
+<style>
+.movement-detail-link {
+    color: #2563eb;
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.movement-detail-link:hover {
+    text-decoration: underline;
+}
+</style>
+
+<style>
+.btn-small {
+    padding: 4px 8px;
+    font-size: 12px;
+    border-radius: 6px;
+    background: #e0e0e0;
+    color: #333;
+    text-decoration: none;
+    border: none;
+}
+</style>
+
+<style>
+.document-correction-alert {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 0 0 18px;
+    padding: 14px 16px;
+    border: 1px solid #fda29b;
+    border-left: 5px solid #d92d20;
+    border-radius: 10px;
+    background: #fff4f3;
+    color: #912018;
+}
+.document-correction-alert a {
+    color: #912018;
+    font-weight: 700;
+    text-decoration: underline;
+}
+.required-document-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    margin: 16px 0;
+}
+.required-document-card {
+    padding: 16px;
+    border: 1px solid #fda29b;
+    border-radius: 10px;
+    background: #fffafa;
+}
+.required-document-card.document-ready {
+    border-color: #abefc6;
+    background: #f6fef9;
+}
+.required-document-card h4 { margin: 0 0 6px; }
+.required-document-card p { min-height: 38px; margin: 0 0 10px; color: #667085; font-size: 13px; }
+.required-document-card form { display: grid; gap: 9px; margin-top: 12px; }
+.required-document-card form > label:not(.signature-confirmation) { font-size: 12px; font-weight: 700; }
+.required-document-card input[type="file"] { width: 100%; padding: 8px; border: 1px solid #d0d5dd; border-radius: 8px; background: #fff; box-sizing: border-box; }
+.signature-confirmation { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.document-ready-text { color: #067647; }
+.document-pending-text { color: #b42318; }
+@media (max-width: 760px) { .required-document-grid { grid-template-columns: 1fr; } }
+#batch-documentation:target {
+    outline: 3px solid #f04438;
+    outline-offset: 4px;
+}
+</style>
+
+{% endblock %}

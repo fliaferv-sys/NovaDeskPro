@@ -1,0 +1,478 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}
+Gestión de Usuarios
+{% endblock %}
+
+{% block content %}
+
+<div class="user-management-header">
+
+    <div>
+        <h1 class="page-title">
+            Gestión de Usuarios
+        </h1>
+
+        <p class="page-subtitle">
+            Administración de funcionarios, técnicos,
+            tercerizados, pasantes y proveedores externos.
+        </p>
+    </div>
+
+    <div class="user-management-actions">
+
+        <a
+            href="/admin/accounts/user/add/"
+            class="btn-primary">
+
+            <i class="bi bi-person-plus"></i>
+            Nuevo usuario
+
+        </a>
+
+        <a
+            href="/admin/accounts/branch/"
+            class="btn-secondary">
+
+            <i class="bi bi-building"></i>
+            Sedes y plantas
+
+        </a>
+
+    </div>
+
+</div>
+
+
+<div class="user-summary-grid">
+
+    <div class="user-summary-card">
+
+        <div class="user-summary-icon user-summary-blue">
+            <i class="bi bi-people"></i>
+        </div>
+
+        <div>
+            <span>Total de usuarios</span>
+            <strong>{{ users|length }}</strong>
+        </div>
+
+    </div>
+
+    <div class="user-summary-card">
+
+        <div class="user-summary-icon user-summary-green">
+            <i class="bi bi-person-check"></i>
+        </div>
+
+        <div>
+            <span>Cuentas activas</span>
+
+            <strong>
+                {% with active_count=0 %}
+                    {{ users|length }}
+                {% endwith %}
+            </strong>
+        </div>
+
+    </div>
+
+    <div class="user-summary-card">
+
+        <div class="user-summary-icon user-summary-orange">
+            <i class="bi bi-hourglass-split"></i>
+        </div>
+
+        <div>
+            <span>Pendientes</span>
+            <strong>—</strong>
+        </div>
+
+    </div>
+
+    <div class="user-summary-card">
+
+        <div class="user-summary-icon user-summary-purple">
+            <i class="bi bi-building"></i>
+        </div>
+
+        <div>
+            <span>Sedes registradas</span>
+            <strong>4</strong>
+        </div>
+
+    </div>
+
+</div>
+
+
+<div class="table-card">
+
+    <div class="user-list-toolbar">
+
+        <div class="user-search-box">
+
+            <i class="bi bi-search"></i>
+
+            <input
+                type="search"
+                id="userSearchInput"
+                placeholder="Buscar por nombre, correo, documento o departamento">
+
+        </div>
+
+        <div class="user-filter-group">
+
+            <select id="userRoleFilter">
+
+                <option value="">
+                    Todos los roles
+                </option>
+
+                <option value="Administrador">
+                    Administrador
+                </option>
+
+                <option value="Supervisor">
+                    Supervisor
+                </option>
+
+                <option value="Técnico">
+                    Técnico
+                </option>
+
+                <option value="Auditor">
+                    Auditor
+                </option>
+
+                <option value="Usuario final">
+                    Usuario final
+                </option>
+
+            </select>
+
+            <select id="userStatusFilter">
+
+                <option value="">
+                    Todos los estados
+                </option>
+
+                <option value="Aprobado">
+                    Aprobado
+                </option>
+
+                <option value="Pendiente de aprobación">
+                    Pendiente
+                </option>
+
+                <option value="Suspendido">
+                    Suspendido
+                </option>
+
+                <option value="Rechazado">
+                    Rechazado
+                </option>
+
+            </select>
+
+        </div>
+
+    </div>
+
+
+    <div class="table-responsive">
+
+        <table class="data-table user-management-table">
+
+            <thead>
+
+                <tr>
+                    <th>Usuario</th>
+                    <th>Rol</th>
+                    <th>Vínculo</th>
+                    <th>Sede o planta</th>
+                    <th>Departamento</th>
+                    <th>Estado</th>
+                    <th>Vencimiento</th>
+                    <th></th>
+                </tr>
+
+            </thead>
+
+            <tbody id="userTableBody">
+
+                {% for system_user in users %}
+
+                    <tr
+                        data-user-row
+                        data-search="
+                            {{ system_user.first_name }}
+                            {{ system_user.last_name }}
+                            {{ system_user.email }}
+                            {{ system_user.document_number }}
+                            {{ system_user.employee_number }}
+                            {{ system_user.department }}
+                            {{ system_user.external_company }}
+                            {{ system_user.branch.name }}
+                        "
+                        data-role="{{ system_user.get_role_display }}"
+                        data-status="{{ system_user.get_approval_status_display }}">
+
+                        <td>
+
+                            <div class="user-table-profile">
+
+                                <div class="user-table-avatar">
+
+                                    {% if system_user.profile_image %}
+
+                                        <img
+                                            src="{{ system_user.profile_image.url }}"
+                                            alt="Foto del usuario">
+
+                                    {% else %}
+
+                                        {{ system_user.first_name|first|default:"U" }}
+                                        {{ system_user.last_name|first }}
+
+                                    {% endif %}
+
+                                </div>
+
+                                <div>
+
+                                    <strong>
+                                        {{ system_user.first_name }}
+                                        {{ system_user.last_name }}
+                                    </strong>
+
+                                    <span>
+                                        {{ system_user.email }}
+                                    </span>
+
+                                </div>
+
+                            </div>
+
+                        </td>
+
+                        <td>
+                            {{ system_user.get_role_display }}
+                        </td>
+
+                        <td>
+                            {{ system_user.get_employment_type_display }}
+                        </td>
+
+                        <td>
+
+                            {% if system_user.branch %}
+                                {{ system_user.branch.name }}
+                            {% else %}
+                                <span class="text-muted">
+                                    Sin asignar
+                                </span>
+                            {% endif %}
+
+                        </td>
+
+                        <td>
+                            {{ system_user.department|default:"Sin registrar" }}
+                        </td>
+
+                        <td>
+
+                            <span class="user-status-badge user-status-{{ system_user.approval_status|lower }}">
+                                {{ system_user.get_approval_status_display }}
+                            </span>
+
+                            {% if not system_user.is_active %}
+
+                                <span class="user-status-badge user-status-inactive">
+                                    Inactiva
+                                </span>
+
+                            {% elif system_user.is_account_expired %}
+
+                                <span class="user-status-badge user-status-expired">
+                                    Vencida
+                                </span>
+
+                            {% endif %}
+
+                        </td>
+
+                        <td>
+
+                            {% if system_user.employment_end_date %}
+
+                                {{ system_user.employment_end_date|date:"d/m/Y" }}
+
+                            {% else %}
+
+                                <span class="text-muted">
+                                    Sin vencimiento
+                                </span>
+
+                            {% endif %}
+
+                        </td>
+
+                        <td class="user-table-actions">
+
+                            <a
+                                href="/admin/accounts/user/{{ system_user.pk }}/change/"
+                                class="btn-small"
+                                title="Editar usuario">
+
+                                <i class="bi bi-pencil"></i>
+
+                            </a>
+
+                        </td>
+
+                    </tr>
+
+                {% empty %}
+
+                    <tr>
+
+                        <td colspan="8">
+
+                            <div class="executive-empty-state">
+
+                                <i class="bi bi-people"></i>
+
+                                <p>
+                                    No existen usuarios registrados.
+                                </p>
+
+                            </div>
+
+                        </td>
+
+                    </tr>
+
+                {% endfor %}
+
+            </tbody>
+
+        </table>
+
+    </div>
+
+</div>
+
+{% endblock %}
+
+
+{% block extra_js %}
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+
+    const searchInput = document.getElementById(
+        "userSearchInput"
+    );
+
+    const roleFilter = document.getElementById(
+        "userRoleFilter"
+    );
+
+    const statusFilter = document.getElementById(
+        "userStatusFilter"
+    );
+
+    const userRows = document.querySelectorAll(
+        "[data-user-row]"
+    );
+
+
+    const normalizeText = function (value) {
+
+        return (value || "")
+            .toString()
+            .toLowerCase()
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .trim();
+
+    };
+
+
+    const applyFilters = function () {
+
+        const searchValue = normalizeText(
+            searchInput.value
+        );
+
+        const selectedRole = normalizeText(
+            roleFilter.value
+        );
+
+        const selectedStatus = normalizeText(
+            statusFilter.value
+        );
+
+
+        userRows.forEach(
+            function (row) {
+
+                const rowSearch = normalizeText(
+                    row.dataset.search
+                );
+
+                const rowRole = normalizeText(
+                    row.dataset.role
+                );
+
+                const rowStatus = normalizeText(
+                    row.dataset.status
+                );
+
+                const matchesSearch = (
+                    !searchValue
+                    || rowSearch.includes(searchValue)
+                );
+
+                const matchesRole = (
+                    !selectedRole
+                    || rowRole === selectedRole
+                );
+
+                const matchesStatus = (
+                    !selectedStatus
+                    || rowStatus === selectedStatus
+                );
+
+                row.hidden = !(
+                    matchesSearch
+                    && matchesRole
+                    && matchesStatus
+                );
+
+            }
+        );
+
+    };
+
+
+    searchInput.addEventListener(
+        "input",
+        applyFilters
+    );
+
+    roleFilter.addEventListener(
+        "change",
+        applyFilters
+    );
+
+    statusFilter.addEventListener(
+        "change",
+        applyFilters
+    );
+
+});
+</script>
+
+{% endblock %}

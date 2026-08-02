@@ -1,0 +1,1 @@
+ACTA_CERRADA_ERROR = "El acta está cerrada y no se puede modificar."

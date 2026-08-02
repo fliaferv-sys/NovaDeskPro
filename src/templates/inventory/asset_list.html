@@ -1,0 +1,685 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}
+Inventario
+{% endblock %}
+
+{% block content %}
+
+<div class="inventory-page">
+
+    
+
+
+    <div class="page-header">
+
+        <div>
+            <h1 class="page-title">
+                Inventario de Equipos
+            </h1>
+
+            <p class="page-subtitle">
+                Gestión de activos informáticos
+            </p>
+        </div>
+
+        <div class="inventory-header-actions">
+
+            <a
+                href="{% url 'inventory:asset_import' %}"
+                class="btn-secondary">
+                Importar Excel
+            </a>
+
+            <a
+                href="{% url 'inventory:asset_import_template' %}"
+                class="btn-secondary">
+                Descargar plantilla
+            </a>
+
+            <button
+                type="submit"
+                id="send-to-custody-button"
+                class="btn-custody"
+                form="send-to-custody-form"
+                disabled>
+
+                Enviar a Equipos para Entrega
+                <span id="selected-count"></span>
+
+            </button>
+
+        </div>
+
+    </div>
+
+    <form method="get" class="inventory-filters">
+        <div class="inventory-filter-search">
+            <label for="inventory-search">Buscar equipo o usuario</label>
+            <input id="inventory-search" type="search" name="q"
+                   value="{{ active_filters.q }}"
+                   placeholder="Código, patrimonio, serie, hostname, nombre o correo">
+        </div>
+
+        <div>
+            <label for="filter-type">Tipo</label>
+            <select id="filter-type" name="tipo">
+                <option value="">Todos</option>
+                {% for value, label in asset_type_choices %}
+                    <option value="{{ value }}" {% if active_filters.tipo == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div>
+            <label for="filter-brand">Marca</label>
+            <select id="filter-brand" name="marca">
+                <option value="">Todas</option>
+                {% for value in brand_choices %}
+                    <option value="{{ value }}" {% if active_filters.marca == value %}selected{% endif %}>{{ value }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div>
+            <label for="filter-model">Modelo</label>
+            <select id="filter-model" name="modelo">
+                <option value="">Todos</option>
+                {% for value in model_choices %}
+                    <option value="{{ value }}" {% if active_filters.modelo == value %}selected{% endif %}>{{ value }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div>
+            <label for="filter-batch">Lote</label>
+            <select id="filter-batch" name="lote">
+                <option value="">Todos</option>
+                {% for value, label in batch_choices %}
+                    <option value="{{ value }}" {% if active_filters.lote == value|stringformat:"s" %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div>
+            <label for="filter-branch">Sede</label>
+            <select id="filter-branch" name="sede">
+                <option value="">Todas</option>
+                {% for value, label in branch_choices %}
+                    <option value="{{ value }}" {% if active_filters.sede == value|stringformat:"s" %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div>
+            <label for="filter-assignment">Asignación</label>
+            <select id="filter-assignment" name="asignacion">
+                <option value="">Todas</option>
+                <option value="AVAILABLE" {% if active_filters.asignacion == "AVAILABLE" %}selected{% endif %}>Disponible</option>
+                <option value="IN_PROCESS" {% if active_filters.asignacion == "IN_PROCESS" %}selected{% endif %}>En proceso de entrega</option>
+                <option value="ASSIGNED" {% if active_filters.asignacion == "ASSIGNED" %}selected{% endif %}>Asignado</option>
+            </select>
+        </div>
+
+        <div>
+            <label for="filter-technical-status">Estado técnico</label>
+            <select id="filter-technical-status" name="estado_tecnico">
+                <option value="">Todos</option>
+                {% for value, label in operational_status_choices %}
+                    <option value="{{ value }}" {% if active_filters.estado_tecnico == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="inventory-filter-actions">
+            <button type="submit" class="btn-primary">Aplicar filtros</button>
+            <a href="{% url 'inventory:asset_list' %}" class="btn-secondary">Limpiar</a>
+        </div>
+    </form>
+
+
+   <form method="post"
+      action="{% url 'deliveries:send_selected_assets_to_custody' %}"
+      id="send-to-custody-form">
+
+     {% csrf_token %}
+
+    <div class="inventory-table-card">
+
+        <div class="inventory-table-wrapper">
+
+            <table class="inventory-table">
+
+                <thead>
+
+                    <tr>
+
+                        <th class="selection-column">
+
+                            <input
+                                type="checkbox"
+                                id="select-all-assets"
+                                class="asset-checkbox">
+
+                        </th>
+
+                        <th>Código</th>
+                        <th>Tipo</th>
+                        <th>Marca</th>
+                        <th>Modelo</th>
+                        <th>Sede</th>
+                        <th>Departamento</th>
+                        <th>Patrimonio</th>
+                        <th>N° Serie</th>
+                        <th>Usuario</th>
+                        <th>Lote</th>
+                        <th>Asignación</th>
+                        <th class="technical-status-column">Estado técnico</th>
+
+                    </tr>
+
+                </thead>
+
+                <tbody>
+
+                    {% for asset in assets %}
+
+                    <tr
+                        class="inventory-row"
+                        data-detail-url="{% url 'inventory:asset_detail' asset.pk %}">
+
+                        <td
+                            class="selection-column"
+                            onclick="event.stopPropagation();">
+
+                            <input
+                                type="checkbox"
+                                name="selected_assets"
+                                value="{{ asset.pk }}"
+                                class="asset-checkbox asset-selection">
+
+                        </td>
+
+                        <td>
+                            <strong>{{ asset.internal_code }}</strong>
+                        </td>
+
+                        <td>
+                            {{ asset.get_asset_type_display }}
+                        </td>
+
+                        <td>
+                            {{ asset.brand|default:"—" }}
+                        </td>
+
+                        <td>
+                            {{ asset.model|default:"—" }}
+                        </td>
+
+                        <td>
+                            {% if asset.branch %}
+                                {{ asset.branch.name }}
+                            {% else %}
+                                —
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            {% if asset.assigned_user and asset.assigned_user.department %}
+                                {{ asset.assigned_user.department.name }}
+                            {% elif asset.department %}
+                                {{ asset.department }}
+                            {% else %}
+                                —
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            {{ asset.patrimonial_code|default:"—" }}
+                        </td>
+
+                        <td>
+                            {{ asset.serial_number|default:"—" }}
+                        </td>
+
+                        <td>
+                            {% if asset.assigned_user %}
+                                {{ asset.assigned_user.get_full_name|default:asset.assigned_user.username }}
+
+                            {% else %}
+                                —
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            {% if asset.acquisition_batch %}
+                                {{ asset.acquisition_batch.code }}
+                            {% else %}
+                                —
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            <div class="asset-status-container">
+                                {% if asset.pk in assets_in_custody_process %}
+                                    <span class="custody-status-badge">En proceso de entrega</span>
+                                {% elif asset.assigned_user %}
+                                    <span class="assignment-status-badge assignment-status-assigned">Asignado</span>
+                                {% else %}
+                                    <span class="assignment-status-badge assignment-status-available">Disponible</span>
+                                {% endif %}
+                            </div>
+                        </td>
+
+                        <td class="technical-status-column">
+                            <span class="operational-status">
+                                {{ asset.get_operational_status_display }}
+                            </span>
+                        </td>
+
+                    </tr>
+
+                    {% empty %}
+
+                    <tr>
+
+                        <td
+                            colspan="13"
+                            class="inventory-empty">
+
+                            Todavía no existen equipos registrados.
+
+                        </td>
+
+                    </tr>
+
+                    {% endfor %}
+
+                </tbody>
+
+            </table>
+
+        </div>
+
+    </div>
+
+</form>
+
+
+</div>
+
+<style>
+
+    .inventory-page {
+        padding: 24px;
+    }
+
+    .inventory-header-actions {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .inventory-filters {
+        display: grid;
+        grid-template-columns: minmax(280px, 2fr) repeat(3, minmax(145px, 1fr));
+        gap: 14px;
+        margin-bottom: 18px;
+        padding: 18px;
+        border: 1px solid #e4e7ec;
+        border-radius: 12px;
+        background: #fff;
+    }
+
+    .inventory-filters label {
+        display: block;
+        margin-bottom: 5px;
+        color: #344054;
+        font-size: 12px;
+        font-weight: 700;
+    }
+
+    .inventory-filters input,
+    .inventory-filters select {
+        width: 100%;
+        min-height: 40px;
+        padding: 8px 10px;
+        border: 1px solid #d0d5dd;
+        border-radius: 8px;
+        background: #fff;
+        box-sizing: border-box;
+    }
+
+    .inventory-filter-actions {
+        display: flex;
+        align-items: flex-end;
+        gap: 8px;
+    }
+
+    .btn-custody {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 11px 18px;
+        border: none;
+        border-radius: 10px;
+        background: #0f766e;
+        color: #ffffff;
+        font-size: 14px;
+        font-weight: 700;
+        cursor: pointer;
+        transition:
+            background-color 0.2s ease,
+            opacity 0.2s ease,
+            transform 0.2s ease;
+    }
+
+    .btn-custody:hover:not(:disabled) {
+        background: #115e59;
+        transform: translateY(-1px);
+    }
+
+    .btn-custody:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+    }
+
+    .inventory-table-card {
+        background: #ffffff;
+        border-radius: 18px;
+        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+        overflow: hidden;
+    }
+
+    .inventory-table-wrapper {
+        width: 100%;
+        overflow-x: auto;
+    }
+
+    .inventory-table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: auto;
+        min-width: 1000px;
+    }
+
+    .inventory-table thead th {
+        text-align: left;
+        padding: 18px 20px;
+        font-size: 14px;
+        font-weight: 700;
+        color: #344054;
+        border-bottom: 1px solid #e5e7eb;
+        background: #f8fafc;
+        white-space: nowrap;
+    }
+
+    .inventory-table tbody td {
+        padding: 18px 20px;
+        font-size: 15px;
+        color: #101828;
+        border-bottom: 1px solid #eef2f7;
+        vertical-align: middle;
+    }
+
+    .selection-column {
+        width: 48px;
+        min-width: 48px;
+        text-align: center !important;
+        padding-left: 14px !important;
+        padding-right: 14px !important;
+    }
+
+    .asset-checkbox {
+        width: 18px;
+        height: 18px;
+        cursor: pointer;
+        accent-color: #0f766e;
+    }
+
+    .inventory-row {
+        cursor: pointer;
+        transition: background-color 0.2s ease;
+    }
+
+    .inventory-row:hover {
+        background: #f8fbff;
+    }
+
+    .inventory-row.row-selected {
+        background: #ecfdf5;
+    }
+
+    .inventory-empty {
+        text-align: center;
+        color: #667085;
+        padding: 28px 20px;
+    }
+
+    .asset-status-container {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+    }
+
+    .operational-status {
+        display: inline-flex;
+        align-items: center;
+        min-height: 28px;
+        padding: 4px 9px;
+        border: 1px solid #d0d5dd;
+        border-radius: 999px;
+        background: #f8fafc;
+        font-size: 14px;
+        color: #344054;
+        font-weight: 700;
+        line-height: 1.25;
+        white-space: normal;
+    }
+
+    .inventory-table .technical-status-column {
+        position: sticky;
+        z-index: 2;
+        right: 0;
+        min-width: 150px;
+        max-width: 190px;
+        background: #ffffff;
+        box-shadow: -8px 0 12px -12px rgba(15, 23, 42, 0.55);
+        white-space: normal;
+    }
+
+    .inventory-table thead .technical-status-column {
+        z-index: 3;
+        background: #f8fafc;
+    }
+
+    .inventory-row:hover .technical-status-column {
+        background: #f8fbff;
+    }
+
+    .inventory-row.row-selected .technical-status-column {
+        background: #ecfdf5;
+    }
+
+    .custody-status-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 5px 9px;
+        border-radius: 999px;
+        background: #fff7ed;
+        color: #c2410c;
+        border: 1px solid #fed7aa;
+        font-size: 12px;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+
+    .assignment-status-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 5px 9px;
+        border: 1px solid;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+
+    .assignment-status-assigned {
+        color: #067647;
+        background: #ecfdf3;
+        border-color: #abefc6;
+    }
+
+    .assignment-status-available {
+        color: #175cd3;
+        background: #eff8ff;
+        border-color: #b2ddff;
+    }
+
+    @media (max-width: 768px) {
+
+        .inventory-filters {
+            grid-template-columns: 1fr;
+        }
+
+        .page-header {
+            align-items: flex-start;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .inventory-header-actions {
+            width: 100%;
+            flex-wrap: wrap;
+        }
+
+        .inventory-header-actions a,
+        .inventory-header-actions button {
+            flex: 1;
+        }
+
+    }
+
+</style>
+
+<script>
+
+    document.addEventListener("DOMContentLoaded", function () {
+
+        const selectAllCheckbox = document.getElementById(
+            "select-all-assets"
+        );
+
+        const assetCheckboxes = Array.from(
+            document.querySelectorAll(".asset-selection")
+        );
+
+        const sendButton = document.getElementById(
+            "send-to-custody-button"
+        );
+
+        const selectedCount = document.getElementById(
+            "selected-count"
+        );
+
+        const inventoryRows = document.querySelectorAll(
+            ".inventory-row"
+        );
+
+        function updateSelectionState() {
+
+            const selectedAssets = assetCheckboxes.filter(
+                checkbox => checkbox.checked
+            );
+
+            const selectedTotal = selectedAssets.length;
+
+            sendButton.disabled = selectedTotal === 0;
+
+            selectedCount.textContent = selectedTotal > 0
+                ? `(${selectedTotal})`
+                : "";
+
+            assetCheckboxes.forEach(function (checkbox) {
+
+                const row = checkbox.closest(".inventory-row");
+
+                if (row) {
+                    row.classList.toggle(
+                        "row-selected",
+                        checkbox.checked
+                    );
+                }
+
+            });
+
+            if (assetCheckboxes.length === 0) {
+                selectAllCheckbox.checked = false;
+                selectAllCheckbox.indeterminate = false;
+                return;
+            }
+
+            selectAllCheckbox.checked =
+                selectedTotal === assetCheckboxes.length;
+
+            selectAllCheckbox.indeterminate =
+                selectedTotal > 0
+                && selectedTotal < assetCheckboxes.length;
+
+        }
+
+        selectAllCheckbox.addEventListener(
+            "change",
+            function () {
+
+                assetCheckboxes.forEach(function (checkbox) {
+                    checkbox.checked = selectAllCheckbox.checked;
+                });
+
+                updateSelectionState();
+
+            }
+        );
+
+        assetCheckboxes.forEach(function (checkbox) {
+
+            checkbox.addEventListener(
+                "change",
+                updateSelectionState
+            );
+
+        });
+
+        inventoryRows.forEach(function (row) {
+
+            row.addEventListener(
+                "click",
+                function (event) {
+
+                    if (event.target.closest(".selection-column")) {
+                        return;
+                    }
+
+                    const detailUrl = row.dataset.detailUrl;
+
+                    if (detailUrl) {
+                        window.location.href = detailUrl;
+                    }
+
+                }
+            );
+
+        });
+
+        
+
+        updateSelectionState();
+
+    });
+
+</script>
+
+{% endblock %}

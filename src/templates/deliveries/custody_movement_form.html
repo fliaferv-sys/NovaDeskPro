@@ -1,0 +1,479 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}
+{% if editing %}
+Editar Movimiento
+{% else %}
+Nuevo Movimiento de Custodia
+{% endif %}
+{% endblock %}
+
+{% block content %}
+
+<div class="ticket-detail-header">
+
+    <div>
+        <h1 class="page-title">
+
+            {% if editing %}
+                Editar Movimiento
+            {% else %}
+                Nuevo Movimiento de Custodia
+            {% endif %}
+
+        </h1>
+
+        <p class="page-subtitle">
+            Registre una entrega, devolución, reasignación o reserva.
+        </p>
+    </div>
+
+    <div class="ticket-header-actions" style="display:flex; gap:10px;">
+
+    
+
+    <!-- BOTÓN VOLVER -->
+    {% if editing and form.instance.pk %}
+        <a
+            href="{% url 'deliveries:custody_movement_detail' form.instance.pk %}"
+            class="btn-secondary">
+            ← Volver
+        </a>
+    {% else %}
+        <a
+            href="{% url 'deliveries:custody_movement_list' %}"
+            class="btn-secondary">
+            ← Volver
+        </a>
+    {% endif %}
+
+</div>
+
+</div>
+
+
+{% if form.non_field_errors %}
+
+    <div class="form-error delivery-global-error">
+
+        {% for error in form.non_field_errors %}
+            <p>{{ error }}</p>
+        {% endfor %}
+
+    </div>
+
+{% endif %}
+
+
+<form
+    method="post"
+    enctype="multipart/form-data"
+    class="custody-movement-form">
+
+    {% csrf_token %}
+
+    
+
+    <!-- ===== MOVIMIENTO ===== -->
+    <div class="table-card">
+
+        <h3>📋 Información del movimiento</h3>
+
+        <div class="form-grid delivery-form-grid">
+
+            <div class="form-group">
+                <label for="{{ form.asset.id_for_label }}">
+                    Equipo
+                </label>
+
+                {{ form.asset }}
+
+                {% for error in form.asset.errors %}
+                    <div class="form-error">
+                        <p>{{ error }}</p>
+                    </div>
+                {% endfor %}
+            </div>
+
+            <div class="form-group">
+                <label for="{{ form.movement_type.id_for_label }}">
+                    Tipo de movimiento
+                </label>
+
+                {{ form.movement_type }}
+
+                {% for error in form.movement_type.errors %}
+                    <div class="form-error">
+                        <p>{{ error }}</p>
+                    </div>
+                {% endfor %}
+            </div>
+
+            <div class="form-group">
+                <label for="{{ form.status.id_for_label }}">
+                    Estado
+                </label>
+
+                {{ form.status }}
+
+                {% for error in form.status.errors %}
+                    <div class="form-error">
+                        <p>{{ error }}</p>
+                    </div>
+                {% endfor %}
+            </div>
+
+            <div class="form-group">
+                <label for="{{ form.movement_date.id_for_label }}">
+                    Fecha y hora
+                </label>
+
+                {{ form.movement_date }}
+
+                {% for error in form.movement_date.errors %}
+                    <div class="form-error">
+                        <p>{{ error }}</p>
+                    </div>
+                {% endfor %}
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- PERSONAS -->
+
+    <div class="table-card">
+
+        <h3>👥 Personas involucradas</h3>
+
+        <div class="form-grid delivery-form-grid">
+
+            <div class="form-group">
+                <label for="{{ form.previous_custodian.id_for_label }}">
+                    Custodio anterior
+                </label>
+
+                {{ form.previous_custodian }}
+
+                {% for error in form.previous_custodian.errors %}
+                    <div class="form-error">
+                        <p>{{ error }}</p>
+                    </div>
+                {% endfor %}
+            </div>
+
+            <div class="form-group">
+                <label for="{{ form.recipient.id_for_label }}">
+                    Receptor
+                </label>
+
+                {{ form.recipient }}
+
+                {% for error in form.recipient.errors %}
+                    <div class="form-error">
+                        <p>{{ error }}</p>
+                    </div>
+                {% endfor %}
+            </div>
+
+            <div class="form-group">
+                <label for="{{ form.delivery_responsible.id_for_label }}">
+                    Responsable de entrega
+                </label>
+
+                {{ form.delivery_responsible }}
+
+                {% for error in form.delivery_responsible.errors %}
+                    <div class="form-error">
+                        <p>{{ error }}</p>
+                    </div>
+                {% endfor %}
+            </div>
+
+            <div class="form-group">
+                <label for="{{ form.authorizing_director.id_for_label }}">
+                    Director que autoriza
+                </label>
+
+                {{ form.authorizing_director }}
+
+                {% for error in form.authorizing_director.errors %}
+                    <div class="form-error">
+                        <p>{{ error }}</p>
+                    </div>
+                {% endfor %}
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <<!-- DATOS DEL FUNCIONARIO RECEPTOR Y DESTINO -->
+
+<div class="table-card">
+
+    <h3>🏢 Datos del funcionario receptor y destino</h3>
+
+    <p class="page-subtitle">
+        Estos datos quedarán guardados en el acta de entrega.
+    </p>
+
+    <div class="form-grid delivery-form-grid">
+
+        <div class="form-group">
+            <label for="{{ form.recipient_employee_number.id_for_label }}">
+                Legajo del receptor
+            </label>
+
+            {{ form.recipient_employee_number }}
+
+            {% for error in form.recipient_employee_number.errors %}
+                <div class="form-error">
+                    <p>{{ error }}</p>
+                </div>
+            {% endfor %}
+        </div>
+
+        <div class="form-group">
+            <label for="{{ form.recipient_position.id_for_label }}">
+                Cargo del receptor
+            </label>
+
+            {{ form.recipient_position }}
+
+            {% for error in form.recipient_position.errors %}
+                <div class="form-error">
+                    <p>{{ error }}</p>
+                </div>
+            {% endfor %}
+        </div>
+
+        <div class="form-group">
+            <label for="{{ form.recipient_unit.id_for_label }}">
+                Unidad del receptor
+            </label>
+
+            {{ form.recipient_unit }}
+
+            {% for error in form.recipient_unit.errors %}
+                <div class="form-error">
+                    <p>{{ error }}</p>
+                </div>
+            {% endfor %}
+        </div>
+
+        <div class="form-group">
+            <label for="{{ form.department.id_for_label }}">
+                Departamento
+            </label>
+
+            {{ form.department }}
+
+            {% for error in form.department.errors %}
+                <div class="form-error">
+                    <p>{{ error }}</p>
+                </div>
+            {% endfor %}
+        </div>
+
+        <div class="form-group">
+            <label for="{{ form.recipient_area.id_for_label }}">
+                Área del receptor
+            </label>
+
+            {{ form.recipient_area }}
+
+            {% for error in form.recipient_area.errors %}
+                <div class="form-error">
+                    <p>{{ error }}</p>
+                </div>
+            {% endfor %}
+        </div>
+
+        <div class="form-group">
+            <label for="{{ form.recipient_section.id_for_label }}">
+                Sección del receptor
+            </label>
+
+            {{ form.recipient_section }}
+
+            {% for error in form.recipient_section.errors %}
+                <div class="form-error">
+                    <p>{{ error }}</p>
+                </div>
+            {% endfor %}
+        </div>
+
+        <div class="form-group">
+            <label for="{{ form.location.id_for_label }}">
+                Ubicación física del equipo
+            </label>
+
+            {{ form.location }}
+
+            {% for error in form.location.errors %}
+                <div class="form-error">
+                    <p>{{ error }}</p>
+                </div>
+            {% endfor %}
+        </div>
+
+    </div>
+
+</div>
+
+    <!-- ESTADO Y ACCESORIOS -->
+
+    <div class="table-card">
+
+        <h3>🖥 Estado y accesorios</h3>
+
+        <div class="delivery-form-stack">
+
+            <div class="form-group">
+                <label for="{{ form.accessories.id_for_label }}">
+                    Accesorios
+                </label>
+
+                {{ form.accessories }}
+
+                {% for error in form.accessories.errors %}
+                    <div class="form-error">
+                        <p>{{ error }}</p>
+                    </div>
+                {% endfor %}
+            </div>
+
+            <div class="form-group">
+                <label for="{{ form.asset_condition.id_for_label }}">
+                    Estado físico y funcional
+                </label>
+
+                {{ form.asset_condition }}
+
+                {% for error in form.asset_condition.errors %}
+                    <div class="form-error">
+                        <p>{{ error }}</p>
+                    </div>
+                {% endfor %}
+            </div>
+
+            <div class="form-group">
+                <label for="{{ form.observations.id_for_label }}">
+                    Observaciones
+                </label>
+
+                {{ form.observations }}
+
+                {% for error in form.observations.errors %}
+                    <div class="form-error">
+                        <p>{{ error }}</p>
+                    </div>
+                {% endfor %}
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- FIRMAS -->
+
+    <div class="table-card">
+
+        <h3>✍️ Firmas y documentación</h3>
+
+        <p class="page-subtitle">
+            En esta primera versión puede cargar imágenes de firmas
+            y el acta ya firmada.
+        </p>
+
+        <div class="form-grid delivery-form-grid">
+
+            <div class="form-group">
+                <label for="{{ form.director_signature.id_for_label }}">
+                    Firma del director
+                </label>
+
+                {{ form.director_signature }}
+
+                {% for error in form.director_signature.errors %}
+                    <div class="form-error">
+                        <p>{{ error }}</p>
+                    </div>
+                {% endfor %}
+            </div>
+
+            <div class="form-group">
+                <label for="{{ form.responsible_signature.id_for_label }}">
+                    Firma del responsable
+                </label>
+
+                {{ form.responsible_signature }}
+
+                {% for error in form.responsible_signature.errors %}
+                    <div class="form-error">
+                        <p>{{ error }}</p>
+                    </div>
+                {% endfor %}
+            </div>
+
+            <div class="form-group">
+                <label for="{{ form.recipient_signature.id_for_label }}">
+                    Firma del receptor
+                </label>
+
+                {{ form.recipient_signature }}
+
+                {% for error in form.recipient_signature.errors %}
+                    <div class="form-error">
+                        <p>{{ error }}</p>
+                    </div>
+                {% endfor %}
+            </div>
+
+            <div class="form-group">
+                <label for="{{ form.signed_document.id_for_label }}">
+                    Acta firmada
+                </label>
+
+                {{ form.signed_document }}
+
+                {% for error in form.signed_document.errors %}
+                    <div class="form-error">
+                        <p>{{ error }}</p>
+                    </div>
+                {% endfor %}
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <div class="delivery-form-actions">
+
+        <button
+            type="submit"
+            class="btn-primary">
+
+            💾 Guardar movimiento
+
+        </button>
+
+        <a
+            href="{% url 'deliveries:custody_movement_list' %}"
+            class="btn-secondary">
+
+            Cancelar
+
+        </a>
+
+    </div>
+
+</form>
+
+{% endblock %}

@@ -1,0 +1,575 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}
+    {% if editing %}
+        Editar Equipo
+    {% else %}
+        Nuevo Equipo
+    {% endif %}
+{% endblock %}
+
+{% block content %}
+
+<<div
+    class="page-header"
+    style="display: flex; justify-content: space-between; align-items: center; gap: 20px;">
+
+    <div>
+
+        <h1 class="page-title">
+            {% if editing %}
+                Editar Equipo
+            {% else %}
+                Nuevo Activo Informático
+            {% endif %}
+        </h1>
+
+        <p class="page-subtitle">
+            Registro y ubicación de equipos del inventario.
+        </p>
+
+    </div>
+
+    <div
+        class="ticket-header-actions"
+        style="display: flex; gap: 10px; margin-left: auto;">
+
+        <a
+            href="{% url 'inventory:asset_list' %}"
+            class="btn-secondary">
+
+            <i class="bi bi-arrow-left"></i>
+            Volver al inventario
+        </a>
+
+        <a
+            href="{% url 'inventory:asset_import_template' %}"
+            class="btn-primary">
+
+            <i class="bi bi-file-earmark-arrow-down"></i>
+            Descargar planilla
+        </a>
+
+    </div>
+
+</div>
+
+<div class="table-card" style="margin-bottom:15px;">
+
+    <h3>📥 Importar equipos</h3>
+
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+
+        <input type="file" name="file" required>
+
+        <button type="submit" class="btn-primary">
+            Importar
+        </button>
+    </form>
+
+</div>
+
+<form method="post">
+
+    {% csrf_token %}
+
+    {% if form.non_field_errors %}
+
+        <div class="form-error-summary">
+
+            {% for error in form.non_field_errors %}
+                <p>{{ error }}</p>
+            {% endfor %}
+
+        </div>
+
+    {% endif %}
+
+
+    <!-- ==================================================
+         DATOS GENERALES
+         ================================================== -->
+
+    <div class="table-card">
+
+        <h3>📋 Datos generales</h3>
+
+        <div class="form-grid">
+
+            <div class="form-group">
+
+                <label for="{{ form.internal_code.id_for_label }}">
+                    Código interno
+                </label>
+
+                {{ form.internal_code }}
+
+                {% for error in form.internal_code.errors %}
+                    <small class="form-field-error">
+                        {{ error }}
+                    </small>
+                {% endfor %}
+
+            </div>
+
+
+            <div class="form-group">
+
+                <label for="{{ form.patrimonial_code.id_for_label }}">
+                    Código patrimonial
+                </label>
+
+                {{ form.patrimonial_code }}
+
+                {% for error in form.patrimonial_code.errors %}
+                    <small class="form-field-error">
+                        {{ error }}
+                    </small>
+                {% endfor %}
+
+            </div>
+
+
+            <div class="form-group">
+
+                <label for="{{ form.asset_type.id_for_label }}">
+                    Tipo de activo
+                </label>
+
+                {{ form.asset_type }}
+
+                {% for error in form.asset_type.errors %}
+                    <small class="form-field-error">
+                        {{ error }}
+                    </small>
+                {% endfor %}
+
+            </div>
+
+
+            <div class="form-group">
+
+                <label for="{{ form.brand.id_for_label }}">
+                    Marca
+                </label>
+
+                {{ form.brand }}
+
+                {% for error in form.brand.errors %}
+                    <small class="form-field-error">
+                        {{ error }}
+                    </small>
+                {% endfor %}
+
+            </div>
+
+
+            <div class="form-group">
+
+                <label for="{{ form.model.id_for_label }}">
+                    Modelo
+                </label>
+
+                {{ form.model }}
+
+                {% for error in form.model.errors %}
+                    <small class="form-field-error">
+                        {{ error }}
+                    </small>
+                {% endfor %}
+
+            </div>
+
+
+            <div class="form-group">
+
+                <label for="{{ form.serial_number.id_for_label }}">
+                    Número de serie
+                </label>
+
+                {{ form.serial_number }}
+
+                {% for error in form.serial_number.errors %}
+                    <small class="form-field-error">
+                        {{ error }}
+                    </small>
+                {% endfor %}
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- ==================================================
+         CUSTODIO Y UBICACIÓN
+         ================================================== -->
+
+    <div class="table-card">
+
+        <h3>👤 Custodio y ubicación</h3>
+
+        <p class="form-section-help">
+            El usuario custodio y la ubicación física pueden ser diferentes.
+        </p>
+
+        <div class="form-grid">
+
+            <div class="form-group">
+
+                <label for="{{ form.assigned_user.id_for_label }}">
+                    Usuario custodio
+                </label>
+
+                {{ form.assigned_user }}
+
+                {% if form.assigned_user.help_text %}
+                    <small class="form-help-text">
+                        {{ form.assigned_user.help_text }}
+                    </small>
+                {% endif %}
+
+                {% for error in form.assigned_user.errors %}
+                    <small class="form-field-error">
+                        {{ error }}
+                    </small>
+                {% endfor %}
+
+            </div>
+
+
+            <div class="form-group">
+
+                <label for="{{ form.branch.id_for_label }}">
+                    Sede
+                </label>
+
+                {{ form.branch }}
+
+                {% if form.branch.help_text %}
+                    <small class="form-help-text">
+                        {{ form.branch.help_text }}
+                    </small>
+                {% endif %}
+
+                {% for error in form.branch.errors %}
+                    <small class="form-field-error">
+                        {{ error }}
+                    </small>
+                {% endfor %}
+
+            </div>
+
+
+            <div class="form-group">
+
+                <label for="{{ form.physical_location.id_for_label }}">
+                    Ubicación física detallada
+                </label>
+
+                {{ form.physical_location }}
+
+                {% if form.physical_location.help_text %}
+                    <small class="form-help-text">
+                        {{ form.physical_location.help_text }}
+                    </small>
+                {% endif %}
+
+                {% for error in form.physical_location.errors %}
+                    <small class="form-field-error">
+                        {{ error }}
+                    </small>
+                {% endfor %}
+
+            </div>
+
+
+            <div class="form-group">
+
+                <label for="{{ form.department.id_for_label }}">
+                    Departamento
+                </label>
+
+                {{ form.department }}
+
+                {% if form.department.help_text %}
+                    <small class="form-help-text">
+                        {{ form.department.help_text }}
+                    </small>
+                {% endif %}
+
+                {% for error in form.department.errors %}
+                    <small class="form-field-error">
+                        {{ error }}
+                    </small>
+                {% endfor %}
+
+            </div>
+
+
+            <div class="form-group form-group-full">
+
+                <label for="{{ form.location.id_for_label }}">
+                    Ubicación descriptiva
+                </label>
+
+                {{ form.location }}
+
+                {% if form.location.help_text %}
+                    <small class="form-help-text">
+                        {{ form.location.help_text }}
+                    </small>
+                {% endif %}
+
+                {% for error in form.location.errors %}
+                    <small class="form-field-error">
+                        {{ error }}
+                    </small>
+                {% endfor %}
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- ==================================================
+         INFORMACIÓN TÉCNICA
+         ================================================== -->
+
+    <div class="table-card">
+
+        <h3>💻 Información técnica</h3>
+
+        <div class="form-grid">
+
+            <div class="form-group">
+
+                <label for="{{ form.hostname.id_for_label }}">
+                    Hostname
+                </label>
+
+                {{ form.hostname }}
+
+                {% for error in form.hostname.errors %}
+                    <small class="form-field-error">
+                        {{ error }}
+                    </small>
+                {% endfor %}
+
+            </div>
+
+
+            <div class="form-group">
+
+                <label for="{{ form.operating_system.id_for_label }}">
+                    Sistema operativo
+                </label>
+
+                {{ form.operating_system }}
+
+                {% for error in form.operating_system.errors %}
+                    <small class="form-field-error">
+                        {{ error }}
+                    </small>
+                {% endfor %}
+
+            </div>
+
+
+            <div class="form-group">
+
+                <label for="{{ form.current_ip.id_for_label }}">
+                    Dirección IP
+                </label>
+
+                {{ form.current_ip }}
+
+                {% for error in form.current_ip.errors %}
+                    <small class="form-field-error">
+                        {{ error }}
+                    </small>
+                {% endfor %}
+
+            </div>
+
+
+            <div class="form-group">
+
+                <label for="{{ form.mac_address.id_for_label }}">
+                    Dirección MAC
+                </label>
+
+                {{ form.mac_address }}
+
+                {% for error in form.mac_address.errors %}
+                    <small class="form-field-error">
+                        {{ error }}
+                    </small>
+                {% endfor %}
+
+            </div>
+
+
+            <div class="form-group">
+
+                <label for="{{ form.operational_status.id_for_label }}">
+                    Estado operativo
+                </label>
+
+                {{ form.operational_status }}
+
+                {% for error in form.operational_status.errors %}
+                    <small class="form-field-error">
+                        {{ error }}
+                    </small>
+                {% endfor %}
+
+            </div>
+
+
+            <div class="form-group">
+
+                <label for="{{ form.connection_status.id_for_label }}">
+                    Estado de conexión
+                </label>
+
+                {{ form.connection_status }}
+
+                {% for error in form.connection_status.errors %}
+                    <small class="form-field-error">
+                        {{ error }}
+                    </small>
+                {% endfor %}
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- ==================================================
+         GARANTÍA
+         ================================================== -->
+
+    <div class="table-card">
+
+        <h3>🛡 Garantía y proveedor</h3>
+
+        <div class="form-grid">
+
+            <div class="form-group">
+
+                <label for="{{ form.purchase_date.id_for_label }}">
+                    Fecha de compra
+                </label>
+
+                {{ form.purchase_date }}
+
+                {% for error in form.purchase_date.errors %}
+                    <small class="form-field-error">
+                        {{ error }}
+                    </small>
+                {% endfor %}
+
+            </div>
+
+
+            <div class="form-group">
+
+                <label for="{{ form.warranty_expiration.id_for_label }}">
+                    Garantía hasta
+                </label>
+
+                {{ form.warranty_expiration }}
+
+                {% for error in form.warranty_expiration.errors %}
+                    <small class="form-field-error">
+                        {{ error }}
+                    </small>
+                {% endfor %}
+
+            </div>
+
+
+            <div class="form-group">
+
+                <label for="{{ form.supplier.id_for_label }}">
+                    Proveedor
+                </label>
+
+                {{ form.supplier }}
+
+                {% for error in form.supplier.errors %}
+                    <small class="form-field-error">
+                        {{ error }}
+                    </small>
+                {% endfor %}
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- ==================================================
+         OBSERVACIONES
+         ================================================== -->
+
+    <div class="table-card">
+
+        <h3>📝 Observaciones</h3>
+
+        <div class="form-group">
+
+            {{ form.notes }}
+
+            {% for error in form.notes.errors %}
+                <small class="form-field-error">
+                    {{ error }}
+                </small>
+            {% endfor %}
+
+        </div>
+
+    </div>
+
+
+    <!-- ==================================================
+         ACCIONES
+         ================================================== -->
+
+    <div class="form-actions">
+
+        <button
+            type="submit"
+            class="btn-primary">
+
+            <i class="bi bi-floppy"></i>
+
+            {% if editing %}
+                Guardar cambios
+            {% else %}
+                Guardar equipo
+            {% endif %}
+
+        </button>
+
+        <a
+            href="{% url 'inventory:asset_list' %}"
+            class="btn-secondary">
+
+            Cancelar
+
+        </a>
+
+    </div>
+
+</form>
+
+{% endblock %}

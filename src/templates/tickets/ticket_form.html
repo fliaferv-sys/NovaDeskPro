@@ -1,0 +1,1363 @@
+{% extends "layouts/base.html" %}
+{% load static %}
+
+{% block title %}{% if editing %}Editar ticket{% else %}Nuevo ticket{% endif %} | NovaDesk Pro{% endblock %}
+
+{% block extra_css %}
+<style>
+    .ticket-page {
+        padding: 24px;
+        background: #f4f6f9;
+        min-height: 100vh;
+    }
+
+    .ticket-header {
+        background: white;
+        border-radius: 12px;
+        padding: 20px 24px;
+        margin-bottom: 20px;
+        border: 1px solid #eaecf0;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+    }
+
+    .ticket-header h1 {
+        margin: 0 0 6px;
+        font-size: 26px;
+        color: var(--primary-color);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .ticket-header h1 i {
+        color: var(--primary-color);
+    }
+
+    .subtitle {
+        color: #667085;
+        margin: 0;
+        font-size: 14px;
+    }
+
+    .area-section,
+    .card,
+    .ticket-form-card,
+    .quick-actions-section {
+        background: #ffffff;
+        border: 1px solid #e4e7ec;
+        border-radius: 12px;
+        padding: 18px 20px;
+        margin-bottom: 18px;
+        box-shadow: 0 2px 8px rgba(16, 24, 40, 0.05);
+    }
+
+    .area-section .area-label,
+    .quick-actions-section .section-title {
+        font-size: 13px;
+        font-weight: 700;
+        color: #667085;
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+        margin-bottom: 10px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .area-section .area-label i,
+    .quick-actions-section .section-title i {
+        color: var(--primary-color);
+        font-size: 14px;
+    }
+
+    .quick-actions-section .section-subtitle {
+        color: #667085;
+        font-size: 12px;
+        margin-bottom: 12px;
+    }
+
+    .area-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .area-btn {
+        border: 1.5px solid #d0d5dd;
+        background: white;
+        border-radius: 8px;
+        padding: 8px 14px;
+        cursor: pointer;
+        transition: all 0.2s;
+        font-size: 13px;
+        font-weight: 600;
+        color: #344054;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .area-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    }
+
+    .area-btn.active {
+        background: var(--primary-color);
+        color: white;
+        border-color: var(--primary-color);
+    }
+
+    .area-btn .area-color-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        display: inline-block;
+    }
+
+    .area-indicator {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 6px;
+        background: #f8fafc;
+        border-left: 3px solid var(--primary-color);
+        margin-top: 10px;
+        font-size: 13px;
+        color: #344054;
+    }
+
+    .area-indicator .area-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        display: inline-block;
+        flex-shrink: 0;
+    }
+
+    .area-indicator strong {
+        color: #101828;
+    }
+
+    .ticket-layout {
+        display: grid;
+        grid-template-columns: 340px 1fr;
+        gap: 20px;
+        align-items: start;
+    }
+
+    .ticket-sidebar {
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+        position: sticky;
+        top: 20px;
+    }
+
+    .card-title {
+        font-size: 13px;
+        font-weight: 700;
+        color: #667085;
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+        margin-bottom: 10px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .card-title i {
+        color: var(--primary-color);
+        font-size: 14px;
+    }
+
+    .quick-actions-grid {
+        display: grid;
+        gap: 6px;
+    }
+
+    .quick-action-btn {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        text-align: left;
+        border: 1px solid #e4e7ec;
+        background: #f9fafb;
+        border-radius: 8px;
+        padding: 10px 12px;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .quick-action-btn:hover {
+        border-color: var(--primary-color);
+        background: #f0f4f9;
+        transform: translateX(3px);
+    }
+
+    .quick-action-btn .qa-icon {
+        font-size: 18px;
+        color: var(--primary-color);
+        min-width: 24px;
+        text-align: center;
+    }
+
+    .qa-content {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-width: 0;
+    }
+
+    .qa-title {
+        font-weight: 600;
+        font-size: 13px;
+        color: #101828;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .qa-label {
+        font-size: 11px;
+        color: #667085;
+    }
+
+    .qa-arrow {
+        color: #d0d5dd;
+        font-size: 14px;
+        transition: 0.2s;
+    }
+
+    .quick-action-btn:hover .qa-arrow {
+        color: var(--primary-color);
+        transform: translateX(2px);
+    }
+
+    .qa-group {
+        display: none;
+    }
+
+    .qa-group.active {
+        display: block;
+    }
+
+    .tips-list {
+        display: grid;
+        gap: 6px;
+    }
+
+    .tip-item {
+        display: flex;
+        gap: 8px;
+        font-size: 12px;
+        color: #344054;
+    }
+
+    .tip-item .tip-icon {
+        font-size: 14px;
+        min-width: 18px;
+        margin-top: 1px;
+    }
+
+    .tip-item .tip-text strong {
+        display: block;
+        color: #101828;
+        font-size: 12px;
+    }
+
+    .ticket-form-card {
+        padding: 22px 24px;
+    }
+
+    .form-title {
+        font-size: 17px;
+        font-weight: 700;
+        color: #101828;
+        margin: 0 0 2px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .form-title i {
+        color: var(--primary-color);
+    }
+
+    .form-subtitle {
+        color: #667085;
+        font-size: 13px;
+        margin: 0 0 16px;
+    }
+
+    .form-group {
+        margin-bottom: 14px;
+    }
+
+    .form-group label {
+        display: block;
+        font-weight: 600;
+        font-size: 13px;
+        color: #344054;
+        margin-bottom: 4px;
+    }
+
+    .form-group label .required {
+        color: #dc3545;
+        margin-left: 2px;
+    }
+
+    .form-group input,
+    .form-group select,
+    .form-group textarea {
+        width: 100%;
+        padding: 9px 12px;
+        border: 1.5px solid #d0d5dd;
+        border-radius: 8px;
+        font-size: 13px;
+        background: white;
+        transition: all 0.25s ease;
+        box-sizing: border-box;
+        color: #101828;
+        font-family: inherit;
+    }
+
+    .form-group input:focus,
+    .form-group select:focus,
+    .form-group textarea:focus {
+        outline: none;
+        border-color: var(--primary-color);
+        box-shadow: 0 0 0 3px rgba(18,58,99,0.08);
+    }
+
+    .form-group textarea {
+        min-height: 80px;
+        resize: vertical;
+    }
+
+    .form-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+    }
+
+    .form-actions {
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 12px;
+        margin-top: 20px;
+        padding-top: 16px;
+        border-top: 1px solid #eaecf0;
+    }
+
+    .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 10px 22px;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: 14px;
+        transition: all 0.25s ease;
+        min-width: 120px;
+        cursor: pointer;
+        text-decoration: none;
+        border: none;
+    }
+
+    .btn-primary {
+        background: var(--primary-color);
+        color: white;
+    }
+
+    .btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 16px rgba(18,58,99,0.25);
+    }
+
+    .btn-outline {
+        background: white;
+        color: #344054;
+        border: 1.5px solid #d0d5dd;
+    }
+
+    .btn-outline:hover {
+        background: #f8fafc;
+        border-color: #98a2b3;
+    }
+
+        /* ======================================================
+       TIPO DE SOLICITUD
+       ====================================================== */
+
+    .request-type-section {
+        margin-bottom: 20px;
+        padding: 18px;
+        border: 1px solid #e4e7ec;
+        border-radius: 10px;
+        background: #f8fafc;
+    }
+
+    .request-type-title {
+        margin: 0 0 4px;
+        font-size: 15px;
+        font-weight: 700;
+        color: #101828;
+    }
+
+    .request-type-description {
+        margin: 0 0 14px;
+        font-size: 12px;
+        color: #667085;
+    }
+
+    .request-type-options {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+    }
+
+    .request-type-option {
+        position: relative;
+        display: block;
+        padding: 14px;
+        border: 2px solid #e4e7ec;
+        border-radius: 10px;
+        background: #ffffff;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .request-type-option:hover {
+        border-color: var(--primary-color);
+        transform: translateY(-1px);
+    }
+
+    .request-type-option.selected {
+        border-color: var(--primary-color);
+        background: rgba(18, 58, 99, 0.05);
+    }
+
+    .request-type-option input {
+        position: absolute;
+        opacity: 0;
+        pointer-events: none;
+    }
+
+    .request-type-option-content {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+    }
+
+    .request-type-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 38px;
+        height: 38px;
+        border-radius: 8px;
+        background: #eef2f6;
+        color: var(--primary-color);
+        font-size: 18px;
+        flex-shrink: 0;
+    }
+
+    .request-type-option strong {
+        display: block;
+        margin-bottom: 3px;
+        color: #101828;
+        font-size: 13px;
+    }
+
+    .request-type-option small {
+        display: block;
+        color: #667085;
+        font-size: 11px;
+        line-height: 1.4;
+    }
+
+    .authorization-section {
+        display: none;
+        margin-bottom: 20px;
+        padding: 18px;
+        border: 1px solid #f5c76b;
+        border-radius: 10px;
+        background: #fffbeb;
+    }
+
+    .authorization-section.active {
+        display: block;
+    }
+
+    .authorization-warning {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 18px;
+        padding: 14px;
+        border-radius: 8px;
+        background: #fff4d6;
+        color: #7a4d00;
+    }
+
+    .authorization-warning i {
+        font-size: 22px;
+        flex-shrink: 0;
+    }
+
+    .authorization-warning strong {
+        display: block;
+        margin-bottom: 4px;
+    }
+
+    .authorization-fields {
+        display: grid;
+        gap: 14px;
+    }
+
+    @media (max-width: 768px) {
+        .request-type-options {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    @media (max-width: 1024px) {
+        .ticket-layout {
+            grid-template-columns: 280px 1fr;
+            gap: 16px;
+        }
+    }
+
+    @media (max-width: 768px) {
+        .ticket-page { padding: 12px; }
+        .ticket-header { padding: 14px 16px; }
+        .ticket-header h1 { font-size: 20px; }
+
+        .area-section,
+        .card,
+        .ticket-form-card,
+        .quick-actions-section { padding: 12px 14px; }
+
+        .area-buttons { gap: 6px; }
+        .area-btn { font-size: 12px; padding: 6px 12px; }
+
+        .ticket-layout {
+            grid-template-columns: 1fr;
+            gap: 14px;
+        }
+
+        .ticket-sidebar {
+            position: static;
+        }
+
+        .ticket-form-card { padding: 14px 16px; }
+
+        .quick-actions-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+
+        .form-row { grid-template-columns: 1fr; gap: 0; }
+
+        .form-actions {
+            flex-direction: column-reverse;
+            align-items: stretch;
+            gap: 10px;
+        }
+
+        .form-actions .btn {
+            width: 100%;
+            justify-content: center;
+            min-width: 0;
+        }
+
+        .ticket-sidebar .card { padding: 10px 12px; }
+    }
+
+    @media (max-width: 480px) {
+        .quick-actions-grid { grid-template-columns: 1fr; }
+        .area-buttons { flex-direction: column; }
+        .area-btn { justify-content: center; }
+        .ticket-page { padding: 8px; }
+        .ticket-form-card { padding: 10px 12px; }
+        .btn { padding: 8px 16px; font-size: 13px; min-width: 80px; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="ticket-page">
+
+    <!-- ENCABEZADO -->
+    <div class="ticket-header">
+        <h1>
+            <i class="bi bi-ticket-perforated"></i>
+            {% if editing %}Editar Ticket{% else %}Nuevo Ticket{% endif %}
+        </h1>
+        <p class="subtitle">
+            {% if editing %}
+                Actualizá tu solicitud de soporte técnico.
+            {% else %}
+                Seleccioná tu área y hacé clic en un problema para crear un ticket rápido.
+            {% endif %}
+        </p>
+    </div>
+
+    <!-- ÁREA -->
+    {% if not editing and departments %}
+    <div class="area-section">
+        <div class="area-label"><i class="bi bi-tags"></i> Seleccioná tu área</div>
+        <div class="area-buttons">
+            {% for dept in departments %}
+                <button class="area-btn {% if forloop.first %}active{% endif %}" 
+                        data-dept="{{ dept.code }}" 
+                        onclick="seleccionarDepartamento('{{ dept.code }}', '{{ dept.primary_color|default:"#123a63" }}', '{{ dept.name }}')">
+                    <span class="area-color-dot" style="background: {{ dept.primary_color|default:"#123a63" }};"></span>
+                    <span class="area-icon">{% if dept.code == "SUPPORT" %}🖥️{% elif dept.code == "ELECTRICITY" %}⚡{% elif dept.code == "SYSTEMS" %}💻{% elif dept.code == "SAP" %}📦{% elif dept.code == "FUELFACS" %}🛢️{% else %}🏢{% endif %}</span>
+                    {{ dept.name }}
+                </button>
+            {% endfor %}
+        </div>
+        <div class="area-indicator" id="areaIndicator">
+            <span class="area-dot" style="background: {{ departments.first.primary_color|default:"#123a63" }};"></span>
+            <span id="areaIndicatorText">Departamento: <strong>{{ departments.first.name }}</strong></span>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- LAYOUT -->
+    <div class="ticket-layout">
+
+        <!-- SIDEBAR -->
+        <div class="ticket-sidebar">
+            {% if not editing %}
+
+            <!-- ========================================================== -->
+            <!--  ACCESOS RÁPIDOS - DINÁMICOS DESDE LA BASE DE DATOS -->
+            <!-- ========================================================== -->
+
+            <div class="quick-actions-section">
+                
+                    
+                <div class="section-title">
+                    <i class="bi bi-lightning-fill"></i> Problemas comunes
+                </div>
+                <p class="section-subtitle">
+                    Hacé clic en un problema para precargar el ticket automáticamente.
+                </p>
+
+                {% regroup quick_actions by department as action_groups %}
+
+                {% for group in action_groups %}
+                    <div id="qa-{{ group.grouper.code }}" class="qa-group {% if forloop.first %}active{% endif %}">
+                        <div class="quick-actions-grid">
+                            {% if group.grouper.code == "SUPPORT" %}
+                                <button type="button" class="quick-action-btn"
+                                        onclick="precargarCreacionUsuario()">
+                                    <span class="qa-icon"><i class="bi bi-person-plus"></i></span>
+                                    <span class="qa-content">
+                                        <span class="qa-title">Crear nuevo usuario corporativo</span>
+                                        <span class="qa-label">Soporte DTI</span>
+                                    </span>
+                                    <span class="qa-arrow">›</span>
+                                </button>
+                            {% endif %}
+                            {% for action in group.list %}
+                                {% if action.title != "Alta o baja de usuario" %}
+                                <button class="quick-action-btn" onclick="precargarTicket(
+                                    '{{ action.title|escapejs }}',
+                                    '{{ action.description|escapejs }}',
+                                    '{{ action.department.code }}'
+                                )">
+                                    <span class="qa-icon"><i class="bi {{ action.icon|default:'bi-tag' }}"></i></span>
+                                    <span class="qa-content">
+                                        <span class="qa-title">{{ action.title }}</span>
+                                        <span class="qa-label">{{ action.label|default:action.department.name }}</span>
+                                    </span>
+                                    <span class="qa-arrow">›</span>
+                                </button>
+                                {% endif %}
+                            {% endfor %}
+                        </div>
+
+                        {% if group.grouper.code == "SUPPORT" %}
+                            <div id="userCreationInstructions"
+                                 style="display:none; margin-top:14px; padding:16px;
+                                        border:1px solid #93c5fd; border-radius:10px;
+                                        background:#eff6ff; color:#1e3a5f;">
+                                <strong style="display:block; margin-bottom:8px;">
+                                    Formularios obligatorios para crear un usuario
+                                </strong>
+                                <p style="margin:0 0 8px; font-size:13px;">
+                                    Ingrese al enlace institucional y descargue el paquete llamado
+                                    <strong>“Formularios para creación de usuario para Correo y Windows”</strong>.
+                                    El paquete contiene <strong>tres formularios</strong> y deben completarse todos.
+                                </p>
+                                <p style="margin:0 0 10px; font-size:13px;">
+                                    Una vez firmados por las autoridades directivas, escanee los tres
+                                    en un único PDF y adjúntelo al ticket junto con la fotocopia de
+                                    cédula para su aprobación.
+                                </p>
+                                <a href="https://intranet.petropar.gov.py/?page_id=3309"
+                                   target="_blank" rel="noopener noreferrer"
+                                   class="btn-primary"
+                                   style="display:inline-block; padding:8px 12px; text-decoration:none;">
+                                    Abrir formularios en la intranet
+                                </a>
+                            </div>
+                        {% endif %}
+                    </div>
+                {% empty %}
+                    <div class="quick-actions-grid">
+                        <p style="color: #667085; text-align: center; padding: 20px 0; grid-column: 1 / -1;">
+                            <i class="bi bi-info-circle"></i> 
+                            No hay accesos rápidos configurados. 
+                            <a href="/admin/tickets/quickaction/add/" style="color: var(--primary-color); text-decoration: underline;">
+                                Agregar desde el admin
+                            </a>
+                        </p>
+                    </div>
+                {% endfor %}
+            </div>
+
+            <div class="card">
+                <div class="card-title"><i class="bi bi-lightbulb"></i> Recomendaciones</div>
+                <div class="tips-list">
+                    <div class="tip-item">
+                        <span class="tip-icon">📝</span>
+                        <div class="tip-text"><strong>Describí el problema</strong> Indicá qué sucede y si impide trabajar.</div>
+                    </div>
+                    <div class="tip-item">
+                        <span class="tip-icon">🎯</span>
+                        <div class="tip-text"><strong>Prioridad real</strong> Evitá marcar todo como urgente.</div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- ========================================================== -->
+        <!--  COLUMNA DERECHA - FORMULARIO -->
+        <!-- ========================================================== -->
+
+        <div class="ticket-form-card">
+            <div class="form-title">
+                <i class="bi bi-pencil-square"></i>
+                {% if editing %}Actualizar solicitud{% else %}Datos del ticket{% endif %}
+            </div>
+            <div class="form-subtitle">
+                {% if editing %}
+                    Completá el formulario y actualizá tu solicitud.
+                {% else %}
+                    Revisá los datos y hacé clic en "Crear ticket".
+                {% endif %}
+            </div>
+
+            <form method="post" enctype="multipart/form-data" novalidate>
+                {% csrf_token %}
+                <input
+                    type="hidden"
+                    name="request_flow"
+                    id="requestFlow"
+                    value="{{ request_flow|default:'OPERATIONAL' }}">
+                <input
+                    type="hidden"
+                    name="request_kind"
+                    id="requestKind"
+                    value="{{ request_kind|default:'' }}">
+                                           
+
+                <!-- ====================================================== -->
+                <!-- CAMPOS DE SOLICITUD ABM -->
+                <!-- ====================================================== -->
+
+                <div
+                    class="authorization-section"
+                    id="authorizationSection">
+
+                    <div id="userCreationUploadSection" style="display:none;">
+                        <div style="padding:16px; margin-bottom:16px;
+                                    border:1px solid #93c5fd; border-radius:10px;
+                                    background:#eff6ff; color:#1e3a5f;">
+                            <strong style="display:block; margin-bottom:8px;">
+                                Formularios obligatorios para crear un usuario
+                            </strong>
+                            <p style="margin:0 0 8px; font-size:13px;">
+                                Ingrese al enlace institucional y descargue el paquete
+                                <strong>“Formularios para creación de usuario para Correo y Windows”</strong>.
+                                El paquete contiene <strong>tres formularios</strong> y deben completarse todos.
+                            </p>
+                            <p style="margin:0 0 12px; font-size:13px;">
+                                Una vez firmados por las autoridades directivas, escanee los tres
+                                en un único PDF y adjúntelo junto con la fotocopia de cédula.
+                                El ticket se creará solamente cuando ambos archivos sean válidos.
+                            </p>
+                            <a href="https://intranet.petropar.gov.py/?page_id=3309"
+                               target="_blank" rel="noopener noreferrer"
+                               class="btn-primary"
+                               style="display:inline-block; padding:8px 12px;
+                                      margin-bottom:16px; text-decoration:none;">
+                                Abrir formularios en la intranet
+                            </a>
+
+                            <div class="form-group" style="margin-top:8px;">
+                                <label for="{{ authorization_document_form.file.id_for_label }}">
+                                    Tres formularios firmados (PDF único)
+                                    <span class="required">*</span>
+                                </label>
+                                {{ authorization_document_form.file }}
+                                {% if authorization_document_form.file.errors %}
+                                    <div style="color:#dc3545; font-size:12px; margin-top:4px;">
+                                        {{ authorization_document_form.file.errors }}
+                                    </div>
+                                {% endif %}
+                            </div>
+
+                            <div class="form-group" style="margin-top:12px;">
+                                <label for="{{ authorization_document_form.identity_file.id_for_label }}">
+                                    Fotocopia de cédula
+                                    <span class="required">*</span>
+                                </label>
+                                {{ authorization_document_form.identity_file }}
+                                {% if authorization_document_form.identity_file.errors %}
+                                    <div style="color:#dc3545; font-size:12px; margin-top:4px;">
+                                        {{ authorization_document_form.identity_file.errors }}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="authorization-warning" id="accessAuthorizationWarning">
+
+                        <i class="bi bi-exclamation-triangle-fill"></i>
+
+                        <div>
+                            <strong id="authorizationTitle">
+                                Esta solicitud requiere autorización formal
+                            </strong>
+
+                                <span id="authorizationDescription">
+                                    Complete los datos requeridos, obtenga la firma correspondiente
+                                    y adjunte el documento firmado.
+                                </span>
+                        </div>
+
+                    </div>
+
+                    <div class="authorization-fields" id="accessAuthorizationFields">
+
+                        {% for field in access_request_form.visible_fields %}
+
+                            <div
+                                class="form-group"
+                                {% if field.name == "operation" %}
+                                    id="operationFieldGroup"
+                                {% endif %}>
+
+                                <label for="{{ field.id_for_label }}">
+                                    {{ field.label }}
+
+                                    {% if field.field.required %}
+                                        <span class="required">*</span>
+                                    {% endif %}
+                                </label>
+
+                                {{ field }}
+
+                                {% if field.help_text %}
+                                    <small
+                                        style="color:#667085;font-size:11px;
+                                               display:block;margin-top:2px;">
+                                        {{ field.help_text }}
+                                    </small>
+                                {% endif %}
+
+                                {% if field.errors %}
+                                    <div
+                                        style="color:#dc3545;font-size:12px;
+                                               margin-top:2px;">
+                                        {{ field.errors }}
+                                    </div>
+                                {% endif %}
+
+                            </div>
+
+                        {% endfor %}
+
+                    </div>
+
+                </div>
+              
+
+                {% for hidden in form.hidden_fields %}{{ hidden }}{% endfor %}
+
+                {% for field in form.visible_fields %}
+                    {% if field.name == "title" or field.name == "priority" %}
+                        {% if forloop.counter == 1 %}<div class="form-row">{% endif %}
+                        <div class="form-group">
+                            <label for="{{ field.id_for_label }}">
+                                {{ field.label }}
+                                {% if field.field.required %}<span class="required">*</span>{% endif %}
+                            </label>
+                            {{ field }}
+                            {% if field.help_text %}
+                                <small style="color:#667085;font-size:11px;display:block;margin-top:2px;">{{ field.help_text }}</small>
+                            {% endif %}
+                            {% if field.errors %}
+                                <div style="color:#dc3545;font-size:12px;margin-top:2px;">{{ field.errors }}</div>
+                            {% endif %}
+                        </div>
+                        {% if forloop.last %}</div>{% endif %}
+                    {% elif field.name == "category" %}
+                        <!-- OCULTAR CATEGORÍA (ya se selecciona con accesos rápidos) -->
+                        <div style="display: none;">
+                            {{ field }}
+                        </div>
+                    {% else %}
+                        <div class="form-group">
+                            <label for="{{ field.id_for_label }}">
+                                {{ field.label }}
+                                {% if field.field.required %}<span class="required">*</span>{% endif %}
+                            </label>
+                            {{ field }}
+                            {% if field.help_text %}
+                                <small style="color:#667085;font-size:11px;display:block;margin-top:2px;">{{ field.help_text }}</small>
+                            {% endif %}
+                            {% if field.errors %}
+                                <div style="color:#dc3545;font-size:12px;margin-top:2px;">{{ field.errors }}</div>
+                            {% endif %}
+                        </div>
+                    {% endif %}
+                {% endfor %}
+
+                <!-- ========================================================== -->
+                <!--  BOTONES - DEBAJO DE PRIORIDAD, HORIZONTALES A LA DERECHA -->
+                <!-- ========================================================== -->
+
+                <div class="form-actions">
+                    <a href="{% url 'tickets:ticket_list' %}" class="btn btn-outline">
+                        <i class="bi bi-x-circle"></i> Cancelar
+                    </a>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-check2-circle"></i>
+                        {% if editing %}Guardar cambios{% else %}Crear ticket{% endif %}
+                    </button>
+                </div>
+
+            </form>
+        </div>
+
+    </div>
+
+</div>
+
+<!-- CATEGORÍAS OCULTAS -->
+<div style="display: none;">
+    {% for dept in departments %}
+        <div id="cat-{{ dept.code }}" class="categoria-group {% if forloop.first %}active{% endif %}">
+            {% for category in dept.ticket_categories.all %}
+                {% if category.is_active %}
+                    <div class="dept-category-card" onclick="seleccionarCategoria('{{ category.name }}', '{{ dept.primary_color|default:"#123a63" }}', '{{ dept.name }}')">
+                        <span class="dept-badge" style="background: {{ dept.primary_color|default:"#123a63" }};">{{ dept.name }}</span>
+                        <span class="cat-icon"><i class="bi {{ category.icon|default:"bi-tag" }}"></i></span>
+                        <span class="cat-name">{{ category.name }}</span>
+                    </div>
+                {% endif %}
+            {% endfor %}
+        </div>
+    {% endfor %}
+</div>
+
+<script>
+    let departamentoActual = 'SUPPORT';
+    let categoriaSeleccionada = '';
+
+    function seleccionarDepartamento(deptCode, color, nombre) {
+        departamentoActual = deptCode;
+        document.querySelectorAll('.area-btn').forEach(b => b.classList.remove('active'));
+        document.querySelector(`.area-btn[data-dept="${deptCode}"]`).classList.add('active');
+        const dot = document.querySelector('.area-indicator .area-dot');
+        const text = document.getElementById('areaIndicatorText');
+        dot.style.background = color;
+        text.innerHTML = `Departamento: <strong style="color:${color};">${nombre}</strong>`;
+        document.querySelectorAll('.qa-group').forEach(g => g.classList.remove('active'));
+        const qa = document.getElementById(`qa-${deptCode}`);
+        if (qa) qa.classList.add('active');
+        document.querySelectorAll('.categoria-group').forEach(g => g.classList.remove('active'));
+        const cat = document.getElementById(`cat-${deptCode}`);
+        if (cat) cat.classList.add('active');
+        categoriaSeleccionada = '';
+        document.querySelectorAll('.dept-category-card').forEach(c => c.classList.remove('selected'));
+    }
+
+    function seleccionarCategoria(categoria, color, departamento) {
+        categoriaSeleccionada = categoria;
+        document.querySelectorAll('.dept-category-card').forEach(c => c.classList.remove('selected'));
+        document.querySelectorAll('.dept-category-card').forEach(c => {
+            if (c.querySelector('.cat-name')?.textContent === categoria) c.classList.add('selected');
+        });
+        const select = document.querySelector('select[name="category"]');
+        if (select) {
+            for (let opt of select.options) {
+                if (opt.text === categoria) { select.value = opt.value; break; }
+            }
+        }
+    }
+
+        function precargarTicket(titulo, descripcion, deptCode) {
+        const titleInput = document.querySelector(
+            'input[name="title"]'
+        );
+
+        const descInput = document.querySelector(
+            'textarea[name="description"]'
+        );
+
+        if (titleInput) {
+            titleInput.value = titulo;
+            titleInput.dispatchEvent(
+                new Event('input', { bubbles: true })
+            );
+        }
+
+        if (descInput) {
+            descInput.value = descripcion;
+            descInput.dispatchEvent(
+                new Event('input', { bubbles: true })
+            );
+        }
+
+        if (deptCode) {
+            const btn = document.querySelector(
+                `.area-btn[data-dept="${deptCode}"]`
+            );
+
+            if (btn) {
+                const dot = btn.querySelector(
+                    '.area-color-dot'
+                );
+
+                const color =
+                    dot?.style?.background || '#123a63';
+
+                const nombre = btn.textContent.trim();
+
+                seleccionarDepartamento(
+                    deptCode,
+                    color,
+                    nombre
+                );
+            }
+        }
+
+        if (titulo === 'Alta o baja de usuario') {
+            mostrarFormularioAltaBaja();
+
+        } else if (
+            titulo === 'Solicitud de permisos'
+        ) {
+            mostrarFormularioPermisos();
+
+        } else {
+            ocultarFormularioAutorizacion();
+        }
+
+        document.querySelector(
+            '.ticket-form-card'
+        ).scrollIntoView({
+            behavior: 'smooth',
+            block: 'start'
+        });
+    }
+
+            function ocultarFormularioAutorizacion() {
+        const authorizationSection = document.getElementById(
+            'authorizationSection'
+        );
+
+        const requestFlow = document.getElementById(
+            'requestFlow'
+        );
+
+        const operationSelect = document.querySelector(
+            'select[name="access-operation"]'
+        );
+
+        if (authorizationSection) {
+            authorizationSection.classList.remove('active');
+        }
+
+        if (requestFlow) {
+            requestFlow.value = 'OPERATIONAL';
+        }
+
+        const requestKind = document.getElementById('requestKind');
+        if (requestKind) requestKind.value = '';
+
+        if (operationSelect) {
+            operationSelect.disabled = false;
+            operationSelect.value = '';
+        }
+    }
+
+
+    function mostrarFormularioAltaBaja() {
+        const authorizationSection = document.getElementById(
+            'authorizationSection'
+        );
+
+        const requestFlow = document.getElementById(
+            'requestFlow'
+        );
+
+        const title = document.getElementById(
+            'authorizationTitle'
+        );
+
+        const description = document.getElementById(
+            'authorizationDescription'
+        );
+
+        const operationGroup = document.getElementById(
+            'operationFieldGroup'
+        );
+
+        const operationSelect = document.querySelector(
+            'select[name="access-operation"]'
+        );
+
+        if (authorizationSection) {
+            authorizationSection.classList.add('active');
+        }
+
+        const accessWarning = document.getElementById(
+            'accessAuthorizationWarning'
+        );
+        const accessFields = document.getElementById(
+            'accessAuthorizationFields'
+        );
+        const uploadSection = document.getElementById(
+            'userCreationUploadSection'
+        );
+        if (accessWarning) accessWarning.style.display = '';
+        if (accessFields) accessFields.style.display = '';
+        if (uploadSection) uploadSection.style.display = 'none';
+
+        if (requestFlow) {
+            requestFlow.value = 'AUTHORIZATION';
+        }
+
+        const requestKind = document.getElementById('requestKind');
+        if (requestKind) requestKind.value = '';
+
+        if (title) {
+            title.textContent = 'Solicitud de alta o baja de usuario';
+        }
+
+        if (description) {
+            description.textContent =
+                'Seleccione Alta o Baja, complete los datos del funcionario ' +
+                'y adjunte el formulario firmado.';
+        }
+
+        if (operationGroup) {
+            operationGroup.style.display = 'block';
+        }
+
+        if (operationSelect) {
+            operationSelect.disabled = false;
+
+            Array.from(operationSelect.options).forEach(function(option) {
+                const allowedValues = [
+                    '',
+                    'USER_CREATION',
+                    'USER_DELETION'
+                ];
+
+                option.hidden = !allowedValues.includes(option.value);
+            });
+
+            if (
+                operationSelect.value !== 'USER_CREATION' &&
+                operationSelect.value !== 'USER_DELETION'
+            ) {
+                operationSelect.value = '';
+            }
+        }
+    }
+
+
+    function precargarCreacionUsuario() {
+        precargarTicket(
+            'Alta o baja de usuario',
+            'Solicitud de creación de usuario para Correo y Windows. ' +
+            'Se adjuntarán los tres formularios institucionales firmados y la fotocopia de cédula.',
+            'SUPPORT'
+        );
+
+        const operationSelect = document.querySelector(
+            'select[name="access-operation"]'
+        );
+        if (operationSelect) {
+            operationSelect.value = 'USER_CREATION';
+        }
+
+        const systemSelect = document.querySelector(
+            'select[name="access-requested_system"]'
+        );
+        if (systemSelect) {
+            systemSelect.value = 'CORREO_WINDOWS';
+        }
+
+        const requestKind = document.getElementById('requestKind');
+        if (requestKind) {
+            requestKind.value = 'USER_CREATION_DOCUMENTS';
+        }
+
+        const authorizationSection = document.getElementById(
+            'authorizationSection'
+        );
+        if (authorizationSection) {
+            authorizationSection.classList.add('active');
+        }
+
+        const accessWarning = document.getElementById(
+            'accessAuthorizationWarning'
+        );
+        const accessFields = document.getElementById(
+            'accessAuthorizationFields'
+        );
+        const uploadSection = document.getElementById(
+            'userCreationUploadSection'
+        );
+        if (accessWarning) accessWarning.style.display = 'none';
+        if (accessFields) accessFields.style.display = 'none';
+        if (uploadSection) uploadSection.style.display = 'block';
+
+        const titleInput = document.querySelector('input[name="title"]');
+        if (titleInput) {
+            titleInput.value = 'Creación de nuevo usuario corporativo';
+        }
+    }
+
+
+    function mostrarFormularioPermisos() {
+        const authorizationSection = document.getElementById(
+            'authorizationSection'
+        );
+
+        const requestFlow = document.getElementById(
+            'requestFlow'
+        );
+
+        const title = document.getElementById(
+            'authorizationTitle'
+        );
+
+        const description = document.getElementById(
+            'authorizationDescription'
+        );
+
+        const operationGroup = document.getElementById(
+            'operationFieldGroup'
+        );
+
+        const operationSelect = document.querySelector(
+            'select[name="access-operation"]'
+        );
+
+        if (authorizationSection) {
+            authorizationSection.classList.add('active');
+        }
+
+        const accessWarning = document.getElementById(
+            'accessAuthorizationWarning'
+        );
+        const accessFields = document.getElementById(
+            'accessAuthorizationFields'
+        );
+        const uploadSection = document.getElementById(
+            'userCreationUploadSection'
+        );
+        if (accessWarning) accessWarning.style.display = '';
+        if (accessFields) accessFields.style.display = '';
+        if (uploadSection) uploadSection.style.display = 'none';
+
+        if (requestFlow) {
+            requestFlow.value = 'AUTHORIZATION';
+        }
+
+        const requestKind = document.getElementById('requestKind');
+        if (requestKind) requestKind.value = '';
+
+        if (title) {
+            title.textContent =
+                'Solicitud o modificación de permisos';
+        }
+
+        if (description) {
+            description.textContent =
+                'Indique el sistema, los permisos solicitados, la ' +
+                'justificación y adjunte el formulario firmado.';
+        }
+
+        if (operationSelect) {
+            Array.from(operationSelect.options).forEach(function(option) {
+                option.hidden = false;
+            });
+
+            operationSelect.disabled = false;
+            operationSelect.value = 'PERMISSION_CHANGE';
+        }
+
+        if (operationGroup) {
+            operationGroup.style.display = 'none';
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        const first = document.querySelector('.area-btn');
+        if (first) {
+            const code = first.dataset.dept;
+            const dot = first.querySelector('.area-color-dot');
+            const color = dot?.style?.background || '#123a63';
+            const nombre = first.textContent.trim();
+            seleccionarDepartamento(code, color, nombre);
+        }
+        
+        const initialRequestFlow = '{{ request_flow|default:"OPERATIONAL"|escapejs }}';
+        if (initialRequestFlow === 'AUTHORIZATION') {
+            mostrarFormularioAltaBaja();
+        } else {
+            ocultarFormularioAutorizacion();
+        }
+
+        const initialRequestKind = '{{ request_kind|default:""|escapejs }}';
+        if (initialRequestKind === 'USER_CREATION_DOCUMENTS') {
+            const authorizationSection = document.getElementById(
+                'authorizationSection'
+            );
+            const accessWarning = document.getElementById(
+                'accessAuthorizationWarning'
+            );
+            const accessFields = document.getElementById(
+                'accessAuthorizationFields'
+            );
+            const uploadSection = document.getElementById(
+                'userCreationUploadSection'
+            );
+            if (authorizationSection) {
+                authorizationSection.classList.add('active');
+            }
+            if (accessWarning) accessWarning.style.display = 'none';
+            if (accessFields) accessFields.style.display = 'none';
+            if (uploadSection) uploadSection.style.display = 'block';
+        }
+    });
+ 
+</script>
+
+{% endblock %}

@@ -1,0 +1,385 @@
+{% extends "layouts/base.html" %}
+
+{% load static %}
+
+{% block title %}Equipos por modelo | Impresoras{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* ============================================================ */
+    /*  CLICK EN FILA */
+    /* ============================================================ */
+
+    .clickable-row {
+        cursor: pointer;
+        transition: background 0.2s ease;
+    }
+
+    .clickable-row:hover {
+        background: #f1f5f9 !important;
+    }
+
+    .clickable-row .detail-link {
+        pointer-events: none;
+    }
+
+    /* ============================================================ */
+    /*  ESTILOS EXISTENTES */
+    /* ============================================================ */
+
+    .psline-model-page {
+        padding: 24px;
+    }
+
+    .model-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 16px;
+        margin-bottom: 24px;
+        padding: 24px;
+        background: linear-gradient(135deg, #123a63 0%, #1f5d99 100%);
+        border-radius: 18px;
+        color: #fff;
+    }
+
+    .model-header h1 {
+        margin: 0 0 8px;
+        font-size: 30px;
+        font-weight: 800;
+    }
+
+    .model-header p {
+        margin: 0;
+        opacity: 0.92;
+    }
+
+    .model-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 10px 14px;
+        border-radius: 10px;
+        text-decoration: none;
+        background: #ffffff;
+        color: #123a63;
+        font-weight: 700;
+        border: none;
+        cursor: pointer;
+    }
+
+    .model-btn.secondary {
+        background: rgba(255,255,255,0.18);
+        color: #fff;
+        border: 1px solid rgba(255,255,255,0.35);
+    }
+
+    .model-btn.secondary:hover {
+        background: rgba(255,255,255,0.28);
+    }
+
+    .filters-bar {
+        margin-bottom: 20px;
+        padding: 16px;
+        background: #f8fafc;
+        border-radius: 12px;
+        border: 1px solid #e5e7eb;
+    }
+
+    .filters-bar form {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .filters-bar input,
+    .filters-bar select {
+        padding: 8px 10px;
+        border-radius: 8px;
+        border: 1px solid #d1d5db;
+        font-size: 14px;
+        background: white;
+    }
+
+    .filters-bar input:focus,
+    .filters-bar select:focus {
+        outline: none;
+        border-color: #123a63;
+        box-shadow: 0 0 0 3px rgba(18,58,99,0.1);
+    }
+
+    .model-card {
+        padding: 20px;
+        background: #fff;
+        border-radius: 16px;
+        border: 1px solid #e5e7eb;
+        box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+    }
+
+    .table-wrapper {
+        overflow-x: auto;
+    }
+
+    .model-table {
+        width: 100%;
+        min-width: 1100px;
+        border-collapse: collapse;
+    }
+
+    .model-table th,
+    .model-table td {
+        padding: 12px 14px;
+        text-align: left;
+        border-bottom: 1px solid #eef2f7;
+        vertical-align: middle;
+    }
+
+    .model-table th {
+        background: #f8fafc;
+        color: #344054;
+        white-space: nowrap;
+        font-weight: 600;
+        font-size: 13px;
+    }
+
+    .model-table tbody tr {
+        transition: background 0.15s ease;
+    }
+
+    .model-table tbody tr:hover {
+        background: #f9fafb;
+    }
+
+    .detail-link {
+        color: #123a63;
+        font-weight: 700;
+        text-decoration: none;
+        pointer-events: none;
+    }
+
+    .detail-link:hover {
+        text-decoration: underline;
+    }
+
+    .empty-text {
+        color: #667085;
+        margin: 0;
+        padding: 40px 0;
+        text-align: center;
+    }
+
+    .status-chip {
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 700;
+        display: inline-block;
+        white-space: nowrap;
+    }
+
+    .status-chip.success {
+        background: #dcfce7;
+        color: #166534;
+    }
+
+    .status-chip.danger {
+        background: #fee2e2;
+        color: #991b1b;
+    }
+
+    .status-chip.neutral {
+        background: #e5e7eb;
+        color: #374151;
+    }
+
+    @media (max-width: 900px) {
+        .model-header {
+            flex-direction: column;
+        }
+
+        .filters-bar form {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .filters-bar input,
+        .filters-bar select {
+            width: 100%;
+        }
+
+        .model-btn {
+            justify-content: center;
+        }
+    }
+
+    @media (max-width: 768px) {
+        .psline-model-page {
+            padding: 12px;
+        }
+
+        .model-header {
+            padding: 16px;
+        }
+
+        .model-header h1 {
+            font-size: 22px;
+        }
+
+        .model-card {
+            padding: 12px;
+        }
+
+        .model-table th,
+        .model-table td {
+            padding: 8px 10px;
+            font-size: 13px;
+        }
+
+        .model-table {
+            min-width: 800px;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="psline-model-page">
+
+    <!-- ========================================================== -->
+    <!--  ENCABEZADO -->
+    <!-- ========================================================== -->
+
+    <div class="model-header">
+        <div>
+            <h1>Equipos por modelo</h1>
+            <p>
+                {% if brand or model %}
+                    {{ brand|default:"Todas las marcas" }} · {{ model|default:"Todos los modelos" }}
+                {% else %}
+                    Listado general de impresoras
+                {% endif %}
+            </p>
+        </div>
+
+        <div class="model-actions">
+            <a href="/psline/" class="model-btn secondary">Volver a Impresoras</a>
+        </div>
+    </div>
+
+    <!-- ========================================================== -->
+    <!--  FILTROS -->
+    <!-- ========================================================== -->
+
+    <div class="filters-bar">
+        <form method="get">
+            <input type="hidden" name="brand" value="{{ brand }}">
+            <input type="hidden" name="model" value="{{ model }}">
+
+            <select name="status">
+                <option value="">Todos los estados</option>
+                <option value="ONLINE" {% if request.GET.status == "ONLINE" %}selected{% endif %}>En línea</option>
+                <option value="OFFLINE" {% if request.GET.status == "OFFLINE" %}selected{% endif %}>Fuera de línea</option>
+                <option value="UNKNOWN" {% if request.GET.status == "UNKNOWN" %}selected{% endif %}>Desconocido</option>
+            </select>
+
+            <input type="text"
+                   name="search"
+                   placeholder="Buscar código..."
+                   value="{{ request.GET.search|default:'' }}">
+
+            <button type="submit" class="model-btn">
+                Filtrar
+            </button>
+        </form>
+    </div>
+
+    <!-- ========================================================== -->
+    <!--  TABLA DE EQUIPOS CON CLICK EN FILA -->
+    <!-- ========================================================== -->
+
+    <div class="model-card">
+        {% if devices %}
+            <div class="table-wrapper">
+                <table class="model-table">
+                    <thead>
+                        <tr>
+                            <th>Código</th>
+                            <th>Marca</th>
+                            <th>Modelo</th>
+                            <th>Tipo</th>
+                            <th>Estado</th>
+                            <th>IP</th>
+                            <th>Responsable</th>
+                            <th>Ubicación</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for device in devices %}
+                            <tr class="clickable-row"
+                                data-href="/psline/equipo/{{ device.pk }}/">
+                                <td>{{ device.asset.internal_code }}</td>
+                                <td>{{ device.asset.brand }}</td>
+                                <td>{{ device.asset.model }}</td>
+                                <td>{{ device.get_device_type_display }}</td>
+                                <td>
+                                    {% if device.asset.connection_status == "ONLINE" %}
+                                        <span class="status-chip success">En línea</span>
+                                    {% elif device.asset.connection_status == "OFFLINE" %}
+                                        <span class="status-chip danger">Fuera de línea</span>
+                                    {% else %}
+                                        <span class="status-chip neutral">Desconocido</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if device.asset.current_ip %}
+                                        <span class="status-chip neutral">
+                                            {{ device.asset.current_ip }}
+                                        </span>
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if device.responsible_user %}
+                                        {{ device.responsible_user.first_name }}
+                                        {{ device.responsible_user.last_name }}
+                                    {% else %}
+                                        <span style="color:#667085;">Sin asignar</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if device.asset.location %}
+                                        {{ device.asset.location }}
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <p class="empty-text">No hay equipos registrados para este filtro.</p>
+        {% endif %}
+    </div>
+
+</div>
+
+<!-- ========================================================== -->
+<!--  JAVASCRIPT PARA CLICK EN FILA -->
+<!-- ========================================================== -->
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        document.querySelectorAll(".clickable-row").forEach(row => {
+            row.addEventListener("click", function() {
+                window.location.href = this.dataset.href;
+            });
+        });
+    });
+</script>
+
+{% endblock %}

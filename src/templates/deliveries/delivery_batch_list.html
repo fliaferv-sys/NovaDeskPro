@@ -1,0 +1,340 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}
+Actas Agrupadas de Entrega
+{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+
+    <div>
+        <h1 class="page-title">
+            Actas Agrupadas de Entrega
+        </h1>
+
+        <p class="page-subtitle">
+            Gestión de entregas que incluyen uno o varios activos informáticos.
+        </p>
+    </div>
+
+    {% if can_manage_deliveries %}
+        <div class="batch-header-actions">
+            <a
+                href="{% url 'deliveries:custody_movement_list' %}"
+                class="btn-secondary">
+
+                ← Volver a Custodia
+            </a>
+
+        </div>
+    {% endif %}
+
+</div>
+
+<style>
+.batch-header-actions {
+    margin-left: auto;
+}
+</style>
+
+
+<div class="table-card">
+
+    <div class="table-header">
+
+        <div>
+            <h3>📄 Actas registradas</h3>
+
+            <p class="page-subtitle">
+                Cada acta puede contener uno o varios movimientos individuales.
+            </p>
+        </div>
+
+        <span class="attachment-count">
+            {{ batches|length }}
+            acta{{ batches|length|pluralize }}
+        </span>
+
+    </div>
+
+    <div class="table-responsive">
+
+        <table class="table">
+
+            <thead>
+                <tr>
+                    <th>Número</th>
+                    <th>Fecha</th>
+                    <th>Receptor</th>
+                    <th>Responsable de entrega</th>
+                    <th>Destino</th>
+                    <th>Activos</th>
+                    <th>Estado</th>
+                    <th>Acción</th>
+                </tr>
+            </thead>
+
+            <tbody>
+
+                {% for batch in batches %}
+
+                    <tr>
+
+                        <td>
+                            <strong>
+                                <a
+                                    href="{% url 'deliveries:delivery_batch_detail' batch.pk %}"
+                                    class="batch-detail-link">
+
+                                    {{ batch.batch_number }}
+
+                                </a>
+                            </strong>
+                        </td>
+
+                        <td>
+                            {{ batch.delivery_date|date:"d/m/Y H:i" }}
+                        </td>
+
+                        <td>
+                            {% if batch.recipient %}
+                                <strong>
+                                    {{ batch.recipient.first_name }}
+                                    {{ batch.recipient.last_name }}
+                                </strong>
+
+                                {% if batch.recipient_employee_number %}
+                                    <div class="table-secondary-text">
+                                        Legajo: {{ batch.recipient_employee_number }}
+                                    </div>
+                                {% endif %}
+                            {% else %}
+                                <span class="table-muted">
+                                    Sin receptor
+                                </span>
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            {% if batch.delivery_responsible %}
+                                {{ batch.delivery_responsible.first_name }}
+                                {{ batch.delivery_responsible.last_name }}
+                            {% else %}
+                                <span class="table-muted">
+                                    No registrado
+                                </span>
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            <strong>
+                                {{ batch.location|default:"—" }}
+                            </strong>
+
+                            {% if batch.department %}
+                                <div class="table-secondary-text">
+                                    {{ batch.department }}
+                                </div>
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            <span class="asset-count-badge">
+                                {{ batch.asset_count }}
+                                activo{{ batch.asset_count|pluralize }}
+                            </span>
+                        </td>
+
+                        <td>
+                            <span
+                                class="
+                                    batch-status
+                                    batch-status-{{ batch.status|lower }}
+                                ">
+
+                                {{ batch.get_status_display }}
+
+                            </span>
+                        </td>
+
+                        <td>
+                            <a
+                                href="{% url 'deliveries:delivery_batch_detail' batch.pk %}"
+                                class="batch-open-link">
+
+                                👁 Abrir acta
+                            </a>
+                        </td>
+
+                    </tr>
+
+                {% empty %}
+
+                    <tr>
+                        <td colspan="8">
+
+                            <div class="delivery-empty-state">
+
+                                <div class="delivery-empty-icon">
+                                    📄
+                                </div>
+
+                                <p>
+                                    Todavía no existen actas agrupadas de entrega.
+                                </p>
+
+                                {% if can_manage_deliveries %}
+                                    <a
+                                        href="{% url 'inventory:asset_list' %}"
+                                        class="btn-primary">
+
+                                        Seleccionar equipos para el acta
+                                    </a>
+                                {% endif %}
+
+                            </div>
+
+                        </td>
+                    </tr>
+
+                {% endfor %}
+
+            </tbody>
+
+        </table>
+
+    </div>
+
+</div>
+
+
+<style>
+    .batch-header-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
+    .btn-secondary {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 11px 18px;
+        border: 1px solid #d0d5dd;
+        border-radius: 10px;
+        background: #ffffff;
+        color: #344054;
+        font-size: 14px;
+        font-weight: 700;
+        text-decoration: none;
+    }
+
+    .btn-secondary:hover {
+        background: #f9fafb;
+        border-color: #98a2b3;
+    }
+
+    .batch-detail-link {
+        color: #2563eb;
+        font-weight: 700;
+        text-decoration: none;
+    }
+
+    .batch-detail-link:hover {
+        color: #1d4ed8;
+        text-decoration: underline;
+    }
+
+    .batch-open-link {
+        display: inline-flex;
+        align-items: center;
+        color: #2563eb;
+        font-size: 12px;
+        font-weight: 700;
+        text-decoration: none;
+        white-space: nowrap;
+    }
+
+    .batch-open-link:hover {
+        color: #1d4ed8;
+        text-decoration: underline;
+    }
+
+    .asset-count-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: #eef4ff;
+        color: #3538cd;
+        border: 1px solid #c7d7fe;
+        font-size: 12px;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+
+    .batch-status {
+        display: inline-flex;
+        align-items: center;
+        padding: 6px 10px;
+        border: 1px solid transparent;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+
+    .batch-status-draft {
+        background: #f2f4f7;
+        color: #475467;
+        border-color: #d0d5dd;
+    }
+
+    .batch-status-prepared {
+        background: #eff6ff;
+        color: #1d4ed8;
+        border-color: #bfdbfe;
+    }
+
+    .batch-status-pending_signature {
+        background: #fefce8;
+        color: #a16207;
+        border-color: #fde68a;
+    }
+
+    .batch-status-delivered {
+        background: #ecfdf3;
+        color: #027a48;
+        border-color: #a6f4c5;
+    }
+
+    .batch-status-cancelled {
+        background: #fef2f2;
+        color: #b42318;
+        border-color: #fecaca;
+    }
+
+    .table-secondary-text {
+        margin-top: 3px;
+        color: #6b7280;
+        font-size: 12px;
+    }
+
+    .table-muted {
+        color: #6b7280;
+        font-size: 13px;
+    }
+
+    @media (max-width: 900px) {
+        .batch-header-actions {
+            width: 100%;
+        }
+
+        .batch-header-actions a {
+            flex: 1;
+        }
+    }
+</style>
+
+{% endblock %}

@@ -1,0 +1,339 @@
+<!-- ===================================================== -->
+<!-- SIDEBAR INTELIGENTE -->
+<!-- NOVADESK PRO -->
+<!-- ===================================================== -->
+
+<aside
+    class="sidebar"
+    id="appSidebar">
+
+    <div class="sidebar-brand">
+
+    <a
+        href="{% url 'dashboard:executive_dashboard' %}"
+        class="sidebar-brand-link">
+
+        <span class="sidebar-brand-logo">
+
+            <!-- =============================================
+                 LOGO DINÁMICO POR DEPARTAMENTO
+                 ============================================= -->
+
+            {% if department and department.logo %}
+
+                <img
+                    src="{{ department.logo.url }}"
+                    alt="{{ department.name }}"
+                    style="height:40px; width:auto;">
+
+            {% elif institution_settings and institution_settings.effective_compact_logo %}
+
+                <img
+                    src="{{ institution_settings.effective_compact_logo.url }}"
+                    alt="{{ institution_settings.system_short_name }}">
+
+            {% else %}
+
+                <span class="sidebar-brand-fallback">
+                    <i class="bi bi-shield-check"></i>
+                </span>
+
+            {% endif %}
+
+        </span>
+
+        <span class="sidebar-brand-information">
+
+            <strong class="sidebar-brand-name">
+                {% if institution_settings %}
+                    {{ institution_settings.system_short_name }}
+                {% else %}
+                    NovaDesk
+                {% endif %}
+            </strong>
+
+            <small class="sidebar-brand-institution">
+                {% if department %}
+                    {{ department.name }}
+                {% elif institution_settings %}
+                    {{ institution_settings.institution_short_name }}
+                {% else %}
+                    PETROPAR
+                {% endif %}
+            </small>
+
+        </span>
+
+    </a>
+
+</div>
+
+    <button
+        type="button"
+        class="sidebar-toggle-button"
+        id="sidebarToggleButton"
+        aria-label="Contraer menú"
+        aria-expanded="true"
+        title="Contraer menú">
+
+        <i
+            class="bi bi-chevron-left"
+            id="sidebarToggleIcon">
+        </i>
+
+    </button>
+
+    <nav class="sidebar-menu">
+
+        <!-- ============================================= -->
+<!-- PANEL PRINCIPAL -->
+<!-- CLIENTE: NUEVO TICKET -->
+<!-- OTROS ROLES: PANEL PRINCIPAL NORMAL -->
+<!-- ============================================= -->
+
+<a
+    href="{% if request.user.role == 'CLIENT' %}{% url 'tickets:ticket_create' %}{% else %}/{% endif %}"
+    class="sidebar-menu-link"
+    title="Panel principal">
+
+    <i class="bi bi-house-door"></i>
+
+    <span class="sidebar-menu-text">
+        Panel principal
+    </span>
+
+</a>
+
+            
+<!-- ============================================= -->
+<!-- TICKETS / HISTORIAL -->
+<!-- ============================================= -->
+
+<a
+    href="{% url 'tickets:ticket_list' %}"
+    class="sidebar-menu-link"
+    title="{% if request.user.role == 'CLIENT' %}Historial{% else %}Tickets{% endif %}">
+
+    <i class="bi bi-ticket-perforated"></i>
+
+    <span class="sidebar-menu-text">
+        {% if request.user.role == "CLIENT" %}
+            Historial
+        {% else %}
+            Tickets
+        {% endif %}
+    </span>
+
+</a>
+
+       
+
+       
+
+        
+        {% if request.user.role == "CLIENT" %}
+
+    <a
+        href="{% url 'inventory:my_asset_list' %}?v={% now 'U' %}"
+        class="sidebar-menu-link"
+        title="Mis equipos"
+        id="misEquiposLink">
+
+        <i class="bi bi-pc-display"></i>
+
+        <span class="sidebar-menu-text">
+            Mis equipos
+        </span>
+
+    </a>
+
+{% else %}
+
+
+<a
+                href="{% url 'dashboard:executive_dashboard' %}"
+                class="sidebar-menu-link"
+                title="Dashboard">
+
+                <i class="bi bi-speedometer2"></i>
+
+                <span class="sidebar-menu-text">
+                    Dashboard
+                </span>
+
+            </a>
+
+
+
+        <!-- ============================================= -->
+        <!-- BLOQUE CLIENT vs ADMIN/TECNICO -->
+        <!-- ============================================= -->
+
+             <a
+                href="{% url 'user_list' %}"
+                class="sidebar-menu-link"
+                title="Usuarios">
+
+                <i class="bi bi-people"></i>
+
+                <span class="sidebar-menu-text">
+                    Usuarios
+                </span>
+
+            </a>  
+            
+
+            
+            <a
+                href="{% url 'inventory:asset_list' %}"
+                class="sidebar-menu-link"
+                title="Inventario">
+
+                <i class="bi bi-pc-display"></i>
+
+                <span class="sidebar-menu-text">
+                    Inventario
+                </span>
+
+            </a>
+
+            <!-- Impresoras -->
+            <a
+                href="{% url 'printing:dashboard' %}"
+                class="sidebar-menu-link"
+                title="Impresoras">
+
+                <i class="bi bi-printer"></i>
+
+                <span class="sidebar-menu-text">
+                    Impresoras
+                </span>
+            </a>
+
+            
+
+            <a
+                href="{% url 'deliveries:custody_movement_list' %}"
+                class="sidebar-menu-link"
+                title="Entregas y custodia">
+
+                <i class="bi bi-box-seam"></i>
+
+                <span class="sidebar-menu-text">
+                    Custodia
+                </span>
+
+            </a>
+
+            {% if request.user.is_superuser or request.user.role == "ADMIN" or request.user.role == "SUPERVISOR" %}
+
+            <a
+                href="{% url 'monitoring:dashboard' %}"
+                class="sidebar-menu-link"
+                title="Monitoreo">
+
+                <i class="bi bi-display"></i>
+
+                <span class="sidebar-menu-text">
+                    Monitoreo
+                </span>
+            </a>
+
+               
+
+                <a
+                href="{% url 'notifications:notification_list' %}"
+                class="sidebar-menu-link"
+                title="Notificaciones">
+
+                <i class="bi bi-bell"></i>
+
+                <span class="sidebar-menu-text">
+                    Notificaciones
+                </span>
+
+            </a>
+
+        <!-- ============================================= -->
+        <!-- MIS EQUIPOS - CON RECARGA FORZADA -->
+        <!-- ============================================= -->
+
+        <a
+            href="{% url 'inventory:my_asset_list' %}?v={% now 'U' %}"
+            class="sidebar-menu-link"
+            title="Mis equipos"
+            id="misEquiposLink">
+
+            <i class="bi bi-pc-display"></i>
+
+            <span class="sidebar-menu-text">
+                Mis equipos
+            </span>
+
+        </a>
+
+            {% endif %}
+
+            {% if request.user.is_superuser or request.user.role == "ADMIN" %}
+
+                <a
+                    href="/admin/"
+                    class="sidebar-menu-link"
+                    title="Administración">
+
+                    <i class="bi bi-gear"></i>
+
+                    <span class="sidebar-menu-text">
+                        Administración
+                    </span>
+
+                </a>
+
+            {% endif %}
+
+        {% endif %}
+
+    </nav>
+
+</aside>
+
+<button
+    type="button"
+    id="mobileSidebarButton"
+    class="mobile-sidebar-button"
+    aria-label="Abrir menú"
+    aria-expanded="false"
+    title="Abrir menú">
+
+    <i class="bi bi-list"></i>
+
+</button>
+
+<div
+    id="sidebarOverlay"
+    class="sidebar-overlay">
+</div>
+
+<!-- ============================================================ -->
+<!-- SCRIPT PARA FORZAR RECARGA DE "MIS EQUIPOS" -->
+<!-- ============================================================ -->
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const link = document.getElementById('misEquiposLink');
+        if (link) {
+            link.addEventListener('click', function(e) {
+                const url = new URL(link.href);
+                url.searchParams.set('v', Date.now());
+                link.href = url.toString();
+            });
+        }
+
+        if (window.location.pathname.includes('/my-assets/')) {
+            if (!window.location.search.includes('v=')) {
+                const url = new URL(window.location.href);
+                url.searchParams.set('v', Date.now());
+                window.location.replace(url.toString());
+            }
+        }
+    });
+</script>

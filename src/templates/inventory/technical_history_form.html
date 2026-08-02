@@ -1,0 +1,302 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}
+Nueva Intervención Técnica
+{% endblock %}
+
+{% block content %}
+
+<div class="ticket-detail-header">
+
+    <div>
+        <h1 class="page-title">
+            Nueva Intervención Técnica
+        </h1>
+
+        <p class="page-subtitle">
+            {{ asset.internal_code }}
+            · {{ asset.get_asset_type_display }}
+
+            {% if asset.brand or asset.model %}
+                · {{ asset.brand }} {{ asset.model }}
+            {% endif %}
+        </p>
+    </div>
+
+    <div class="ticket-header-actions">
+
+        <a
+            href="{% url 'inventory:asset_detail' asset.pk %}"
+            class="btn-secondary">
+            ← Volver a la ficha
+        </a>
+
+    </div>
+
+</div>
+
+{% if form.non_field_errors %}
+
+    <div class="form-error technical-form-global-error">
+
+        {% for error in form.non_field_errors %}
+            <p>{{ error }}</p>
+        {% endfor %}
+
+    </div>
+
+{% endif %}
+
+<form method="post" class="technical-history-form">
+
+    {% csrf_token %}
+
+    <div class="table-card">
+
+        <h3>📋 Información de la intervención</h3>
+
+        <p class="page-subtitle">
+            Relacione la intervención con un ticket y seleccione
+            el tipo de trabajo realizado.
+        </p>
+
+        <div class="form-grid technical-form-grid">
+
+            <div class="form-group">
+
+                <label for="{{ form.ticket.id_for_label }}">
+                    Ticket relacionado
+                </label>
+
+                {{ form.ticket }}
+
+                {% if form.ticket.errors %}
+                    <div class="form-error">
+                        {% for error in form.ticket.errors %}
+                            <p>{{ error }}</p>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+
+                <small class="form-text">
+                    Este campo es opcional.
+                </small>
+
+            </div>
+
+            <div class="form-group">
+
+                <label for="{{ form.intervention_type.id_for_label }}">
+                    Tipo de intervención
+                </label>
+
+                {{ form.intervention_type }}
+
+                {% if form.intervention_type.errors %}
+                    <div class="form-error">
+                        {% for error in form.intervention_type.errors %}
+                            <p>{{ error }}</p>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+
+            </div>
+
+            <div class="form-group">
+
+                <label for="{{ form.technician.id_for_label }}">
+                    Técnico responsable
+                </label>
+
+                {{ form.technician }}
+
+                {% if form.technician.errors %}
+                    <div class="form-error">
+                        {% for error in form.technician.errors %}
+                            <p>{{ error }}</p>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+
+            </div>
+
+            <div class="form-group">
+
+                <label for="{{ form.intervention_date.id_for_label }}">
+                    Fecha y hora
+                </label>
+
+                {{ form.intervention_date }}
+
+                {% if form.intervention_date.errors %}
+                    <div class="form-error">
+                        {% for error in form.intervention_date.errors %}
+                            <p>{{ error }}</p>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+
+            </div>
+
+        </div>
+
+    </div>
+
+    <div class="table-card">
+
+        <h3>🔧 Diagnóstico y trabajo realizado</h3>
+
+        <div class="technical-form-stack">
+
+            <div class="form-group">
+
+                <label for="{{ form.diagnosis.id_for_label }}">
+                    Diagnóstico
+                </label>
+
+                {{ form.diagnosis }}
+
+                {% if form.diagnosis.errors %}
+                    <div class="form-error">
+                        {% for error in form.diagnosis.errors %}
+                            <p>{{ error }}</p>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+
+            </div>
+
+            <div class="form-group">
+
+                <label for="{{ form.action_taken.id_for_label }}">
+                    Trabajo realizado
+                </label>
+
+                {{ form.action_taken }}
+
+                {% if form.action_taken.errors %}
+                    <div class="form-error">
+                        {% for error in form.action_taken.errors %}
+                            <p>{{ error }}</p>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+
+            </div>
+
+            <div class="form-group">
+
+                <label for="{{ form.components_replaced.id_for_label }}">
+                    Componentes reemplazados
+                </label>
+
+                {{ form.components_replaced }}
+
+                {% if form.components_replaced.errors %}
+                    <div class="form-error">
+                        {% for error in form.components_replaced.errors %}
+                            <p>{{ error }}</p>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+
+                <small class="form-text">
+                    Registre los componentes, repuestos o accesorios cambiados.
+                </small>
+
+            </div>
+
+        </div>
+
+    </div>
+
+    <div class="table-card">
+
+        <h3>⏱ Tiempo y costo</h3>
+
+        <div class="form-grid technical-form-grid">
+
+            <div class="form-group">
+
+                <label for="{{ form.duration_minutes.id_for_label }}">
+                    Duración en minutos
+                </label>
+
+                {{ form.duration_minutes }}
+
+                {% if form.duration_minutes.errors %}
+                    <div class="form-error">
+                        {% for error in form.duration_minutes.errors %}
+                            <p>{{ error }}</p>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+
+            </div>
+
+            <div class="form-group">
+
+                <label for="{{ form.cost.id_for_label }}">
+                    Costo de la intervención
+                </label>
+
+                {{ form.cost }}
+
+                {% if form.cost.errors %}
+                    <div class="form-error">
+                        {% for error in form.cost.errors %}
+                            <p>{{ error }}</p>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+
+                <small class="form-text">
+                    Ingrese el monto sin separadores de miles.
+                    Ejemplo: 250000.
+                </small>
+
+            </div>
+
+        </div>
+
+    </div>
+
+    <div class="table-card">
+
+        <h3>📝 Observaciones adicionales</h3>
+
+        <div class="form-group">
+
+            {{ form.notes }}
+
+            {% if form.notes.errors %}
+                <div class="form-error">
+                    {% for error in form.notes.errors %}
+                        <p>{{ error }}</p>
+                    {% endfor %}
+                </div>
+            {% endif %}
+
+        </div>
+
+    </div>
+
+    <div class="technical-form-actions">
+
+        <button
+            type="submit"
+            class="btn-primary">
+            💾 Guardar intervención
+        </button>
+
+        <a
+            href="{% url 'inventory:asset_detail' asset.pk %}"
+            class="btn-secondary">
+            Cancelar
+        </a>
+
+    </div>
+
+</form>
+
+{% endblock %}

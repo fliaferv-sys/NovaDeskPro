@@ -1,0 +1,74 @@
+<!-- ======================================================
+     USUARIO ASIGNADO
+     ====================================================== -->
+
+     <div class="table-card">
+
+        <h3>👤 Usuario asignado</h3>
+    
+        {% if asset.assigned_user %}
+    
+            <div class="requester-box compact">
+    
+                <div>
+    
+                    {% if asset.assigned_user.profile_image %}
+    
+                        <img
+                            src="{{ asset.assigned_user.profile_image.url }}"
+                            class="profile-img"
+                            alt="Imagen del usuario">
+    
+                    {% else %}
+    
+                        <div class="profile-placeholder">
+                            {{ asset.assigned_user.first_name|first }}{{ asset.assigned_user.last_name|first }}
+                        </div>
+    
+                    {% endif %}
+    
+                </div>
+    
+                <div>
+    
+                    <p>
+                        <strong>
+                            {{ asset.assigned_user.first_name }}
+                            {{ asset.assigned_user.last_name }}
+                        </strong>
+                    </p>
+    
+                    <p>{{ asset.assigned_user.email }}</p>
+    
+                    <p>
+                        📞 {{ asset.assigned_user.phone|default:"No registrado" }}
+                    </p>
+    
+                    <p>
+                        🏢
+                        {% if asset.department %}
+                            {{ asset.department }}
+                        {% elif asset.assigned_user.department %}
+                            {{ asset.assigned_user.department }}
+                        {% else %}
+                            No registrado
+                        {% endif %}
+                    </p>
+    
+                    <p>
+                        📍 {{ asset.location|default:"No registrada" }}
+                    </p>
+    
+                </div>
+    
+            </div>
+    
+        {% else %}
+    
+            <p class="page-subtitle">
+                Este equipo todavía no tiene un usuario asignado.
+            </p>
+    
+        {% endif %}
+    
+    </div>

@@ -1,0 +1,51 @@
+<!-- ======================================================
+     ENCABEZADO DEL ACTIVO
+     ====================================================== -->
+
+     <div class="ticket-detail-header">
+
+        <div>
+            <h1 class="page-title">
+                {{ asset.internal_code }}
+            </h1>
+    
+            <p class="page-subtitle">
+                {{ asset.get_asset_type_display }}
+    
+                {% if asset.brand or asset.model %}
+                    · {{ asset.brand }} {{ asset.model }}
+                {% endif %}
+            </p>
+        </div>
+    
+        <div class="ticket-header-actions">
+    
+            <a
+                href="{% url 'inventory:asset_list' %}"
+                class="btn-secondary">
+                ← Volver
+            </a>
+    
+            {% if request.user.role == "ADMIN" or request.user.role == "SUPERVISOR" or request.user.is_superuser %}
+    
+                <a
+                    href="{% url 'inventory:asset_update' asset.pk %}"
+                    class="btn-small">
+                    ✏ Editar equipo
+                </a>
+    
+            {% endif %}
+    
+            {% if can_register_intervention %}
+    
+                <a
+                    href="{% url 'inventory:technical_history_create' asset.pk %}"
+                    class="btn-primary">
+                    🔧 Nueva intervención
+                </a>
+    
+            {% endif %}
+    
+        </div>
+    
+    </div>

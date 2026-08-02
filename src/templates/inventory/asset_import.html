@@ -1,0 +1,432 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}
+Importación Masiva de Activos
+{% endblock %}
+
+{% block content %}
+
+<div class="ticket-detail-header">
+
+    <div>
+        <h1 class="page-title">
+            Importación Masiva de Activos
+        </h1>
+
+        <p class="page-subtitle">
+            Cargue múltiples equipos desde un archivo Excel.
+        </p>
+    </div>
+
+    <div class="ticket-header-actions">
+
+        <a
+            href="{% url 'inventory:asset_list' %}"
+            class="btn-secondary">
+            ← Volver al inventario
+        </a>
+
+        <a
+            href="{% url 'inventory:asset_import_template' %}"
+            class="btn-primary">
+            📥 Descargar plantilla
+        </a>
+
+    </div>
+
+</div>
+
+{% if preview_result and preview_result.valid_rows > 0 %}
+    <div class="table-card" style="border:2px solid #16a34a; background:#f0fdf4;">
+        <h3 style="color:#166534; margin-top:0;">✅ Archivo validado</h3>
+        <p>
+            {{ preview_result.valid_rows }} fila{{ preview_result.valid_rows|pluralize }}
+            lista{{ preview_result.valid_rows|pluralize }} para incorporar al inventario.
+        </p>
+        <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="import">
+            <button type="submit" class="btn-primary" style="width:100%;">
+                📥 Confirmar e importar {{ preview_result.valid_rows }} equipos
+            </button>
+        </form>
+    </div>
+{% endif %}
+
+
+<!-- ======================================================
+     MENSAJES
+     ====================================================== -->
+
+{% if messages %}
+
+    <div class="import-message-list">
+
+        {% for message in messages %}
+
+            <div class="import-message import-message-{{ message.tags }}">
+                {{ message }}
+            </div>
+
+        {% endfor %}
+
+    </div>
+
+{% endif %}
+
+
+<!-- ======================================================
+     SUBIR ARCHIVO
+     ====================================================== -->
+
+<div class="table-card">
+
+    <h3>📤 Seleccionar archivo Excel</h3>
+
+    <p class="page-subtitle">
+        Utilice la plantilla oficial para evitar errores de columnas
+        o formatos.
+    </p>
+
+    <form
+        method="post"
+        enctype="multipart/form-data"
+        class="asset-import-form">
+
+        {% csrf_token %}
+
+        <div class="form-group">
+
+            <label for="{{ form.excel_file.id_for_label }}">
+                Archivo Excel
+            </label>
+
+            {{ form.excel_file }}
+
+            {% if form.excel_file.help_text %}
+
+                <small class="form-text">
+                    {{ form.excel_file.help_text }}
+                </small>
+
+            {% endif %}
+
+            {% if form.excel_file.errors %}
+
+                <div class="form-error">
+
+                    {% for error in form.excel_file.errors %}
+                        <p>{{ error }}</p>
+                    {% endfor %}
+
+                </div>
+
+            {% endif %}
+
+        </div>
+
+        <div class="asset-import-actions">
+
+            <button
+                type="submit"
+                class="btn-primary">
+
+                👀 Generar vista previa
+
+            </button>
+
+        </div>
+
+    </form>
+
+</div>
+
+
+<!-- ======================================================
+     INSTRUCCIONES
+     ====================================================== -->
+
+<div class="table-card">
+
+    <h3>ℹ️ Instrucciones</h3>
+
+    <div class="import-instructions">
+
+        <div>
+            <strong>1. Descargue la plantilla</strong>
+
+            <p>
+                Use el archivo generado por NovaDesk Pro.
+            </p>
+        </div>
+
+        <div>
+            <strong>2. Complete los datos</strong>
+
+            <p>
+                No cambie los nombres de las columnas.
+            </p>
+        </div>
+
+        <div>
+            <strong>3. Cargue el archivo</strong>
+
+            <p>
+                El sistema validará cada fila antes de importar.
+            </p>
+        </div>
+
+        <div>
+            <strong>4. Revise la vista previa</strong>
+
+            <p>
+                Las filas con errores serán omitidas.
+            </p>
+        </div>
+
+    </div>
+
+</div>
+
+
+<!-- ======================================================
+     RESULTADO DE IMPORTACIÓN
+     ====================================================== -->
+
+{% if import_result %}
+
+    <div class="table-card">
+
+        <div class="table-header">
+
+            <div>
+                <h3>✅ Resultado de la importación</h3>
+
+                <p class="page-subtitle">
+                    Resumen final del archivo procesado.
+                </p>
+            </div>
+
+        </div>
+
+        <div class="import-summary-grid">
+
+            <div class="import-summary-card">
+                <span>Total procesado</span>
+                <strong>{{ import_result.total_rows }}</strong>
+            </div>
+
+            <div class="import-summary-card import-summary-success">
+                <span>Importados</span>
+                <strong>{{ import_result.imported_rows }}</strong>
+            </div>
+
+            <div class="import-summary-card import-summary-error">
+                <span>Omitidos</span>
+                <strong>{{ import_result.skipped_rows }}</strong>
+            </div>
+
+        </div>
+
+        <div class="asset-import-actions">
+
+            <a
+                href="{% url 'inventory:asset_list' %}"
+                class="btn-primary">
+
+                Ver inventario
+
+            </a>
+
+        </div>
+
+    </div>
+
+{% endif %}
+
+
+<!-- ======================================================
+     VISTA PREVIA
+     ====================================================== -->
+
+{% if preview_result %}
+
+    <div class="table-card">
+
+        <div class="table-header">
+
+            <div>
+                <h3>👀 Vista previa</h3>
+
+                <p class="page-subtitle">
+                    Revise los datos antes de confirmar la importación.
+                </p>
+            </div>
+
+            <span class="attachment-count">
+                {{ preview_result.total_rows }}
+                fila{{ preview_result.total_rows|pluralize }}
+            </span>
+
+        </div>
+
+        <div class="import-summary-grid">
+
+            <div class="import-summary-card">
+                <span>Total de filas</span>
+                <strong>{{ preview_result.total_rows }}</strong>
+            </div>
+
+            <div class="import-summary-card import-summary-success">
+                <span>Filas válidas</span>
+                <strong>{{ preview_result.valid_rows }}</strong>
+            </div>
+
+            <div class="import-summary-card import-summary-error">
+                <span>Filas con errores</span>
+                <strong>{{ preview_result.invalid_rows }}</strong>
+            </div>
+
+        </div>
+
+
+        <div class="table-responsive import-preview-table-wrapper">
+
+            <table class="table import-preview-table">
+
+                <thead>
+
+                    <tr>
+                        <th>Fila</th>
+                        <th>Estado</th>
+                        <th>Código interno</th>
+                        <th>Tipo</th>
+                        <th>Marca</th>
+                        <th>Modelo</th>
+                        <th>Serie</th>
+                        <th>Usuario</th>
+                        <th>Errores</th>
+                    </tr>
+
+                </thead>
+
+                <tbody>
+
+                    {% for row in preview_result.rows %}
+
+                        <tr class="{% if row.is_valid %}import-row-valid{% else %}import-row-invalid{% endif %}">
+
+                            <td>
+                                {{ row.row_number }}
+                            </td>
+
+                            <td>
+
+                                {% if row.is_valid %}
+
+                                    <span class="import-status import-status-valid">
+                                        Válida
+                                    </span>
+
+                                {% else %}
+
+                                    <span class="import-status import-status-invalid">
+                                        Error
+                                    </span>
+
+                                {% endif %}
+
+                            </td>
+
+                            <td>
+                                {{ row.data.internal_code|default:"—" }}
+                            </td>
+
+                            <td>
+                                {{ row.data.asset_type|default:"—" }}
+                            </td>
+
+                            <td>
+                                {{ row.data.brand|default:"—" }}
+                            </td>
+
+                            <td>
+                                {{ row.data.model|default:"—" }}
+                            </td>
+
+                            <td>
+                                {{ row.data.serial_number|default:"—" }}
+                            </td>
+
+                            <td>
+
+                                {% if row.data.assigned_user %}
+
+                                    {{ row.data.assigned_user.first_name }}
+                                    {{ row.data.assigned_user.last_name }}
+
+                                {% else %}
+
+                                    —
+
+                                {% endif %}
+
+                            </td>
+
+                            <td>
+
+                                {% if row.errors %}
+
+                                    <ul class="import-error-list">
+
+                                        {% for error in row.errors %}
+                                            <li>{{ error }}</li>
+                                        {% endfor %}
+
+                                    </ul>
+
+                                {% else %}
+
+                                    —
+
+                                {% endif %}
+
+                            </td>
+
+                        </tr>
+
+                    {% empty %}
+
+                        <tr>
+
+                            <td colspan="9">
+
+                                <div class="delivery-empty-state">
+
+                                    <div class="delivery-empty-icon">
+                                        📊
+                                    </div>
+
+                                    <p>
+                                        No hay filas para mostrar.
+                                    </p>
+
+                                </div>
+
+                            </td>
+
+                        </tr>
+
+                    {% endfor %}
+
+                </tbody>
+
+            </table>
+
+        </div>
+
+    </div>
+
+{% endif %}
+
+{% endblock %}

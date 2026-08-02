@@ -1,0 +1,65 @@
+<!-- ======================================================
+     DATOS GENERALES
+     ====================================================== -->
+
+<div class="table-card">
+
+    <h3>📋 Datos generales</h3>
+
+    <div class="asset-info-grid">
+
+        <div class="asset-info-item">
+            <span>Código interno</span>
+            <strong>{{ asset.internal_code }}</strong>
+        </div>
+
+        <div class="asset-info-item">
+            <span>Código patrimonial</span>
+            <strong>
+                {{ asset.patrimonial_code|default:"No registrado" }}
+            </strong>
+        </div>
+
+        <div class="asset-info-item">
+            <span>Tipo de equipo</span>
+            <strong>
+                {{ asset.get_asset_type_display }}
+            </strong>
+        </div>
+
+        <div class="asset-info-item">
+            <span>Marca</span>
+            <strong>
+                {{ asset.brand|default:"No registrada" }}
+            </strong>
+        </div>
+
+        <div class="asset-info-item">
+            <span>Modelo</span>
+            <strong>
+                {{ asset.model|default:"No registrado" }}
+            </strong>
+        </div>
+
+        <!-- 🔥 AQUÍ ESTÁ EL LOTE (CLAVE) -->
+        <div class="asset-info-item">
+            <span>Lote de adquisición</span>
+            <strong>
+                {% if asset.acquisition_batch %}
+                    {{ asset.acquisition_batch.code }}
+                {% else %}
+                    No asignado
+                {% endif %}
+            </strong>
+        </div>
+
+        <div class="asset-info-item">
+            <span>Número de serie</span>
+            <strong>
+                {{ asset.serial_number|default:"No registrado" }}
+            </strong>
+        </div>
+
+    </div>
+
+</div>

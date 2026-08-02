@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="NovaDesk Pro">
+  <rect width="512" height="512" rx="112" fill="#0a1a3a"/>
+  <path d="M256 68 410 126v112c0 99-63 170-154 206-91-36-154-107-154-206V126l154-58Z" fill="#fff"/>
+  <path d="M256 116 365 157v81c0 70-42 123-109 155-67-32-109-85-109-155v-81l109-41Z" fill="#eaf2ff"/>
+  <path d="m196 253 39 39 83-91" fill="none" stroke="#f68b1e" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

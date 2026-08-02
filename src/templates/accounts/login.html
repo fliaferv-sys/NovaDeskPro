@@ -1,0 +1,177 @@
+{% load static %}
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>Iniciar sesión | NovaDesk Pro</title>
+
+    <link
+        rel="stylesheet"
+        href="{% static 'css/login.css' %}?v=1.4.0"
+    >
+</head>
+
+<body>
+
+    <main class="login-page">
+
+        <!-- LOGOTIPO -->
+        <div class="brand-container">
+
+           {% if institution_settings and institution_settings.login_image %}
+
+                <img
+                    src="{{ institution_settings.login_image.url }}"
+                    alt="{{ institution_settings.institution_short_name }}"
+                    class="brand-logo"
+                >
+
+            {% else %}
+
+               <img
+                  src="{% static 'img/petropar_logo.png' %}"
+                  alt="Petropar Nos Une"
+                  class="brand-logo"
+                >
+
+            {% endif %}
+
+        </div>
+
+        <!-- PANEL DE INICIO DE SESIÓN -->
+        <section class="login-panel">
+
+            <form method="post" class="login-form">
+
+                {% csrf_token %}
+
+                {% if form.non_field_errors %}
+                    <div class="login-error">
+                        Usuario o contraseña incorrectos.
+                    </div>
+                {% endif %}
+
+                <!-- USUARIO -->
+                <div class="form-group">
+
+                    <label for="id_username">
+                        USUARIO
+                        <span>(e.g., Juan Perez)</span>
+                    </label>
+
+                    <input
+                        type="text"
+                        name="username"
+                        id="id_username"
+                        placeholder="Ingrese su ID de usuario"
+                        autocomplete="username"
+                        required
+                        autofocus
+                    >
+
+                </div>
+
+                <!-- CONTRASEÑA -->
+                <div class="form-group">
+
+                    <label for="id_password">
+                        CONTRASEÑA
+                    </label>
+
+                    <div class="password-container">
+
+                        <input
+                            type="password"
+                            name="password"
+                            id="id_password"
+                            placeholder="********"
+                            autocomplete="current-password"
+                            required
+                        >
+
+                        <button
+                            type="button"
+                            class="password-toggle"
+                            id="password-toggle"
+                            aria-label="Mostrar contraseña"
+                        >
+
+                            <svg
+                                id="eye-icon"
+                                viewBox="0 0 24 24"
+                                aria-hidden="true"
+                            >
+                                <path
+                                    d="M12 5C6.5 5 2.1 8.4 1 12c1.1 3.6 5.5 7 11 7s9.9-3.4 11-7c-1.1-3.6-5.5-7-11-7zm0 11.5A4.5 4.5 0 1 1 12 7a4.5 4.5 0 0 1 0 9.5zm0-2.2A2.3 2.3 0 1 0 12 9.7a2.3 2.3 0 0 0 0 4.6z"
+                                />
+                            </svg>
+
+                        </button>
+
+                    </div>
+
+                </div>
+
+                <!-- BOTÓN -->
+                <button type="submit" class="login-button">
+                    INGRESAR
+                </button>
+
+                {% if next %}
+                    <input type="hidden" name="next" value="{{ next }}">
+                {% endif %}
+
+            </form>
+
+            <!-- ENLACES INFERIORES -->
+            <div class="login-links">
+
+                <a href="#">
+                    Olvidé mi contraseña
+                </a>
+
+                <a href="#">
+                    Crear una cuenta
+                </a>
+
+            </div>
+
+        </section>
+
+    </main>
+
+    <script>
+        const passwordInput = document.getElementById("id_password");
+        const passwordToggle = document.getElementById("password-toggle");
+
+        passwordToggle.addEventListener("click", function () {
+
+            const isPassword =
+                passwordInput.type === "password";
+
+            passwordInput.type =
+                isPassword ? "text" : "password";
+
+            passwordToggle.classList.toggle(
+                "password-visible",
+                isPassword
+            );
+
+            passwordToggle.setAttribute(
+                "aria-label",
+                isPassword
+                    ? "Ocultar contraseña"
+                    : "Mostrar contraseña"
+            );
+        });
+    </script>
+
+</body>
+</html>

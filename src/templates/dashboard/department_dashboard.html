@@ -1,0 +1,405 @@
+{% extends "layouts/base.html" %}
+
+{% load static %}
+
+{% block title %}Dashboard - {{ department.name|default:"Mi área" }} | NovaDesk Pro{% endblock %}
+
+{% block content %}
+
+<div class="department-dashboard">
+
+    <!-- ========================================================== -->
+    <!--  ENCABEZADO CON COLOR DEL DEPARTAMENTO -->
+    <!-- ========================================================== -->
+
+    <div class="dept-header" style="border-left: 6px solid {{ department.primary_color|default:'#123a63' }};">
+        <div>
+            <h1>
+                {% if department and department.logo %}
+                    <img src="{{ department.logo.url }}" alt="{{ department.name }}" style="height:40px; margin-right:12px;">
+                {% endif %}
+                Dashboard - {{ department.name|default:"Mi área" }}
+            </h1>
+            <p class="page-subtitle">
+                Resumen de tickets y métricas de tu departamento.
+            </p>
+        </div>
+        <div class="dept-header-actions">
+            <a href="{% url 'tickets:ticket_create' %}" class="btn btn-primary">
+                <i class="bi bi-plus-circle"></i> Nuevo ticket
+            </a>
+        </div>
+    </div>
+
+    <!-- ========================================================== -->
+    <!--  ESTADÍSTICAS RÁPIDAS -->
+    <!-- ========================================================== -->
+
+    <div class="dept-stats-grid">
+        <div class="stat-card" style="border-left: 4px solid {{ department.primary_color|default:'#123a63' }};">
+            <span>Total de tickets</span>
+            <strong>{{ total }}</strong>
+            <div class="stat-label">Todas las solicitudes</div>
+        </div>
+        <div class="stat-card stat-open" style="border-left: 4px solid #0d6efd;">
+            <span>Abiertos</span>
+            <strong>{{ open }}</strong>
+            <div class="stat-label">Pendientes de atención</div>
+        </div>
+        <div class="stat-card stat-progress" style="border-left: 4px solid #ffc107;">
+            <span>En proceso</span>
+            <strong>{{ in_progress }}</strong>
+            <div class="stat-label">Siendo atendidos</div>
+        </div>
+        <div class="stat-card stat-resolved" style="border-left: 4px solid #198754;">
+            <span>Resueltos</span>
+            <strong>{{ resolved }}</strong>
+            <div class="stat-label">Solucionados</div>
+        </div>
+        <div class="stat-card stat-closed" style="border-left: 4px solid #6c757d;">
+            <span>Cerrados</span>
+            <strong>{{ closed }}</strong>
+            <div class="stat-label">Finalizados</div>
+        </div>
+    </div>
+
+    <!-- ========================================================== -->
+    <!--  TICKETS RECIENTES CON ALERTAS SLA -->
+    <!-- ========================================================== -->
+
+    <div class="table-card">
+        <div class="table-header">
+            <div>
+                <h3><i class="bi bi-clock-history"></i> Tickets recientes</h3>
+                <p class="page-subtitle">Últimos tickets de tu departamento con estado de SLA.</p>
+            </div>
+            <a href="{% url 'tickets:ticket_list' %}" class="btn btn-sm btn-outline">
+                Ver todos <i class="bi bi-arrow-right"></i>
+            </a>
+        </div>
+
+        <div class="table-container">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Número</th>
+                        <th>Título</th>
+                        <th>Solicitante</th>
+                        <th>Estado</th>
+                        <th>Prioridad</th>
+                        <th>SLA</th>
+                        <th>Fecha</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for ticket in recent_tickets %}
+                        <tr>
+                            <td><strong>{{ ticket.ticket_number }}</strong></td>
+                            <td>{{ ticket.title|truncatechars:40 }}</td>
+                            <td>{{ ticket.requester.get_full_name|default:ticket.requester.username }}</td>
+                            <td>
+                                <span class="badge badge-status-{{ ticket.status|lower }}">
+                                    {{ ticket.get_status_display }}
+                                </span>
+                            </td>
+                            <td>
+                                <span class="badge badge-priority-{{ ticket.priority|lower }}">
+                                    {{ ticket.get_priority_display }}
+                                </span>
+                            </td>
+                            <td>
+                                {% if ticket.due_date %}
+                                    {% if ticket.due_date < now %}
+                                        <span class="badge badge-sla-danger">🔴 Vencido</span>
+                                    {% elif ticket.due_date < now|add:'4h' %}
+                                        <span class="badge badge-sla-warning">🟡 Por vencer</span>
+                                    {% else %}
+                                        <span class="badge badge-sla-success">🟢 En tiempo</span>
+                                    {% endif %}
+                                {% else %}
+                                    <span class="badge badge-secondary">Sin SLA</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ ticket.created_at|date:"d/m/Y H:i" }}</td>
+                            <td>
+                                <a href="{% url 'tickets:ticket_detail' ticket.pk %}" class="btn btn-sm btn-outline">
+                                    <i class="bi bi-eye"></i>
+                                </a>
+                            </td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="8" class="empty-table">
+                                <i class="bi bi-inbox" style="font-size:32px;display:block;margin-bottom:8px;color:#d0d5dd;"></i>
+                                <p style="margin:0;color:#667085;">No hay tickets en este departamento.</p>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    .department-dashboard {
+        padding: 24px;
+        background: #f4f6f9;
+        min-height: 100vh;
+    }
+
+    .dept-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 16px;
+        margin-bottom: 24px;
+        padding: 20px 24px;
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+        border-left: 6px solid #123a63;
+    }
+
+    .dept-header h1 {
+        font-size: 24px;
+        font-weight: 700;
+        color: #101828;
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .dept-header .page-subtitle {
+        color: #667085;
+        font-size: 14px;
+        margin: 4px 0 0;
+    }
+
+    .dept-header-actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+
+    .dept-stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 16px;
+        margin-bottom: 24px;
+    }
+
+    .stat-card {
+        background: white;
+        border-radius: 12px;
+        padding: 16px 20px;
+        border: 1px solid #eaecf0;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+        border-left: 4px solid #123a63;
+    }
+
+    .stat-card span {
+        display: block;
+        font-size: 13px;
+        color: #667085;
+    }
+
+    .stat-card strong {
+        font-size: 28px;
+        color: #101828;
+    }
+
+    .stat-card .stat-label {
+        font-size: 13px;
+        color: #667085;
+        margin-top: 2px;
+    }
+
+    .stat-open { border-left-color: #0d6efd !important; }
+    .stat-progress { border-left-color: #ffc107 !important; }
+    .stat-resolved { border-left-color: #198754 !important; }
+    .stat-closed { border-left-color: #6c757d !important; }
+
+    .table-card {
+        background: white;
+        border-radius: 12px;
+        border: 1px solid #eaecf0;
+        padding: 20px 24px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+    }
+
+    .table-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-bottom: 16px;
+    }
+
+    .table-header h3 {
+        font-size: 16px;
+        font-weight: 600;
+        color: #101828;
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .table-header h3 i {
+        color: #123a63;
+    }
+
+    .table-header .page-subtitle {
+        color: #667085;
+        font-size: 13px;
+        margin: 2px 0 0;
+    }
+
+    .table-container {
+        overflow-x: auto;
+    }
+
+    .table {
+        width: 100%;
+        border-collapse: collapse;
+        min-width: 800px;
+    }
+
+    .table th {
+        padding: 10px 14px;
+        text-align: left;
+        font-size: 12px;
+        text-transform: uppercase;
+        color: #344054;
+        font-weight: 600;
+        border-bottom: 1px solid #eaecf0;
+        background: #f8fafc;
+    }
+
+    .table td {
+        padding: 10px 14px;
+        border-bottom: 1px solid #eaecf0;
+        vertical-align: middle;
+    }
+
+    .table tbody tr:hover {
+        background: #fafbfc;
+    }
+
+    .badge {
+        display: inline-block;
+        padding: 3px 10px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 600;
+    }
+
+    .badge-status-open { background: #cff4fc; color: #055160; }
+    .badge-status-in_progress { background: #fff3cd; color: #664d03; }
+    .badge-status-resolved { background: #d1e7dd; color: #0f5132; }
+    .badge-status-closed { background: #e9ecef; color: #344054; }
+
+    .badge-priority-low { background: #d1e7dd; color: #0f5132; }
+    .badge-priority-medium { background: #fff3cd; color: #664d03; }
+    .badge-priority-high { background: #f8d7da; color: #842029; }
+    .badge-priority-urgent { background: #dc3545; color: white; }
+
+    /* ========================================================== */
+    /*  BADGES DE SLA */
+    /* ========================================================== */
+
+    .badge-sla-success { background: #d1e7dd; color: #0f5132; }
+    .badge-sla-warning { background: #fff3cd; color: #664d03; }
+    .badge-sla-danger { background: #f8d7da; color: #842029; }
+
+    .empty-table {
+        text-align: center;
+        padding: 40px !important;
+        color: #667085;
+    }
+
+    .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 16px;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: 13px;
+        border: none;
+        cursor: pointer;
+        text-decoration: none;
+        transition: all 0.2s;
+    }
+
+    .btn-primary {
+        background: #123a63;
+        color: white;
+    }
+
+    .btn-primary:hover {
+        background: #0e2a4a;
+        color: white;
+    }
+
+    .btn-outline {
+        background: white;
+        color: #123a63;
+        border: 1px solid #123a63;
+    }
+
+    .btn-outline:hover {
+        background: #f0f4f9;
+        color: #123a63;
+    }
+
+    .btn-sm {
+        padding: 4px 12px;
+        font-size: 12px;
+    }
+
+    @media (max-width: 768px) {
+        .department-dashboard {
+            padding: 12px;
+        }
+
+        .dept-header {
+            flex-direction: column;
+            align-items: flex-start;
+            padding: 16px;
+        }
+
+        .dept-header-actions {
+            width: 100%;
+        }
+
+        .dept-header-actions .btn {
+            flex: 1;
+            justify-content: center;
+        }
+
+        .dept-stats-grid {
+            grid-template-columns: 1fr 1fr;
+        }
+
+        .table-card {
+            padding: 12px 14px;
+        }
+    }
+
+    @media (max-width: 480px) {
+        .dept-stats-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+{% endblock %}

@@ -1,0 +1,594 @@
+{% extends "layouts/base.html" %}
+
+{% load static %}
+
+{% block title %}Lista de tickets | NovaDesk Pro{% endblock %}
+
+{% block content %}
+
+<div class="ticket-list-page">
+
+    <!-- ========================================================== -->
+    <!--  ENCABEZADO -->
+    <!-- ========================================================== -->
+
+    <div class="page-header">
+        <div class="page-header-left">
+            <h1>
+                <i class="bi bi-ticket-perforated"></i>
+                Tickets
+            </h1>
+            <p class="page-subtitle">
+                Gestión de solicitudes de soporte técnico.
+            </p>
+        </div>
+
+        <div class="page-header-actions">
+            <span class="ticket-live-status" id="ticketLiveStatus" title="Actualización automática activa">
+                <span class="ticket-live-dot"></span>
+                En vivo
+            </span>
+            <a href="{% url 'tickets:ticket_create' %}" class="btn btn-primary">
+                <i class="bi bi-plus-circle"></i>
+                Nuevo ticket
+            </a>
+        </div>
+    </div>
+
+    <!-- ========================================================== -->
+    <!--  ESTADÍSTICAS RÁPIDAS -->
+    <!-- ========================================================== -->
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <span>Total de tickets</span>
+            <strong>{{ total_tickets }}</strong>
+            <div class="stat-label">Todas las solicitudes</div>
+        </div>
+        <div class="stat-card stat-pending">
+            <span>Pendientes</span>
+            <strong>{{ pending_tickets }}</strong>
+            <div class="stat-label">En espera de resolución</div>
+        </div>
+        <div class="stat-card stat-resolved">
+            <span>Resueltos</span>
+            <strong>{{ resolved_tickets }}</strong>
+            <div class="stat-label">Completados</div>
+        </div>
+    </div>
+
+    <!-- ========================================================== -->
+    <!--  TABLA DE TICKETS -->
+    <!-- ========================================================== -->
+
+    <div class="table-container">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Número</th>
+                    <th>Título</th>
+                    <th>Solicitante</th>
+                    <th>Departamento</th>
+                    <th>Técnico</th>
+                    <th>Estado</th>
+                    <th>Prioridad</th>
+                    <th>Fecha</th>
+                    <th>Acciones</th>
+                </tr>
+           </thead>
+<tbody>
+    {% for ticket in tickets %}
+        <tr>
+            <td data-label="Número">
+                <strong>{{ ticket.ticket_number }}</strong>
+            </td>
+
+            <td data-label="Título">{{ ticket.title }}</td>
+
+            <td data-label="Solicitante">{{ ticket.requester.get_full_name|default:ticket.requester.username }}</td>
+
+            <td data-label="Departamento">
+                {% if ticket.department %}
+                    <span 
+                        class="badge-dept"
+                        style="background: {{ ticket.department.primary_color|default:'#123a63' }};"
+                    >
+                        {{ ticket.department.name }}
+                    </span>
+                {% else %}
+                    <span class="badge-dept badge-dept-default">
+                        Sin asignar
+                    </span>
+                {% endif %}
+            </td>
+
+            <!-- 🔥 NUEVO: TÉCNICO -->
+            <td data-label="Técnico">
+                {% if ticket.assigned_to %}
+                    {{ ticket.assigned_to.get_full_name|default:ticket.assigned_to.username }}
+                {% else %}
+                    <span style="color:#999;">Sin asignar</span>
+                {% endif %}
+            </td>
+
+            <td data-label="Estado">
+                <span class="badge badge-status-{{ ticket.status|lower }}">
+                    {{ ticket.get_status_display }}
+                </span>
+            </td>
+
+            <td data-label="Prioridad">
+                <span class="badge badge-priority-{{ ticket.priority|lower }}">
+                    {{ ticket.get_priority_display }}
+                </span>
+            </td>
+
+            <td data-label="Fecha">{{ ticket.created_at|date:"d/m/Y H:i" }}</td>
+
+            <td data-label="Acciones">
+                <a href="{% url 'tickets:ticket_detail' ticket.pk %}" class="btn btn-sm btn-outline">
+                    <i class="bi bi-eye"></i> Ver
+                </a>
+            </td>
+        </tr>
+
+    {% empty %}
+        <tr>
+            <td colspan="9" class="empty-table"> <!-- 🔥 CAMBIAMOS 8 → 9 -->
+                <i class="bi bi-inbox" style="font-size:32px;display:block;margin-bottom:8px;color:#d0d5dd;"></i>
+                <p style="margin:0;color:#667085;">No hay tickets para mostrar.</p>
+            </td>
+        </tr>
+    {% endfor %}
+</tbody>
+</table>
+</div>
+
+</div>
+
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    .ticket-list-page {
+        padding: 24px;
+        background: #f4f6f9;
+        min-height: 100vh;
+    }
+
+    .page-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 19px;
+        margin-bottom: 19px;
+        padding: 20px 24px;
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+    }
+
+    .page-header-left h1 {
+        font-size: 24px;
+        font-weight: 700;
+        color: #101828;
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .page-header-left h1 i {
+        color: #123a63;
+    }
+
+    .page-header-left .page-subtitle {
+        color: #667085;
+        font-size: 14px;
+        margin: 4px 0 0;
+    }
+
+    .page-header-actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .ticket-live-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: #ecfdf3;
+        color: #067647;
+        font-size: 11px;
+        font-weight: 700;
+    }
+
+    .ticket-live-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #12b76a;
+        box-shadow: 0 0 0 3px rgba(18, 183, 106, 0.14);
+    }
+
+    .ticket-live-status.is-updating .ticket-live-dot {
+        animation: ticket-live-pulse 0.8s ease-in-out infinite alternate;
+    }
+
+    .ticket-live-status.is-offline {
+        background: #fff4ed;
+        color: #b54708;
+    }
+
+    .ticket-live-status.is-offline .ticket-live-dot {
+        background: #f79009;
+        box-shadow: none;
+    }
+
+    @keyframes ticket-live-pulse {
+        to { opacity: 0.35; transform: scale(0.8); }
+    }
+
+    .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 18px;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: 14px;
+        border: none;
+        cursor: pointer;
+        text-decoration: none;
+        transition: all 0.2s;
+    }
+
+    .btn-primary {
+        background: #123a63;
+        color: white;
+    }
+
+    .btn-primary:hover {
+        background: #0e2a4a;
+        color: white;
+    }
+
+    .btn-outline {
+        background: white;
+        color: #123a63;
+        border: 1px solid #123a63;
+    }
+
+    .btn-outline:hover {
+        background: #f0f4f9;
+        color: #123a63;
+    }
+
+    .btn-sm {
+        padding: 4px 12px;
+        font-size: 12px;
+    }
+
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 19px;
+        margin-bottom: 19px;
+    }
+
+    .stat-card {
+        background: white;
+        border-radius: 12px;
+        padding: 16px 20px;
+        border: 1px solid #eaecf0;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+    }
+
+    .stat-card span {
+        display: block;
+        font-size: 13px;
+        color: #667085;
+    }
+
+    .stat-card strong {
+        font-size: 28px;
+        color: #101828;
+    }
+
+    .stat-card .stat-label {
+        font-size: 13px;
+        color: #667085;
+        margin-top: 2px;
+    }
+
+    .stat-pending {
+        border-left: 4px solid #ffc107;
+    }
+
+    .stat-resolved {
+        border-left: 4px solid #198754;
+    }
+
+    .table-container {
+        overflow-x: auto;
+        border-radius: 12px;
+        background: white;
+        border: 1px solid #eaecf0;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+    }
+
+    .table {
+        width: 100%;
+        border-collapse: collapse;
+        min-width: 800px;
+    }
+
+    .table th {
+        padding: 12px 16px;
+        text-align: left;
+        font-size: 12px;
+        text-transform: uppercase;
+        color: #344054;
+        font-weight: 600;
+        border-bottom: 1px solid #eaecf0;
+        background: #f8fafc;
+    }
+
+    .table td {
+        padding: 12px 16px;
+        border-bottom: 1px solid #eaecf0;
+        vertical-align: middle;
+    }
+
+    .table tbody tr:hover {
+        background: #fafbfc;
+    }
+
+    .badge {
+        display: inline-block;
+        padding: 3px 10px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 600;
+    }
+
+    .badge-status-open { background: #cff4fc; color: #055160; }
+    .badge-status-in_progress { background: #fff3cd; color: #664d03; }
+    .badge-status-resolved { background: #d1e7dd; color: #0f5132; }
+    .badge-status-closed { background: #e9ecef; color: #344054; }
+
+    .badge-priority-low { background: #d1e7dd; color: #0f5132; }
+    .badge-priority-medium { background: #fff3cd; color: #664d03; }
+    .badge-priority-high { background: #f8d7da; color: #842029; }
+    .badge-priority-urgent { background: #dc3545; color: white; }
+
+    /* ========================================================== */
+    /*  BADGES DE DEPARTAMENTO CON COLORES DINÁMICOS */
+    /* ========================================================== */
+
+    .badge-dept {
+        display: inline-block;
+        padding: 5px 14px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 600;
+        color: white;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.15);
+        transition: transform 0.2s;
+    }
+
+    .badge-dept:hover {
+        transform: scale(1.05);
+    }
+
+    .badge-dept-default {
+        background: #6c757d;
+        color: white;
+    }
+
+    /* ========================================================== */
+    /*  RESPONSIVE */
+    /* ========================================================== */
+
+    .empty-table {
+        text-align: center;
+        padding: 40px !important;
+        color: #667085;
+    }
+
+    @media (max-width: 768px) {
+        .ticket-list-page {
+            padding: 12px;
+            width: 100%;
+            max-width: 100%;
+            overflow-x: hidden;
+        }
+
+        .page-header {
+            flex-direction: column;
+            align-items: flex-start;
+            padding: 16px;
+        }
+
+        .page-header-actions {
+            width: 100%;
+        }
+
+        .page-header-actions .btn {
+            flex: 1;
+            justify-content: center;
+        }
+
+        .stats-grid {
+            grid-template-columns: 1fr 1fr;
+        }
+
+        .badge-dept {
+            font-size: 10px;
+            padding: 3px 10px;
+        }
+
+        .table-container {
+            overflow: visible;
+            background: transparent;
+            border: 0;
+            box-shadow: none;
+        }
+
+        .table,
+        .table tbody {
+            display: block;
+            width: 100%;
+            min-width: 0;
+            max-width: 100%;
+        }
+
+        .table thead {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            overflow: hidden;
+            clip: rect(0 0 0 0);
+        }
+
+        .table tbody tr {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 9px;
+            margin-bottom: 19px;
+            padding: 15px;
+            border: 1px solid #dfe5ec;
+            border-radius: 12px;
+            background: #fff;
+            box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+            min-width: 0;
+            max-width: 100%;
+            overflow: hidden;
+        }
+
+        .table tbody tr:last-child {
+            margin-bottom: 0;
+        }
+
+        .table tbody td[data-label] {
+            display: grid;
+            grid-template-columns: minmax(82px, 34%) minmax(0, 1fr);
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+            padding: 3px 0;
+            border: 0;
+            text-align: left;
+            white-space: normal;
+            min-width: 0;
+            overflow-wrap: anywhere;
+            word-break: normal;
+        }
+
+        .table tbody td[data-label]::before {
+            content: attr(data-label);
+            color: #667085;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .table tbody td[data-label="Acciones"] .btn {
+            width: 100%;
+            justify-content: center;
+        }
+
+        .table tbody td[data-label] > * {
+            min-width: 0;
+            max-width: 100%;
+        }
+
+        .table tbody .badge,
+        .table tbody .badge-dept {
+            width: fit-content;
+            max-width: 100%;
+            white-space: normal;
+            overflow-wrap: anywhere;
+        }
+    }
+
+    @media (max-width: 480px) {
+        .stats-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    (function () {
+        "use strict";
+
+        const refreshIntervalMs = 10000;
+        const liveStatus = document.getElementById("ticketLiveStatus");
+        let refreshInProgress = false;
+
+        const setLiveState = function (state, text) {
+            if (!liveStatus) return;
+            liveStatus.classList.toggle("is-updating", state === "updating");
+            liveStatus.classList.toggle("is-offline", state === "offline");
+            liveStatus.lastChild.textContent = text;
+        };
+
+        const refreshTicketList = async function () {
+            if (refreshInProgress || document.hidden) return;
+            refreshInProgress = true;
+            setLiveState("updating", " Actualizando");
+
+            try {
+                const response = await fetch(window.location.href, {
+                    method: "GET",
+                    headers: { "X-Requested-With": "XMLHttpRequest" },
+                    cache: "no-store",
+                    credentials: "same-origin"
+                });
+
+                if (!response.ok || response.redirected) {
+                    throw new Error("No fue posible actualizar los tickets.");
+                }
+
+                const html = await response.text();
+                const incomingDocument = new DOMParser().parseFromString(
+                    html,
+                    "text/html"
+                );
+                const incomingStats = incomingDocument.querySelector(".stats-grid");
+                const incomingTable = incomingDocument.querySelector(".table-container");
+                const currentStats = document.querySelector(".stats-grid");
+                const currentTable = document.querySelector(".table-container");
+
+                if (incomingStats && currentStats
+                    && incomingStats.innerHTML !== currentStats.innerHTML) {
+                    currentStats.innerHTML = incomingStats.innerHTML;
+                }
+                if (incomingTable && currentTable
+                    && incomingTable.innerHTML !== currentTable.innerHTML) {
+                    currentTable.innerHTML = incomingTable.innerHTML;
+                }
+
+                setLiveState("online", " En vivo");
+            } catch (error) {
+                setLiveState("offline", " Sin conexión");
+            } finally {
+                refreshInProgress = false;
+            }
+        };
+
+        window.setInterval(refreshTicketList, refreshIntervalMs);
+        document.addEventListener("visibilitychange", function () {
+            if (!document.hidden) refreshTicketList();
+        });
+    })();
+</script>
+{% endblock %}

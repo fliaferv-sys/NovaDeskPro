@@ -1,0 +1,17 @@
+<!-- ======================================================
+     OBSERVACIONES
+     ====================================================== -->
+
+     <div class="table-card">
+
+        <h3>📝 Observaciones</h3>
+    
+        {% if asset.notes %}
+            <p>{{ asset.notes|linebreaksbr }}</p>
+        {% else %}
+            <p class="page-subtitle">
+                No hay observaciones registradas.
+            </p>
+        {% endif %}
+    
+    </div>

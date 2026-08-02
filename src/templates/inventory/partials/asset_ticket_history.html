@@ -1,0 +1,74 @@
+<!-- ======================================================
+     HISTORIAL DE TICKETS
+     ====================================================== -->
+
+     <div class="table-card">
+
+        <div class="table-header">
+    
+            <div>
+                <h3>🎫 Historial de tickets</h3>
+    
+                <p class="page-subtitle">
+                    Incidencias relacionadas con este equipo.
+                </p>
+            </div>
+    
+            <span class="attachment-count">
+                {{ tickets.count }}
+                ticket{{ tickets.count|pluralize }}
+            </span>
+    
+        </div>
+    
+        <div class="asset-ticket-list">
+    
+            {% for ticket in tickets %}
+    
+                <a
+                    href="{% url 'tickets:ticket_detail' ticket.pk %}"
+                    class="asset-ticket-item">
+    
+                    <div class="asset-ticket-main">
+    
+                        <strong>{{ ticket.ticket_number }}</strong>
+    
+                        <span>{{ ticket.title }}</span>
+    
+                    </div>
+    
+                    <div class="asset-ticket-meta">
+    
+                        <span class="badge badge-status-{{ ticket.status|lower }}">
+                            {{ ticket.get_status_display }}
+                        </span>
+    
+                        <span class="badge badge-priority-{{ ticket.priority|lower }}">
+                            {{ ticket.get_priority_display }}
+                        </span>
+    
+                        <span>
+                            {{ ticket.created_at|date:"d/m/Y H:i" }}
+                        </span>
+    
+                    </div>
+    
+                </a>
+    
+            {% empty %}
+    
+                <div class="empty-attachments">
+    
+                    <div class="empty-attachments-icon">🎫</div>
+    
+                    <p>
+                        Este equipo todavía no tiene tickets relacionados.
+                    </p>
+    
+                </div>
+    
+            {% endfor %}
+    
+        </div>
+    
+    </div>

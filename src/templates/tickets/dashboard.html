@@ -1,0 +1,873 @@
+{% extends "layouts/base.html" %}
+{% load static %}
+
+{% block title %}
+Dashboard - Sistema de Tickets
+{% endblock %}
+
+{% block content %}
+
+<style>
+    /* ===== ESTILOS DEL DASHBOARD ===== */
+    .dashboard-grid {
+        display: grid;
+        grid-template-columns: 380px 1fr;
+        gap: 24px;
+        margin-top: 20px;
+    }
+
+    /* ----- COLUMNA IZQUIERDA ----- */
+    .dashboard-left {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+    }
+
+    /* Tarjeta de posición en cola */
+    .queue-card {
+        background: white;
+        border-radius: 16px;
+        padding: 24px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        border-left: 4px solid #f68b1e;
+        transition: 0.3s;
+    }
+
+    .queue-card:hover {
+        box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+    }
+
+    .queue-number {
+        font-size: 48px;
+        font-weight: 800;
+        color: #0a1a3a;
+        line-height: 1;
+    }
+
+    .queue-number small {
+        font-size: 18px;
+        font-weight: 400;
+        color: #7a8ba3;
+    }
+
+    .queue-label {
+        font-size: 15px;
+        color: #2c3e50;
+        margin-top: 4px;
+    }
+
+    .queue-progress {
+        margin-top: 14px;
+        height: 8px;
+        background: #e9edf4;
+        border-radius: 10px;
+        overflow: hidden;
+        width: 100%;
+    }
+
+    .queue-progress .fill {
+        height: 100%;
+        background: linear-gradient(90deg, #f68b1e, #f7a84e);
+        border-radius: 10px;
+        animation: pulse-progress 2s infinite;
+        transition: width 0.5s ease;
+    }
+
+    @keyframes pulse-progress {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.7; }
+    }
+
+    .queue-time {
+        margin-top: 10px;
+        font-size: 14px;
+        color: #27ae60;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .queue-time .icon {
+        font-size: 18px;
+    }
+
+    .queue-empty {
+        color: #7a8ba3;
+        font-size: 14px;
+        padding: 10px 0;
+    }
+
+    /* Tarjeta de ticket activo */
+    .active-ticket-card {
+        background: linear-gradient(135deg, #eef5ff, #f8faff);
+        border-radius: 16px;
+        padding: 20px;
+        border: 1px solid #d4e2fc;
+        transition: 0.3s;
+    }
+
+    .active-ticket-card:hover {
+        border-color: #f68b1e;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    }
+
+    .active-ticket-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+    }
+
+    .active-ticket-id {
+        font-weight: 700;
+        color: #0a1a3a;
+        font-size: 16px;
+    }
+
+    .active-ticket-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 3px 14px;
+        border-radius: 30px;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .status-progress {
+        background: #fff3e0;
+        color: #e67e22;
+    }
+    .status-progress::before { content: "⏳ "; }
+
+    .status-open {
+        background: #e3f2fd;
+        color: #1976d2;
+    }
+    .status-open::before { content: "🆕 "; }
+
+    .status-waiting {
+        background: #fff8e1;
+        color: #f57c00;
+    }
+    .status-waiting::before { content: "⏰ "; }
+
+    .status-resolved {
+        background: #d4edda;
+        color: #155724;
+    }
+    .status-resolved::before { content: "✅ "; }
+
+    .status-closed {
+        background: #e8f8f0;
+        color: #27ae60;
+    }
+    .status-closed::before { content: "✅ "; }
+
+    .active-ticket-title {
+        font-size: 15px;
+        color: #1e2a41;
+        font-weight: 500;
+        margin: 8px 0 12px 0;
+    }
+
+    .active-ticket-tech {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding-top: 12px;
+        border-top: 1px solid #e9edf4;
+    }
+
+    .tech-avatar {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background: #0a1a3a;
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 13px;
+        font-weight: 600;
+        flex-shrink: 0;
+    }
+
+    .tech-info {
+        flex: 1;
+    }
+
+    .tech-name {
+        font-weight: 600;
+        font-size: 14px;
+        color: #0a1a3a;
+    }
+
+    .tech-contact {
+        font-size: 12px;
+        color: #7a8ba3;
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+
+    .tech-contact span {
+        cursor: pointer;
+        transition: 0.3s;
+    }
+
+    .tech-contact span:hover {
+        color: #f68b1e;
+    }
+
+    .btn-detail {
+        display: block;
+        text-align: center;
+        background: #f68b1e;
+        color: white;
+        padding: 8px;
+        border-radius: 8px;
+        text-decoration: none;
+        font-weight: 600;
+        font-size: 13px;
+        margin-top: 12px;
+        transition: 0.3s;
+    }
+
+    .btn-detail:hover {
+        background: #e07c14;
+        transform: translateY(-2px);
+    }
+
+    /* Estadísticas rápidas */
+    .stats-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+    }
+
+    .stat-card {
+        background: white;
+        padding: 16px;
+        border-radius: 12px;
+        border: 1px solid #e9edf4;
+        text-align: center;
+        transition: 0.3s;
+        cursor: default;
+    }
+
+    .stat-card:hover {
+        border-color: #f68b1e;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+    }
+
+    .stat-number {
+        font-size: 26px;
+        font-weight: 700;
+        color: #0a1a3a;
+    }
+
+    .stat-label {
+        font-size: 11px;
+        color: #7a8ba3;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-top: 2px;
+    }
+
+    .stat-card.orange .stat-number { color: #f68b1e; }
+    .stat-card.green .stat-number { color: #27ae60; }
+    .stat-card.blue .stat-number { color: #1976d2; }
+    .stat-card.purple .stat-number { color: #8e44ad; }
+
+    /* Historial */
+    .history-list {
+        margin-top: 8px;
+    }
+
+    .history-item {
+        background: white;
+        padding: 12px 14px;
+        border-radius: 10px;
+        border: 1px solid #e9edf4;
+        margin-bottom: 8px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        transition: 0.3s;
+        cursor: pointer;
+    }
+
+    .history-item:hover {
+        border-color: #f68b1e;
+        background: #fafcff;
+        transform: translateX(4px);
+    }
+
+    .history-item-left {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .history-id {
+        font-weight: 600;
+        font-size: 13px;
+        color: #0a1a3a;
+        display: block;
+    }
+
+    .history-title {
+        font-size: 13px;
+        color: #2c3e50;
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .history-date {
+        font-size: 11px;
+        color: #7a8ba3;
+        display: block;
+    }
+
+    .history-status-badge {
+        font-size: 10px;
+        padding: 3px 10px;
+        border-radius: 30px;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    .badge-closed {
+        background: #e8f8f0;
+        color: #27ae60;
+    }
+
+    .badge-resolved {
+        background: #d4edda;
+        color: #155724;
+    }
+
+    .badge-progress {
+        background: #fff3e0;
+        color: #e67e22;
+    }
+
+    .badge-open {
+        background: #e3f2fd;
+        color: #1976d2;
+    }
+
+    .badge-waiting {
+        background: #fff8e1;
+        color: #f57c00;
+    }
+
+    .history-empty {
+        text-align: center;
+        padding: 30px 0;
+        color: #7a8ba3;
+    }
+
+    .history-empty .icon {
+        font-size: 40px;
+        display: block;
+        margin-bottom: 10px;
+    }
+
+    .link-all {
+        display: block;
+        text-align: center;
+        margin-top: 12px;
+        color: #f68b1e;
+        font-weight: 600;
+        text-decoration: none;
+        font-size: 13px;
+        transition: 0.3s;
+    }
+
+    .link-all:hover {
+        color: #e07c14;
+        text-decoration: underline;
+    }
+
+    /* ----- COLUMNA DERECHA ----- */
+    .dashboard-right {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+    }
+
+    /* Bienvenida */
+    .welcome-card {
+        background: linear-gradient(135deg, #0a1a3a 0%, #1a2d5a 100%);
+        border-radius: 16px;
+        padding: 24px 28px;
+        color: white;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 16px;
+    }
+
+    .welcome-text h2 {
+        margin: 0 0 4px 0;
+        font-size: 24px;
+        font-weight: 700;
+    }
+
+    .welcome-text p {
+        margin: 0;
+        color: #8aa3c9;
+        font-size: 14px;
+    }
+
+    .welcome-actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+
+    .btn-welcome {
+        background: #f68b1e;
+        border: none;
+        color: white;
+        padding: 10px 24px;
+        border-radius: 30px;
+        font-weight: 600;
+        font-size: 14px;
+        cursor: pointer;
+        transition: 0.3s;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .btn-welcome:hover {
+        background: #e07c14;
+        transform: scale(1.05);
+        box-shadow: 0 4px 15px rgba(246, 139, 30, 0.4);
+    }
+
+    .btn-welcome-outline {
+        background: transparent;
+        border: 1px solid rgba(255,255,255,0.3);
+        color: white;
+        padding: 10px 20px;
+        border-radius: 30px;
+        font-weight: 500;
+        font-size: 13px;
+        cursor: pointer;
+        transition: 0.3s;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .btn-welcome-outline:hover {
+        background: rgba(255,255,255,0.1);
+        border-color: white;
+    }
+
+    /* Tabla de tickets recientes */
+    .recent-tickets-card {
+        background: white;
+        border-radius: 16px;
+        padding: 20px 24px;
+        border: 1px solid #e9edf4;
+    }
+
+    .recent-tickets-card .card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 16px;
+    }
+
+    .recent-tickets-card .card-header h3 {
+        margin: 0;
+        font-size: 16px;
+        color: #0a1a3a;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .recent-tickets-card .card-header a {
+        color: #f68b1e;
+        text-decoration: none;
+        font-weight: 600;
+        font-size: 13px;
+    }
+
+    .recent-tickets-card .card-header a:hover {
+        text-decoration: underline;
+    }
+
+    .mini-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+    }
+
+    .mini-table th {
+        text-align: left;
+        color: #7a8ba3;
+        font-weight: 600;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid #e9edf4;
+    }
+
+    .mini-table td {
+        padding: 10px 0;
+        border-bottom: 1px solid #f0f4f8;
+    }
+
+    .mini-table tr:last-child td {
+        border-bottom: none;
+    }
+
+    .mini-table tr {
+        cursor: pointer;
+        transition: 0.3s;
+    }
+
+    .mini-table tr:hover td {
+        color: #f68b1e;
+    }
+
+    .mini-table .badge-small {
+        font-size: 10px;
+        padding: 2px 10px;
+        border-radius: 30px;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    .badge-small.status-closed {
+        background: #e8f8f0;
+        color: #27ae60;
+    }
+
+    .badge-small.status-progress {
+        background: #fff3e0;
+        color: #e67e22;
+    }
+
+    .badge-small.status-open {
+        background: #e3f2fd;
+        color: #1976d2;
+    }
+
+    .badge-small.status-waiting {
+        background: #fff8e1;
+        color: #f57c00;
+    }
+
+    .badge-small.status-resolved {
+        background: #d4edda;
+        color: #155724;
+    }
+
+    .no-tickets-message {
+        text-align: center;
+        padding: 30px 0;
+        color: #7a8ba3;
+    }
+
+    .no-tickets-message .icon {
+        font-size: 48px;
+        display: block;
+        margin-bottom: 12px;
+    }
+
+    .no-tickets-message p {
+        margin: 0;
+        font-size: 14px;
+    }
+
+    /* ===== RESPONSIVE ===== */
+    @media (max-width: 1024px) {
+        .dashboard-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    @media (max-width: 600px) {
+        .stats-grid {
+            grid-template-columns: 1fr 1fr;
+        }
+
+        .welcome-card {
+            flex-direction: column;
+            text-align: center;
+        }
+
+        .welcome-actions {
+            justify-content: center;
+        }
+
+        .queue-number {
+            font-size: 36px;
+        }
+
+        .recent-tickets-card {
+            padding: 16px;
+        }
+
+        .mini-table {
+            font-size: 12px;
+        }
+
+        .mini-table td,
+        .mini-table th {
+            padding: 8px 4px;
+        }
+
+        .history-item {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 8px;
+        }
+    }
+</style>
+
+<!-- ===== DASHBOARD ===== -->
+<div class="dashboard-grid">
+
+    <!-- COLUMNA IZQUIERDA -->
+    <div class="dashboard-left">
+
+        <!-- POSICIÓN EN COLA -->
+        <div class="queue-card">
+            <div class="queue-number">
+                {% if queue_data.position %}
+                    #{{ queue_data.position }}
+                    <small>en cola</small>
+                {% else %}
+                    <small>Sin tickets activos</small>
+                {% endif %}
+            </div>
+            <div class="queue-label">
+                {% if queue_data.has_active_ticket %}
+                    Eres el siguiente en ser atendido
+                {% else %}
+                    No tienes tickets en espera
+                {% endif %}
+            </div>
+            {% if queue_data.has_active_ticket %}
+                <div class="queue-progress">
+                    <div class="fill" style="width: {% if queue_data.total_ahead > 0 %}75{% else %}100{% endif %}%;"></div>
+                </div>
+                <div class="queue-time">
+                    <span class="icon">⏱️</span>
+                    Tiempo estimado: <strong>{{ queue_data.estimated_time }}</strong>
+                </div>
+            {% else %}
+                <div class="queue-empty">
+                    <span>✅ No hay tickets pendientes</span>
+                </div>
+            {% endif %}
+        </div>
+
+        <!-- TICKET ACTIVO -->
+        {% if active_ticket %}
+            <div class="active-ticket-card">
+                <div class="active-ticket-header">
+                    <span class="active-ticket-id">{{ active_ticket.ticket_number }}</span>
+                    <span class="active-ticket-status status-{{ active_ticket.status|lower }}">
+                        {{ active_ticket.get_status_display }}
+                    </span>
+                </div>
+                <div class="active-ticket-title">{{ active_ticket.title }}</div>
+                <div class="active-ticket-tech">
+                    <div class="tech-avatar">
+                        {% if active_ticket.assigned_to %}
+                            {{ active_ticket.assigned_to.first_name|first }}{{ active_ticket.assigned_to.last_name|first }}
+                        {% else %}
+                            ?
+                        {% endif %}
+                    </div>
+                    <div class="tech-info">
+                        <div class="tech-name">
+                            {% if active_ticket.assigned_to %}
+                                {{ active_ticket.assigned_to.first_name }} {{ active_ticket.assigned_to.last_name }}
+                            {% else %}
+                                Sin asignar
+                            {% endif %}
+                        </div>
+                        <div class="tech-contact">
+                            {% if active_ticket.assigned_to %}
+                                <span>📞 {{ active_ticket.assigned_to.phone|default:"Sin teléfono" }}</span>
+                                <span>✉️ {{ active_ticket.assigned_to.email }}</span>
+                            {% else %}
+                                <span>⏳ Esperando asignación</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                <a href="{% url 'tickets:ticket_detail' active_ticket.pk %}" class="btn-detail">
+                    Ver detalle →
+                </a>
+            </div>
+        {% endif %}
+
+        <!-- ESTADÍSTICAS RÁPIDAS -->
+        <div class="stats-grid">
+            <div class="stat-card orange">
+                <div class="stat-number">{{ stats.pending_tickets }}</div>
+                <div class="stat-label">Pendientes</div>
+            </div>
+            <div class="stat-card blue">
+                <div class="stat-number">{{ stats.in_progress_tickets }}</div>
+                <div class="stat-label">En Proceso</div>
+            </div>
+            <div class="stat-card green">
+                <div class="stat-number">{{ stats.resolved_tickets }}</div>
+                <div class="stat-label">Resueltos</div>
+            </div>
+            <div class="stat-card purple">
+                <div class="stat-number">{{ stats.total_tickets }}</div>
+                <div class="stat-label">Total</div>
+            </div>
+        </div>
+
+        <!-- HISTORIAL RECIENTE -->
+        <div style="background: white; border-radius: 16px; padding: 16px 20px; border: 1px solid #e9edf4;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <h4 style="margin: 0; font-size: 15px; color: #0a1a3a;">📋 Últimos tickets</h4>
+                <a href="{% url 'tickets:ticket_list' %}" class="link-all" style="margin: 0;">Ver todos →</a>
+            </div>
+            <div class="history-list">
+                {% for ticket in recent_tickets %}
+                    <div class="history-item" onclick="window.location.href='{% url 'tickets:ticket_detail' ticket.pk %}'">
+                        <div class="history-item-left">
+                            <span class="history-id">{{ ticket.ticket_number }}</span>
+                            <span class="history-title">{{ ticket.title }}</span>
+                            <span class="history-date">{{ ticket.created_at|date:"d/m/Y H:i" }}</span>
+                        </div>
+                        <div>
+                            <span class="history-status-badge badge-{{ ticket.status|lower }}">
+                                {{ ticket.get_status_display }}
+                            </span>
+                        </div>
+                    </div>
+                {% empty %}
+                    <div class="history-empty">
+                        <span class="icon">🎫</span>
+                        <p>No tienes tickets registrados aún.</p>
+                        <a href="{% url 'tickets:ticket_create' %}" class="btn-welcome" style="display: inline-block; margin-top: 10px; padding: 8px 20px; font-size: 13px;">
+                            Crear mi primer ticket
+                        </a>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+
+    </div>
+
+    <!-- COLUMNA DERECHA -->
+    <div class="dashboard-right">
+
+        <!-- BIENVENIDA -->
+        <div class="welcome-card">
+            <div class="welcome-text">
+                <h2>👋 Hola, {{ request.user.first_name }} {{ request.user.last_name }}</h2>
+                <p>Bienvenido al Service Desk de Petropar</p>
+            </div>
+            <div class="welcome-actions">
+                <a href="{% url 'tickets:ticket_create' %}" class="btn-welcome">
+                    ✚ Nuevo Ticket
+                </a>
+                <a href="{% url 'tickets:ticket_list' %}" class="btn-welcome-outline">
+                    📋 Mis Tickets
+                </a>
+            </div>
+        </div>
+
+        <!-- ESTADÍSTICAS DE LA COLA (para técnicos) -->
+        {% if is_technician %}
+            <div style="background: white; border-radius: 16px; padding: 20px 24px; border: 1px solid #e9edf4;">
+                <h3 style="margin: 0 0 16px 0; font-size: 16px; color: #0a1a3a;">📊 Estado de la cola</h3>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 12px;">
+                    <div style="text-align: center; padding: 12px; background: #f8fafc; border-radius: 10px;">
+                        <div style="font-size: 24px; font-weight: 700; color: #e74c3c;">{{ queue_stats.critical_count }}</div>
+                        <div style="font-size: 11px; color: #7a8ba3;">Críticos</div>
+                    </div>
+                    <div style="text-align: center; padding: 12px; background: #f8fafc; border-radius: 10px;">
+                        <div style="font-size: 24px; font-weight: 700; color: #f39c12;">{{ queue_stats.high_count }}</div>
+                        <div style="font-size: 11px; color: #7a8ba3;">Altos</div>
+                    </div>
+                    <div style="text-align: center; padding: 12px; background: #f8fafc; border-radius: 10px;">
+                        <div style="font-size: 24px; font-weight: 700; color: #3498db;">{{ queue_stats.medium_count }}</div>
+                        <div style="font-size: 11px; color: #7a8ba3;">Medios</div>
+                    </div>
+                    <div style="text-align: center; padding: 12px; background: #f8fafc; border-radius: 10px;">
+                        <div style="font-size: 24px; font-weight: 700; color: #27ae60;">{{ queue_stats.low_count }}</div>
+                        <div style="font-size: 11px; color: #7a8ba3;">Bajos</div>
+                    </div>
+                </div>
+                <div style="margin-top: 12px; text-align: center; font-size: 13px; color: #7a8ba3;">
+                    Total activos: <strong>{{ queue_stats.total_active }}</strong> | Tiempo promedio: <strong>{{ queue_stats.avg_wait_time }}</strong>
+                </div>
+            </div>
+        {% endif %}
+
+        <!-- TICKETS RECIENTES (versión tabla) -->
+        <div class="recent-tickets-card">
+            <div class="card-header">
+                <h3>📌 Tickets recientes</h3>
+                <a href="{% url 'tickets:ticket_list' %}">Ver todos</a>
+            </div>
+            {% if recent_tickets %}
+                <table class="mini-table">
+                    <thead>
+                        <tr>
+                            <th>Ticket</th>
+                            <th>Título</th>
+                            <th>Estado</th>
+                            <th>Fecha</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for ticket in recent_tickets|slice:":5" %}
+                            <tr onclick="window.location.href='{% url 'tickets:ticket_detail' ticket.pk %}'">
+                                <td><strong>{{ ticket.ticket_number }}</strong></td>
+                                <td>{{ ticket.title|truncatechars:30 }}</td>
+                                <td>
+                                    <span class="badge-small status-{{ ticket.status|lower }}">
+                                        {{ ticket.get_status_display }}
+                                    </span>
+                                </td>
+                                <td>{{ ticket.created_at|date:"d/m/Y" }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <div class="no-tickets-message">
+                    <span class="icon">🎫</span>
+                    <p>No tienes tickets registrados aún.</p>
+                    <a href="{% url 'tickets:ticket_create' %}" class="btn-welcome" style="display: inline-block; margin-top: 10px; padding: 8px 20px; font-size: 13px;">
+                        Crear mi primer ticket
+                    </a>
+                </div>
+            {% endif %}
+        </div>
+
+    </div>
+
+</div>
+
+{% endblock %}

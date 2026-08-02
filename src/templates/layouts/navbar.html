@@ -1,0 +1,203 @@
+<header class="navbar">
+
+    <!-- ==================================================
+         IDENTIDAD FIJA DEL SISTEMA
+         ================================================== -->
+
+    <a
+        href="{% url 'dashboard:executive_dashboard' %}"
+        class="navbar-brand">
+
+        <span class="navbar-brand-logo">
+
+            {% if institution_settings and institution_settings.logo %}
+
+                <img
+                    src="{{ institution_settings.logo.url }}"
+                    alt="{{ institution_settings.system_name }}">
+
+            {% elif institution_settings and institution_settings.effective_compact_logo %}
+
+                <img
+                    src="{{ institution_settings.effective_compact_logo.url }}"
+                    alt="{{ institution_settings.system_name }}">
+
+            {% else %}
+
+                <span class="navbar-brand-fallback">
+                    <i class="bi bi-shield-check"></i>
+                </span>
+
+            {% endif %}
+
+        </span>
+        <span class="navbar-brand-text">
+
+            <strong>
+                {% if institution_settings %}
+                    {{ institution_settings.system_name }}
+                {% else %}
+                    NovaDesk Pro
+                {% endif %}
+            </strong>
+        
+            <small>
+
+                {% if institution_settings %}
+                    {{ institution_settings.system_slogan }}
+                {% else %}
+                    Gestión TI
+                {% endif %}
+
+            </small>
+        
+        </span>
+
+        
+    </a>
+
+
+    <!-- ==================================================
+         ACCIONES DE LA BARRA SUPERIOR
+         ================================================== -->
+
+    <div class="navbar-actions">
+
+        <button
+            type="button"
+            id="pwaInstallButton"
+            class="navbar-action-button"
+            title="Instalar NovaDesk"
+            aria-label="Instalar NovaDesk"
+            hidden>
+            <i class="bi bi-download"></i>
+        </button>
+
+        <button
+            type="button"
+            class="navbar-action-button"
+            title="Buscar"
+            aria-label="Buscar">
+
+            <i class="bi bi-search"></i>
+
+        </button>
+
+
+        <a
+            href="{% url 'notifications:notification_list' %}"
+            class="navbar-action-button navbar-notification-button"
+            title="Notificaciones"
+            aria-label="Notificaciones"
+        >
+            <i class="bi bi-bell"></i>
+
+            {% if navbar_unread_notifications %}
+                <span class="navbar-notification-count">
+                    {% if navbar_unread_notifications > 99 %}
+                        99+
+            {% else %}
+                {{ navbar_unread_notifications }}
+            {% endif %}
+        </span>
+     {% endif %}
+    </a>
+
+
+        <!-- ==============================================
+             MENÚ DEL USUARIO
+             ============================================== -->
+
+        <details class="navbar-user-menu">
+
+            <summary class="navbar-user-button">
+
+                <span class="navbar-user-avatar">
+                    {{ request.user.first_name|first|default:"U" }}
+                    {{ request.user.last_name|first }}
+                </span>
+
+                <span class="navbar-user-information">
+
+                    <strong>
+                        {{ request.user.first_name }}
+                        {{ request.user.last_name }}
+                    </strong>
+
+                    <small>
+                        {{ request.user.get_role_display|default:"Usuario" }}
+                    </small>
+
+                </span>
+
+                <i class="bi bi-chevron-down navbar-user-chevron"></i>
+
+            </summary>
+
+
+            <div class="navbar-user-dropdown">
+
+                <div class="navbar-user-dropdown-header">
+
+                    <strong>
+                        {{ request.user.first_name }}
+                        {{ request.user.last_name }}
+                    </strong>
+
+                    <span>
+                        {{ request.user.email }}
+                    </span>
+
+                </div>
+
+
+                <div class="navbar-user-dropdown-divider"></div>
+
+
+                <a href="/admin/password_change/">
+
+                    <i class="bi bi-key"></i>
+                    Cambiar contraseña
+
+                </a>
+
+
+                {% if request.user.is_staff or request.user.is_superuser %}
+
+                    <a href="/admin/">
+
+                        <i class="bi bi-gear"></i>
+                        Administración
+
+                    </a>
+
+                {% endif %}
+
+
+                <div class="navbar-user-dropdown-divider"></div>
+
+
+                <form
+                    method="post"
+                    action="{% url 'logout' %}">
+
+                    {% csrf_token %}
+
+                    <button
+                        type="submit"
+                        class="navbar-logout-button">
+
+                        <i class="bi bi-box-arrow-right"></i>
+                        Cerrar sesión
+
+                    </button>
+
+                </form>
+
+            </div>
+
+        </details>
+
+    </div>
+
+</header>

@@ -1,0 +1,170 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}Equipos por modelo{% endblock %}
+
+{% block content %}
+<div class="psline-model-page">
+
+    <div class="model-header">
+        <div>
+            <h1>Equipos por modelo</h1>
+            <p>
+                {% if brand or model %}
+                    {{ brand|default:"Todas las marcas" }} · {{ model|default:"Todos los modelos" }}
+                {% else %}
+                    Listado general de impresoras
+                {% endif %}
+            </p>
+        </div>
+
+        <div class="model-actions">
+            <a href="/psline/" class="model-btn secondary">Volver a Impresoras</a>
+        </div>
+    </div>
+
+    <div class="model-card">
+        {% if devices %}
+            <div class="table-wrapper">
+                <table class="model-table">
+                    <thead>
+                        <tr>
+                            <th>Código</th>
+                            <th>Marca</th>
+                            <th>Modelo</th>
+                            <th>Tipo</th>
+                            <th>Estado</th>
+                            <th>IP</th>
+                            <th>Responsable</th>
+                            <th>Ubicación</th>
+                            <th>Acción</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for device in devices %}
+                            <tr>
+                                <td>{{ device.asset.internal_code }}</td>
+                                <td>{{ device.asset.brand }}</td>
+                                <td>{{ device.asset.model }}</td>
+                                <td>{{ device.get_device_type_display }}</td>
+                                <td>{{ device.asset.get_connection_status_display }}</td>
+                                <td>{{ device.asset.current_ip|default:"—" }}</td>
+                                <td>{{ device.responsible_user|default:"—" }}</td>
+                                <td>{{ device.asset.location_detail|default:"—" }}</td>
+                                <td>
+                                    <a class="detail-link"
+                                       href="/psline/equipo/{{ device.pk }}/">
+                                        Ver detalle
+                                    </a>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <p class="empty-text">No hay equipos registrados para este filtro.</p>
+        {% endif %}
+    </div>
+
+</div>
+
+<style>
+    .psline-model-page {
+        padding: 24px;
+    }
+
+    .model-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 16px;
+        margin-bottom: 24px;
+        padding: 24px;
+        background: linear-gradient(135deg, #123a63 0%, #1f5d99 100%);
+        border-radius: 18px;
+        color: #fff;
+    }
+
+    .model-header h1 {
+        margin: 0 0 8px;
+        font-size: 30px;
+        font-weight: 800;
+    }
+
+    .model-header p {
+        margin: 0;
+        opacity: 0.92;
+    }
+
+    .model-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 10px 14px;
+        border-radius: 10px;
+        text-decoration: none;
+        background: #ffffff;
+        color: #123a63;
+        font-weight: 700;
+    }
+
+    .model-btn.secondary {
+        background: rgba(255,255,255,0.18);
+        color: #fff;
+        border: 1px solid rgba(255,255,255,0.35);
+    }
+
+    .model-card {
+        padding: 20px;
+        background: #fff;
+        border-radius: 16px;
+        border: 1px solid #e5e7eb;
+        box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+    }
+
+    .table-wrapper {
+        overflow-x: auto;
+    }
+
+    .model-table {
+        width: 100%;
+        min-width: 1100px;
+        border-collapse: collapse;
+    }
+
+    .model-table th,
+    .model-table td {
+        padding: 12px;
+        text-align: left;
+        border-bottom: 1px solid #eef2f7;
+        vertical-align: middle;
+    }
+
+    .model-table th {
+        background: #f8fafc;
+        color: #344054;
+        white-space: nowrap;
+    }
+
+    .detail-link {
+        color: #123a63;
+        font-weight: 700;
+        text-decoration: none;
+    }
+
+    .detail-link:hover {
+        text-decoration: underline;
+    }
+
+    .empty-text {
+        color: #667085;
+        margin: 0;
+    }
+
+    @media (max-width: 900px) {
+        .model-header {
+            flex-direction: column;
+        }
+    }
+</style>
+{% endblock %}

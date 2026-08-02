@@ -1,0 +1,46 @@
+<!-- ======================================================
+     SALUD DEL EQUIPO
+     ====================================================== -->
+
+     <div class="table-card asset-health-card">
+
+        <div class="asset-health-header">
+    
+            <div>
+                <h3>💚 Salud del equipo</h3>
+    
+                <p class="page-subtitle">
+                    Evaluación automática según su estado e historial.
+                </p>
+            </div>
+    
+            <div class="asset-health-score asset-health-{{ asset.health_class }}">
+                {{ asset.health_score }}%
+            </div>
+    
+        </div>
+    
+        <div class="asset-health-bar">
+    
+            <div
+                class="asset-health-progress asset-health-progress-{{ asset.health_class }}"
+                style="width: {{ asset.health_score }}%;">
+            </div>
+    
+        </div>
+    
+        <div class="asset-health-result">
+    
+            <strong class="asset-health-label asset-health-{{ asset.health_class }}">
+                {{ asset.health_label }}
+            </strong>
+    
+            <span>
+                {{ asset.tickets.count }}
+                ticket{{ asset.tickets.count|pluralize }}
+                asociado{{ asset.tickets.count|pluralize }}
+            </span>
+    
+        </div>
+    
+    </div>

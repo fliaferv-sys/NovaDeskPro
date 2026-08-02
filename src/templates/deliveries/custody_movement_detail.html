@@ -1,0 +1,1123 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}
+Detalle del Movimiento
+
+<style>
+    .document-replace-box 
+        min-width: 210px;
+        margin-bottom: 8px;
+    }
+
+    .document-action-link {
+        display: inline-flex;
+        align-items: center;
+        color: #2563eb;
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+        list-style: none;
+    }
+
+    .document-action-link::-webkit-details-marker {
+        display: none;
+    }
+
+    .document-action-link:hover {
+        color: #1d4ed8;
+        text-decoration: underline;
+    }
+
+    .document-replace-form {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        min-width: 240px;
+        margin-top: 10px;
+        padding: 12px;
+        border: 1px solid #d1d5db;
+        border-radius: 10px;
+        background: #f9fafb;
+    }
+
+    .document-replace-form label {
+        color: #374151;
+        font-size: 12px;
+        font-weight: 700;
+    }
+
+    .document-replace-form input,
+    .document-replace-form textarea {
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    .document-small-button {
+        width: 100%;
+        margin-top: 2px;
+        padding: 8px 10px;
+        font-size: 12px;
+    }
+
+    .document-delete-form {
+        display: inline;
+    }
+
+    .document-delete-button {
+        padding: 0;
+        border: none;
+        background: transparent;
+        color: #b42318;
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+    }
+
+    .document-delete-button:hover {
+        color: #991b1b;
+        text-decoration: underline;
+    }
+
+    .document-locked-text {
+        color: #6b7280;
+        font-size: 12px;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+</style>
+
+{% endblock %}
+
+{% block content %}
+
+<div class="ticket-detail-header"
+     style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:20px;">
+
+    <!-- IZQUIERDA -->
+    <div>
+        <h1 class="page-title" style="margin-bottom:6px;">
+            {{ movement.movement_number }}
+        </h1>
+
+        <p style="color:#e53935; font-weight:600; margin:0;">
+            {{ movement.get_status_display }}
+        </p>
+
+        <p class="page-subtitle" style="margin-top:4px;">
+            {{ movement.get_movement_type_display }} · {{ movement.asset.internal_code }}
+        </p>
+    </div>
+
+    <!-- DERECHA -->
+    <div style="display:flex; gap:8px; align-items:center;">
+
+        <a href="{% url 'deliveries:custody_movement_list' %}"
+            class="btn-secondary">
+            ← Volver
+        </a>
+
+        
+
+        {% if can_manage_deliveries %}
+            {% if movement.status == "IN_DELIVERY_PROCESS" %}
+                {% if movement.recipient and movement.destination_branch and movement.department and movement.location %}
+                    <form method="post" action="{% url 'deliveries:marcar_preparado' movement.pk %}">
+                        {% csrf_token %}
+                        <button type="submit" style="padding:6px 10px; border-radius:6px; background:#f9a825; color:white; border:none;">
+                            Preparado
+                        </button>
+                    </form>
+                {% else %}
+                    <button type="button" disabled title="Primero edite el movimiento y seleccione un receptor."
+                        style="padding:6px 10px; border-radius:6px; background:#9ca3af; color:white; border:none; cursor:not-allowed;">
+                        Faltan datos de destino
+                    </button>
+                {% endif %}
+            {% endif %}
+
+            {% if movement.status == "PREPARED" %}
+                <form method="post" action="{% url 'deliveries:enviar_a_firma' movement.pk %}">
+                    {% csrf_token %}
+                    <button type="submit" style="padding:6px 10px; border-radius:6px; background:#3949ab; color:white; border:none;">
+                        Firmado
+                    </button>
+                </form>
+            {% endif %}
+
+            {% if movement.status == "PENDING_SIGNATURE" %}
+                {% if documents_complete %}
+                    <form method="post" action="{% url 'deliveries:mark_movement_delivered' movement.pk %}">
+                        {% csrf_token %}
+                        <button type="submit" style="padding:6px 10px; border-radius:6px; background:#2e7d32; color:white; border:none; cursor:pointer;">
+                            Equipo entregado
+                        </button>
+                    </form>
+                {% else %}
+                    <button
+                        type="button"
+                        disabled
+                        title="Adjunte todos los documentos obligatorios para habilitar esta acción."
+                        style="padding:6px 10px; border-radius:6px; background:#9ca3af; color:white; border:none; cursor:not-allowed;">
+                        Falta documentación
+                    </button>
+                {% endif %}
+            {% endif %}
+
+            {% if not is_locked or not movement.recipient %}
+                <a href="{% url 'deliveries:custody_movement_update' movement.pk %}"
+                   style="padding:6px 10px; border-radius:6px; background:#455a64; color:white; text-decoration:none;">
+                    {% if is_locked %}Corregir asignación{% else %}Editar{% endif %}
+                </a>
+            {% endif %}
+        {% endif %}
+
+    </div>
+
+</div>
+
+
+<div class="custody-detail-grid">
+
+    <!-- ==================================================
+    COLUMNA PRINCIPAL
+    ================================================== -->
+
+    <div class="custody-main-column">
+
+        <!-- ==================================================
+        DATOS DEL MOVIMIENTO
+        ================================================== -->
+
+        <div class="table-card">
+
+            <h3>📋 Datos del movimiento</h3>
+
+            <div class="asset-info-grid">
+
+                <div class="asset-info-item">
+                    <span>Número</span>
+
+                    <strong>
+                        {{ movement.movement_number }}
+                    </strong>
+                </div>
+
+                <div class="asset-info-item">
+                    <span>Tipo</span>
+
+                    <strong>
+                        {{ movement.get_movement_type_display }}
+                    </strong>
+                </div>
+
+                <div class="asset-info-item">
+                    <span>Estado</span>
+
+                    <strong
+                        class="
+                            custody-status
+                            custody-status-{{ movement.status|lower }}
+                        ">
+
+                        {{ movement.get_status_display }}
+
+                    </strong>
+                </div>
+
+                <div class="asset-info-item">
+                    <span>Fecha</span>
+
+                    <strong>
+                        {{ movement.movement_date|date:"d/m/Y H:i" }}
+                    </strong>
+                </div>
+
+            </div>
+
+        </div>
+
+
+        <!-- ==================================================
+        EQUIPO
+        ================================================== -->
+
+        <div class="table-card">
+
+            <h3>🖥 Equipo</h3>
+
+            <div class="asset-info-grid">
+
+                <div class="asset-info-item">
+                    <span>Código interno</span>
+
+                    <strong>
+                        <a
+                            href="{% url 'inventory:asset_detail' movement.asset.pk %}">
+
+                            {{ movement.asset.internal_code }}
+
+                        </a>
+                    </strong>
+                </div>
+
+                <div class="asset-info-item">
+                    <span>Tipo</span>
+
+                    <strong>
+                        {{ movement.asset.get_asset_type_display }}
+                    </strong>
+                </div>
+
+                <div class="asset-info-item">
+                    <span>Marca y modelo</span>
+
+                    <strong>
+                        {{ movement.asset.brand|default:"—" }}
+                        {{ movement.asset.model|default:"" }}
+                    </strong>
+                </div>
+
+                <div class="asset-info-item">
+                    <span>Número de serie</span>
+
+                    <strong>
+                        {{ movement.asset.serial_number|default:"No registrado" }}
+                    </strong>
+                </div>
+
+            </div>
+
+        </div>
+
+
+        <!-- ==================================================
+        CONDICIONES DE ENTREGA
+        ================================================== -->
+
+        <div class="table-card">
+
+            <h3>📦 Condiciones de entrega</h3>
+
+            <div class="custody-text-section">
+
+                <div>
+                    <span>Accesorios</span>
+
+                    <p>
+                        {% if movement.accessories %}
+                            {{ movement.accessories|linebreaksbr }}
+                        {% else %}
+                            No registrados.
+                        {% endif %}
+                    </p>
+                </div>
+
+                <div>
+                    <span>Estado físico y funcional</span>
+
+                    <p>
+                        {% if movement.asset_condition %}
+                            {{ movement.asset_condition|linebreaksbr }}
+                        {% else %}
+                            No registrado.
+                        {% endif %}
+                    </p>
+                </div>
+
+                <div>
+                    <span>Observaciones</span>
+
+                    <p>
+                        {% if movement.observations %}
+                            {{ movement.observations|linebreaksbr }}
+                        {% else %}
+                            Sin observaciones.
+                        {% endif %}
+                    </p>
+                </div>
+
+            </div>
+
+        </div>
+
+
+        <!-- ==================================================
+        FIRMAS
+        ================================================== -->
+
+        <div class="table-card">
+
+            <h3>✍️ Firmas y documentación</h3>
+
+            <div class="custody-signature-grid">
+
+                {% if uses_batch_documents %}
+
+                <div class="custody-signature-card">
+                    <span>Acta interna de entrega DTI</span>
+                    {% if delivery_form_uploaded %}
+                        <p style="color:#15803d; font-weight:700;">✅ Firmas verificadas</p>
+                    {% else %}
+                        <p style="color:#b91c1c; font-weight:700;">⚠️ Pendiente</p>
+                    {% endif %}
+                </div>
+
+                <div class="custody-signature-card">
+                    <span>Movimiento patrimonial</span>
+                    {% if patrimonial_form_uploaded %}
+                        <p style="color:#15803d; font-weight:700;">✅ Firmas verificadas</p>
+                    {% else %}
+                        <p style="color:#b91c1c; font-weight:700;">⚠️ Pendiente</p>
+                    {% endif %}
+                </div>
+
+                <div class="custody-signature-card">
+                    <span>Autorización Director DTI</span>
+                    {% if movement.delivery_batch.status == "DELIVERED" %}
+                        <p style="color:#15803d; font-weight:700;">✅ Acta autorizada y cerrada</p>
+                    {% else %}
+                        <p style="color:#b54708; font-weight:700;">⚠️ Autorización pendiente</p>
+                    {% endif %}
+                    <a href="{% url 'deliveries:delivery_batch_detail' movement.delivery_batch.pk %}"
+                       class="btn-warning">
+                        Revisar y autorizar acta
+                    </a>
+                </div>
+
+                {% else %}
+
+                <div class="custody-signature-card">
+
+                    <span>Director</span>
+
+                    {% if movement.director_signature %}
+
+                        <img
+                            src="{% url 'deliveries:movement_private_file' movement.pk 'firma-director' %}"
+                            alt="Firma del director">
+
+                    {% else %}
+
+                        <p>Firma pendiente</p>
+
+                    {% endif %}
+
+                </div>
+
+                <div class="custody-signature-card">
+
+                    <span>Responsable de entrega</span>
+
+                    {% if movement.responsible_signature %}
+
+                        <img
+                            src="{% url 'deliveries:movement_private_file' movement.pk 'firma-responsable' %}"
+                            alt="Firma del responsable">
+
+                    {% else %}
+
+                        <p>Firma pendiente</p>
+
+                    {% endif %}
+
+                </div>
+
+                <div class="custody-signature-card">
+
+                    <span>Receptor</span>
+
+                    {% if movement.recipient_signature %}
+
+                        <img
+                            src="{% url 'deliveries:movement_private_file' movement.pk 'firma-receptor' %}"
+                            alt="Firma del receptor">
+
+                    {% else %}
+
+                        <p>Firma pendiente</p>
+
+                    {% endif %}
+
+                </div>
+
+                {% endif %}
+
+            </div>
+
+            {% if movement.signed_document %}
+
+                <a
+                    href="{% url 'deliveries:movement_private_file' movement.pk 'acta' %}"
+                    target="_blank"
+                    rel="noopener"
+                    class="btn-secondary custody-document-button">
+
+                    📄 Abrir acta firmada anterior
+
+                </a>
+
+            {% endif %}
+
+        </div>
+
+
+        <!-- ==================================================
+        DOCUMENTOS PARA AUDITORÍA
+        ================================================== -->
+
+        <div class="table-card">
+
+            <h3>📎 Documentos para auditoría</h3>
+
+            <p class="page-subtitle">
+                Para completar la entrega deben estar adjuntadas
+                la hoja de entrega y la hoja patrimonial firmadas.
+            </p>
+
+            <!-- ESTADO DE LOS DOCUMENTOS OBLIGATORIOS -->
+
+            <div
+                style="
+                    display:grid;
+                    grid-template-columns:
+                        repeat(auto-fit, minmax(220px, 1fr));
+                    gap:15px;
+                    margin:20px 0;
+                ">
+
+                <div class="asset-info-item">
+
+                    <span>Hoja de entrega firmada</span>
+
+                    {% if delivery_form_uploaded %}
+
+                        <strong style="color:#15803d;">
+                            ✅ Cargada
+                        </strong>
+
+                    {% else %}
+
+                        <strong style="color:#b91c1c;">
+                            ❌ Pendiente
+                        </strong>
+
+                        {% if can_upload_documents and not uses_batch_documents %}
+                            <form method="post" enctype="multipart/form-data"
+                                  action="{% url 'deliveries:upload_delivery_document' movement.pk %}"
+                                  class="direct-document-upload">
+                                {% csrf_token %}
+                                <input type="hidden" name="document_type" value="DELIVERY_FORM">
+                                <label>Archivo de la hoja de entrega</label>
+                                <input type="file" name="file" accept=".pdf,.jpg,.jpeg,.png" required>
+                                <button type="submit" class="btn-primary">Subir hoja de entrega</button>
+                            </form>
+                        {% endif %}
+
+                    {% endif %}
+
+                </div>
+
+                <div class="asset-info-item">
+
+                    <span>Hoja patrimonial firmada</span>
+
+                    {% if patrimonial_form_uploaded %}
+
+                        <strong style="color:#15803d;">
+                            ✅ Cargada
+                        </strong>
+
+                    {% else %}
+
+                        <strong style="color:#b91c1c;">
+                            ❌ Pendiente
+                        </strong>
+
+                        {% if can_upload_documents and not uses_batch_documents %}
+                            <form method="post" enctype="multipart/form-data"
+                                  action="{% url 'deliveries:upload_delivery_document' movement.pk %}"
+                                  class="direct-document-upload">
+                                {% csrf_token %}
+                                <input type="hidden" name="document_type" value="PATRIMONIAL_FORM">
+                                <label>Archivo de la hoja patrimonial</label>
+                                <input type="file" name="file" accept=".pdf,.jpg,.jpeg,.png" required>
+                                <button type="submit" class="btn-primary">Subir hoja patrimonial</button>
+                            </form>
+                        {% endif %}
+
+                    {% endif %}
+
+                </div>
+
+            </div>
+
+
+            <!-- MENSAJE GENERAL DE VALIDACIÓN -->
+
+            {% if documents_complete %}
+
+                <div
+                    style="
+                        padding:12px 15px;
+                        margin-bottom:20px;
+                        border:1px solid #86efac;
+                        border-radius:10px;
+                        background:#f0fdf4;
+                        color:#166534;
+                    ">
+
+                    ✅ Los documentos obligatorios están completos.
+
+                </div>
+
+            {% else %}
+
+                <div
+                    style="
+                        padding:12px 15px;
+                        margin-bottom:20px;
+                        border:1px solid #fca5a5;
+                        border-radius:10px;
+                        background:#fef2f2;
+                        color:#991b1b;
+                    ">
+
+                    ⚠️ No se podrá completar la entrega hasta
+                    adjuntar ambos documentos obligatorios.
+
+                </div>
+
+            {% endif %}
+
+
+            <!-- FORMULARIO PARA ADJUNTAR DOCUMENTOS -->
+
+            {% if uses_batch_documents %}
+
+                <div style="padding:12px 15px; margin-bottom:20px; border:1px solid #bfdbfe; border-radius:10px; background:#eff6ff; color:#1e3a8a;">
+                    Estos documentos pertenecen al acta agrupada
+                    <a href="{% url 'deliveries:delivery_batch_detail' movement.delivery_batch.pk %}"><strong>{{ movement.delivery_batch.batch_number }}</strong></a>
+                    y respaldan a todos sus equipos.
+                </div>
+
+            {% elif can_upload_documents %}
+
+                <form
+                    method="post"
+                    enctype="multipart/form-data"
+                    action="{% url 'deliveries:upload_delivery_document' movement.pk %}"
+                    hidden
+                    style="
+                        padding:18px;
+                        margin-bottom:20px;
+                        border:1px solid #d1d5db;
+                        border-radius:12px;
+                        background:#f9fafb;
+                    ">
+
+                    {% csrf_token %}
+
+                    <h4 style="margin-top:0;">
+                        Adjuntar documento al equipo
+                    </h4>
+
+                    <div
+                        class="form-grid delivery-form-grid"
+                        style="margin-top:15px;">
+
+                        <div class="form-group">
+
+                            <label
+                                for="{{ document_form.document_type.id_for_label }}">
+
+                                Tipo de documento
+
+                            </label>
+
+                            {{ document_form.document_type }}
+
+                            {% for error in document_form.document_type.errors %}
+
+                                <div class="form-error">
+                                    <p>{{ error }}</p>
+                                </div>
+
+                            {% endfor %}
+
+                        </div>
+
+                        <div class="form-group">
+
+                            <label
+                                for="{{ document_form.file.id_for_label }}">
+
+                                Seleccionar archivo
+
+                            </label>
+
+                            {{ document_form.file }}
+
+                            {% for error in document_form.file.errors %}
+
+                                <div class="form-error">
+                                    <p>{{ error }}</p>
+                                </div>
+
+                            {% endfor %}
+
+                        </div>
+
+                        <div class="form-group">
+
+                            <label
+                                for="{{ document_form.observations.id_for_label }}">
+
+                                Observación
+
+                            </label>
+
+                            {{ document_form.observations }}
+
+                            {% for error in document_form.observations.errors %}
+
+                                <div class="form-error">
+                                    <p>{{ error }}</p>
+                                </div>
+
+                            {% endfor %}
+
+                        </div>
+
+                    </div>
+
+                    <button
+                        type="submit"
+                        class="btn-primary"
+                        style="margin-top:15px;">
+
+                        📎 Adjuntar documento
+
+                    </button>
+
+                </form>
+
+            {% else %}
+
+                <div
+                    style="
+                        padding:12px 15px;
+                        margin-bottom:20px;
+                        border:1px solid #fde68a;
+                        border-radius:10px;
+                        background:#fffbeb;
+                        color:#92400e;
+                    ">
+
+                    La documentación está bloqueada porque el movimiento
+                    ya fue entregado, cancelado o su acta está cerrada.
+
+                </div>
+
+            {% endif %}
+
+
+            <!-- LISTADO DE DOCUMENTOS CARGADOS -->
+
+            <h4>Documentos adjuntos</h4>
+
+            {% if documents %}
+
+                <div style="overflow-x:auto;">
+
+                    <table class="data-table">
+
+                        <thead>
+                            <tr>
+                                <th>Tipo</th>
+                                <th>Archivo</th>
+                                <th>Observación</th>
+                                <th>Cargado por</th>
+                                <th>Fecha</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+
+                            {% for document in documents %}
+
+                                <tr>
+
+                                    <td>
+                                        <strong>
+                                            {{ document.get_document_type_display }}
+                                        </strong>
+                                    </td>
+
+                                    <td>
+
+                                        <a
+                                            href="{% url 'deliveries:delivery_document_download' movement.pk document.pk %}"
+                                            target="_blank"
+                                            rel="noopener"
+                                            class="btn-secondary">
+
+                                            📄 Abrir / descargar
+
+                                        </a>
+
+                                    </td>
+
+                                    <td>
+                                        {{ document.observations|default:"Sin observación" }}
+                                    </td>
+
+                                    <td>
+
+                                        {% if document.uploaded_by.first_name or document.uploaded_by.last_name %}
+
+                                            {{ document.uploaded_by.first_name }}
+                                            {{ document.uploaded_by.last_name }}
+
+                                        {% else %}
+
+                                            {{ document.uploaded_by.email }}
+
+                                        {% endif %}
+
+                                    </td>
+
+                                    <td>
+                                        {{ document.uploaded_at|date:"d/m/Y H:i" }}
+                                    </td>
+
+                                    <td>
+
+                                        {% if can_upload_documents %}
+
+                                            <details class="document-replace-box">
+
+                                                <summary class="document-action-link">
+                                                    ♻️ Reemplazar
+                                                </summary>
+
+                                                <form
+                                                    method="post"
+                                                    enctype="multipart/form-data"
+                                                    action="{% url 'deliveries:replace_delivery_document' movement.pk document.pk %}"
+                                                    class="document-replace-form">
+
+                                                    {% csrf_token %}
+
+                                                    <input
+                                                        type="hidden"
+                                                        name="document_type"
+                                                        value="{{ document.document_type }}">
+
+                                                    <label>
+                                                        Nuevo archivo
+                                                    </label>
+
+                                                    <input
+                                                        type="file"
+                                                        name="file"
+                                                        accept=".pdf,.jpg,.jpeg,.png"
+                                                        required>
+
+                                                    <label>
+                                                        Observación
+                                                    </label>
+
+                                                    <textarea
+                                                        name="observations"
+                                                        rows="2"
+                                                        placeholder="Motivo o detalle del reemplazo">{{ document.observations }}</textarea>
+
+                                                    <button
+                                                        type="submit"
+                                                        class="btn-primary document-small-button">
+
+                                                        Guardar reemplazo
+
+                                                    </button>
+
+                                                </form>
+
+                                            </details>
+
+                                            <form
+                                                method="post"
+                                                action="{% url 'deliveries:delete_delivery_document' movement.pk document.pk %}"
+                                                class="document-delete-form">
+
+                                                {% csrf_token %}
+
+                                                <button
+                                                    type="submit"
+                                                    class="document-delete-button"
+                                                    onclick="return confirm(
+                                                        '¿Confirma que desea eliminar este documento? Esta acción no se puede deshacer.'
+                                                    );">
+
+                                                    🗑️ Eliminar
+
+                                                </button>
+
+                                            </form>
+
+                                        {% else %}
+
+                                            <span class="document-locked-text">
+                                                🔒 Sin edición
+                                            </span>
+
+                                        {% endif %}
+
+                                    </td>
+
+                                </tr>
+
+                            {% endfor %}
+
+                        </tbody>
+
+                    </table>
+
+                </div>
+
+            {% else %}
+
+                <p>
+                    Todavía no se adjuntaron documentos para este equipo.
+                </p>
+
+            {% endif %}
+
+        </div>
+
+    </div>
+
+
+    <!-- ==================================================
+    COLUMNA LATERAL
+    ================================================== -->
+
+    <aside class="custody-side-column">
+
+        <!-- PERSONAS -->
+
+        <div class="table-card">
+
+            <h3>👥 Personas</h3>
+
+            <p>
+                <strong>Custodio anterior:</strong><br>
+
+                {% if movement.previous_custodian %}
+
+                    {{ movement.previous_custodian.first_name }}
+                    {{ movement.previous_custodian.last_name }}
+
+                {% else %}
+
+                    Sin custodio anterior
+
+                {% endif %}
+            </p>
+
+            <p>
+                <strong>Receptor:</strong><br>
+
+                {% if movement.recipient %}
+
+                    {{ movement.recipient.first_name }}
+                    {{ movement.recipient.last_name }}
+
+                {% else %}
+
+                    Sin receptor
+
+                {% endif %}
+            </p>
+
+            <p>
+                <strong>Legajo del receptor:</strong><br>
+                {{ movement.recipient_employee_number|default:"No registrado" }}
+            </p>
+
+            <p>
+                <strong>Cargo del receptor:</strong><br>
+                {{ movement.recipient_position|default:"No registrado" }}
+            </p>
+
+            <p>
+                <strong>Responsable de entrega:</strong><br>
+
+                {{ movement.delivery_responsible.first_name }}
+                {{ movement.delivery_responsible.last_name }}
+            </p>
+
+            <p>
+                <strong>Director:</strong><br>
+
+                {% if movement.authorizing_director %}
+
+                    {{ movement.authorizing_director.first_name }}
+                    {{ movement.authorizing_director.last_name }}
+
+                {% else %}
+
+                    Sin director asignado
+
+                {% endif %}
+            </p>
+
+        </div>
+
+
+        <!-- DESTINO -->
+
+        <div class="table-card">
+
+            <h3>🏢 Destino</h3>
+
+            <p>
+                <strong>Unidad:</strong><br>
+                {{ movement.recipient_unit|default:"No registrada" }}
+            </p>
+
+            <p>
+                <strong>Departamento:</strong><br>
+                {{ movement.department|default:"No registrado" }}
+            </p>
+
+            <p>
+                <strong>Área:</strong><br>
+                {{ movement.recipient_area|default:"No registrada" }}
+            </p>
+
+            <p>
+                <strong>Sección:</strong><br>
+                {{ movement.recipient_section|default:"No registrada" }}
+            </p>
+
+            <p>
+                <strong>Ubicación:</strong><br>
+                {{ movement.location|default:"No registrada" }}
+            </p>
+
+        </div>
+
+
+        <!-- ESTADO DE REQUISITOS -->
+
+        <div class="table-card">
+
+            <h3>✅ Requisitos de entrega</h3>
+
+            <p>
+                <strong>Firma del director:</strong><br>
+
+                {% if director_authorized %}
+                    <span style="color:#15803d;">✅ Completa</span>
+                {% else %}
+                    <span style="color:#b91c1c;">❌ Pendiente</span>
+                {% endif %}
+            </p>
+
+            <p>
+                <strong>Firma del responsable:</strong><br>
+
+                {% if responsible_signed %}
+                    <span style="color:#15803d;">✅ Completa</span>
+                {% else %}
+                    <span style="color:#b91c1c;">❌ Pendiente</span>
+                {% endif %}
+            </p>
+
+            <p>
+                <strong>Firma del receptor:</strong><br>
+
+                {% if recipient_signed %}
+                    <span style="color:#15803d;">✅ Completa</span>
+                {% else %}
+                    <span style="color:#b91c1c;">❌ Pendiente</span>
+                {% endif %}
+            </p>
+
+            <p>
+                <strong>Hoja de entrega:</strong><br>
+
+                {% if delivery_form_uploaded %}
+                    <span style="color:#15803d;">✅ Cargada</span>
+                {% else %}
+                    <span style="color:#b91c1c;">❌ Pendiente</span>
+                {% endif %}
+            </p>
+
+            <p>
+                <strong>Hoja patrimonial:</strong><br>
+
+                {% if patrimonial_form_uploaded %}
+                    <span style="color:#15803d;">✅ Cargada</span>
+                {% else %}
+                    <span style="color:#b91c1c;">❌ Pendiente</span>
+                {% endif %}
+            </p>
+
+        </div>
+
+
+        <!-- AUDITORÍA -->
+
+        <div class="table-card">
+
+            <h3>🔍 Auditoría</h3>
+
+            <p>
+                <strong>Registrado por:</strong><br>
+
+                {{ movement.created_by.first_name }}
+                {{ movement.created_by.last_name }}
+            </p>
+
+            <p>
+                <strong>Fecha de registro:</strong><br>
+                {{ movement.created_at|date:"d/m/Y H:i" }}
+            </p>
+
+            <p>
+                <strong>Última actualización:</strong><br>
+                {{ movement.updated_at|date:"d/m/Y H:i" }}
+            </p>
+
+        </div>
+
+    </aside>
+
+</div>
+
+<style>
+.direct-document-upload {
+    display: grid;
+    gap: 9px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid #e4e7ec;
+}
+.direct-document-upload label {
+    color: #344054;
+    font-size: 12px;
+    font-weight: 700;
+}
+.direct-document-upload input[type="file"] {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #d0d5dd;
+    border-radius: 8px;
+    background: #fff;
+    box-sizing: border-box;
+}
+</style>
+
+{% endblock %}

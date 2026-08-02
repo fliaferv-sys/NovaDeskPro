@@ -1,0 +1,54 @@
+<!-- ======================================================
+     RESUMEN
+     ====================================================== -->
+
+     <div class="table-card">
+
+        <h3>Resumen</h3>
+    
+        <p>
+            <strong>Estado:</strong>
+            {{ asset.get_operational_status_display }}
+        </p>
+    
+        <p>
+            <strong>Conexión:</strong>
+            {{ asset.get_connection_status_display }}
+        </p>
+    
+        <p>
+            <strong>Departamento:</strong>
+            {{ asset.department|default:"No registrado" }}
+        </p>
+    
+        <p>
+            <strong>Ubicación:</strong>
+            {{ asset.location|default:"No registrada" }}
+        </p>
+    
+        <p>
+            <strong>Tickets asociados:</strong>
+            {{ asset.tickets.count }}
+        </p>
+    
+        <p>
+            <strong>Intervenciones:</strong>
+            {{ interventions.count }}
+        </p>
+    
+        <p>
+            <strong>Costo técnico:</strong>
+            Gs. {{ total_intervention_cost|floatformat:0 }}
+        </p>
+    
+        <p>
+            <strong>Creado:</strong>
+            {{ asset.created_at|date:"d/m/Y H:i" }}
+        </p>
+    
+        <p>
+            <strong>Actualizado:</strong>
+            {{ asset.updated_at|date:"d/m/Y H:i" }}
+        </p>
+    
+    </div>

@@ -1,0 +1,809 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}
+NovaDesk Pro
+{% endblock %}
+
+{% block content %}
+
+
+{% if request.user.role == "CLIENT" %}
+
+
+<style>
+    .client-app-container {
+        width: 100%;
+        max-width: 100%;
+        margin: 0;
+        background: white;
+        border-radius: 24px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.12);
+        overflow: hidden;
+    }
+
+    .client-main-content {
+        display: grid;
+        grid-template-columns: 380px 1fr;
+        gap: 0;
+        min-height: 640px;
+    }
+
+    .client-left-panel {
+        background: #fafcff;
+        padding: 28px 24px;
+        border-right: 1px solid #e9edf4;
+    }
+
+    .client-right-panel {
+        padding: 28px 30px;
+        background: white;
+    }
+
+    .client-panel-title {
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        color: #7a8ba3;
+        font-weight: 600;
+        margin-bottom: 20px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .client-queue-card {
+        background: white;
+        border-radius: 16px;
+        padding: 20px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+        border-left: 4px solid #f68b1e;
+        margin-bottom: 20px;
+    }
+
+    .client-queue-number {
+        font-size: 38px;
+        font-weight: 800;
+        color: #0a1a3a;
+        line-height: 1;
+    }
+
+    .client-queue-number small {
+        font-size: 16px;
+        font-weight: 400;
+        color: #7a8ba3;
+    }
+
+    .client-queue-label {
+        font-size: 14px;
+        color: #2c3e50;
+        margin-top: 4px;
+    }
+
+    .client-queue-progress {
+        margin-top: 12px;
+        height: 6px;
+        background: #e9edf4;
+        border-radius: 10px;
+        overflow: hidden;
+        width: 100%;
+    }
+
+    .client-queue-progress .fill {
+        height: 100%;
+        width: 85%;
+        background: linear-gradient(90deg, #f68b1e, #f7a84e);
+        border-radius: 10px;
+    }
+
+    .client-queue-time {
+        margin-top: 10px;
+        font-size: 13px;
+        color: #27ae60;
+        font-weight: 500;
+    }
+
+    .client-ticket-active-card {
+        background: linear-gradient(135deg, #eef5ff, #f8faff);
+        border-radius: 16px;
+        padding: 18px 20px;
+        border: 1px solid #d4e2fc;
+        margin-bottom: 20px;
+    }
+
+    .client-ticket-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+
+    .client-ticket-id {
+        font-weight: 700;
+        color: #0a1a3a;
+        font-size: 16px;
+    }
+
+    .client-ticket-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 3px 14px;
+        border-radius: 30px;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        background: #fff3e0;
+        color: #e67e22;
+    }
+
+    .client-ticket-title {
+        font-size: 15px;
+        color: #1e2a41;
+        font-weight: 500;
+        margin: 8px 0 12px 0;
+    }
+
+    .client-ticket-tech {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding-top: 12px;
+        border-top: 1px solid #e9edf4;
+    }
+
+    .client-tech-avatar-small {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: #0a1a3a;
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        font-weight: 600;
+        flex-shrink: 0;
+    }
+
+    .client-tech-info {
+        flex: 1;
+    }
+
+    .client-tech-name {
+        font-weight: 600;
+        font-size: 14px;
+        color: #0a1a3a;
+    }
+
+    .client-tech-subtext {
+        font-size: 12px;
+        color: #7a8ba3;
+        margin-top: 2px;
+    }
+
+    .client-history-list {
+        margin-top: 10px;
+    }
+
+    .client-history-item {
+        background: white;
+        padding: 12px 14px;
+        border-radius: 10px;
+        border: 1px solid #e9edf4;
+        margin-bottom: 8px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .client-history-item-left {
+        flex: 1;
+    }
+
+    .client-history-id {
+        font-weight: 600;
+        font-size: 13px;
+        color: #0a1a3a;
+    }
+
+    .client-history-title {
+        font-size: 12px;
+        color: #7a8ba3;
+        display: block;
+    }
+
+    .client-history-date {
+        font-size: 11px;
+        color: #7a8ba3;
+        display: block;
+        margin-top: 3px;
+    }
+
+    .client-history-status-badge {
+        font-size: 10px;
+        padding: 3px 10px;
+        border-radius: 30px;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    .client-badge-closed {
+        background: #e8f8f0;
+        color: #27ae60;
+    }
+
+    .client-badge-progress {
+        background: #fff3e0;
+        color: #e67e22;
+    }
+
+    .client-link-all {
+        display: block;
+        text-align: center;
+        margin-top: 12px;
+        color: #f68b1e;
+        font-weight: 600;
+        text-decoration: none;
+        font-size: 13px;
+    }
+
+    .client-form-ticket {
+        background: #fafcff;
+        padding: 20px;
+        border-radius: 16px;
+        border: 1px solid #e9edf4;
+        margin-bottom: 20px;
+    }
+
+    .client-form-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 15px;
+        margin-bottom: 15px;
+    }
+
+    .client-form-group {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        margin-bottom: 15px;
+    }
+
+    .client-form-group.full {
+        grid-column: 1 / -1;
+    }
+
+    .client-form-group label {
+        font-weight: 600;
+        font-size: 13px;
+        color: #1e2a41;
+    }
+
+    .client-form-group select,
+    .client-form-group input,
+    .client-form-group textarea,
+    .client-form-group .form-control {
+        padding: 10px 14px;
+        border-radius: 10px;
+        border: 1.5px solid #dce1ec;
+        font-size: 14px;
+        background: white;
+        font-family: inherit;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    .client-form-group textarea {
+        min-height: 100px;
+        resize: vertical;
+    }
+
+    .client-form-actions {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+        margin-top: 12px;
+    }
+
+    .client-btn-submit {
+        background: linear-gradient(135deg, #f68b1e, #e07c14);
+        border: none;
+        padding: 12px 40px;
+        border-radius: 50px;
+        color: white;
+        font-weight: 700;
+        font-size: 15px;
+        cursor: pointer;
+        box-shadow: 0 4px 15px rgba(246, 139, 30, 0.35);
+    }
+
+    .client-warning-box {
+        margin-bottom: 16px;
+        padding: 12px 14px;
+        border-radius: 12px;
+        border: 1px solid #f3ce90;
+        background: #fff7ea;
+        color: #9a5f00;
+        font-weight: 600;
+        font-size: 13px;
+    }
+
+    .client-empty-chat {
+        background: #f8fafd;
+        border-radius: 16px;
+        padding: 18px 20px;
+        border: 1px solid #e9edf4;
+        color: #7a8ba3;
+        font-size: 14px;
+        line-height: 1.5;
+    }
+
+    @media (max-width: 1024px) {
+        .client-main-content {
+            grid-template-columns: 1fr;
+        }
+
+        .client-left-panel {
+            border-right: none;
+            border-bottom: 1px solid #e9edf4;
+        }
+
+        .client-form-row {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+
+<div class="client-app-container">
+    <div class="client-main-content">
+
+        <div class="client-left-panel">
+            <div class="client-panel-title">📊 Mi estado actual</div>
+
+            <div class="client-queue-card">
+                <div class="client-queue-number">
+                    {% if client_queue_position %}
+                        #{{ client_queue_position }}
+                    {% else %}
+                        --
+                    {% endif %}
+                    <small>en cola</small>
+                </div>
+
+                <div class="client-queue-label">
+                    {% if client_active_ticket %}
+                        {% if client_queue_position == 1 %}
+                            Eres el siguiente en ser atendido
+                        {% else %}
+                            Hay {{ client_queue_position|add:"-1" }} ticket(s) antes que el tuyo
+                        {% endif %}
+                    {% else %}
+                        No tienes solicitudes activas
+                    {% endif %}
+                </div>
+
+                <div class="client-queue-progress">
+                    <div class="fill"></div>
+                </div>
+
+                <div class="client-queue-time">
+                    ⏱️ Tiempo estimado:
+                    <strong>
+                        {% if client_queue_position == 1 %}
+                            5 minutos
+                        {% elif client_queue_position %}
+                            {{ client_queue_position|add:"4" }} minutos aprox.
+                        {% else %}
+                            Sin espera
+                        {% endif %}
+                    </strong>
+                </div>
+            </div>
+
+            {% if client_active_ticket %}
+                <div class="client-ticket-active-card">
+                    <div class="client-ticket-header">
+                        <span class="client-ticket-id">{{ client_active_ticket.ticket_number }}</span>
+                        <span class="client-ticket-status">{{ client_active_ticket.get_status_display }}</span>
+                    </div>
+
+                    <div class="client-ticket-title">
+                        {{ client_active_ticket.title }}
+                    </div>
+
+                    <div class="client-ticket-tech">
+                        <div class="client-tech-avatar-small">
+                            {% if client_active_ticket.assigned_to %}
+                                {{ client_active_ticket.assigned_to.first_name|default:"T"|slice:":1" }}{{ client_active_ticket.assigned_to.last_name|default:""|slice:":1" }}
+                            {% else %}
+                                --
+                            {% endif %}
+                        </div>
+
+                        <div class="client-tech-info">
+                            <div class="client-tech-name">
+                                {% if client_active_ticket.assigned_to %}
+                                    {{ client_active_ticket.assigned_to.first_name }} {{ client_active_ticket.assigned_to.last_name }}
+                                {% else %}
+                                    Pendiente de asignación
+                                {% endif %}
+                            </div>
+
+                            <div class="client-tech-subtext">
+                                {% if client_active_ticket.assigned_to %}
+                                    Técnico responsable de tu solicitud
+                                {% else %}
+                                    Aún no hay un técnico asignado
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {% else %}
+                <div class="client-ticket-active-card">
+                    <div class="client-ticket-header">
+                        <span class="client-ticket-id">Sin ticket activo</span>
+                        <span class="client-ticket-status" style="background:#e3f2fd;color:#1976d2;">Disponible</span>
+                    </div>
+                    <div class="client-ticket-title">
+                        Actualmente no tienes solicitudes en proceso.
+                    </div>
+                </div>
+            {% endif %}
+
+            <div class="client-panel-title" style="margin-top:10px;">📋 Solicitudes anteriores</div>
+
+            <div class="client-history-list">
+                {% for ticket in client_ticket_history %}
+                    <div class="client-history-item">
+                        <div class="client-history-item-left">
+                            <span class="client-history-id">{{ ticket.ticket_number }}</span>
+                            <span class="client-history-title">{{ ticket.title }}</span>
+                        </div>
+
+                        <div>
+                            {% if ticket.status == "CLOSED" or ticket.status == "RESOLVED" %}
+                                <span class="client-history-status-badge client-badge-closed">{{ ticket.get_status_display }}</span>
+                            {% else %}
+                                <span class="client-history-status-badge client-badge-progress">{{ ticket.get_status_display }}</span>
+                            {% endif %}
+                            <span class="client-history-date">{{ ticket.created_at|date:"d/m/y" }}</span>
+                        </div>
+                    </div>
+                {% empty %}
+                    <div class="client-history-item">
+                        <div class="client-history-item-left">
+                            <span class="client-history-title">No tienes tickets anteriores</span>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+
+            <a href="{% url 'tickets:ticket_list' %}" class="client-link-all">Ver todos mis tickets →</a>
+        </div>
+
+        <div class="client-right-panel">
+            <div class="client-panel-title">🖥️ Crear Nueva Solicitud</div>
+
+            <div class="client-form-ticket">
+                {% if client_has_open_ticket %}
+                    <div class="client-warning-box">
+                        Ya tienes un ticket en proceso. Si esta solicitud corresponde al mismo problema,
+                        te conviene continuar con el ticket activo antes de crear otro.
+                    </div>
+                {% endif %}
+
+                <form method="post">
+                    {% csrf_token %}
+
+                    <div class="client-form-row">
+                        <div class="client-form-group">
+                            <label for="{{ ticket_form.category.id_for_label }}">Categoría</label>
+                            {{ ticket_form.category }}
+                        </div>
+
+                        <div class="client-form-group">
+                            <label for="{{ ticket_form.priority.id_for_label }}">Prioridad</label>
+                            {{ ticket_form.priority }}
+                        </div>
+                    </div>
+
+                    <div class="client-form-group full">
+                        <label for="{{ ticket_form.title.id_for_label }}">Título</label>
+                        {{ ticket_form.title }}
+                    </div>
+
+                    <div class="client-form-group full">
+                        <label for="{{ ticket_form.description.id_for_label }}">Descripción</label>
+                        {{ ticket_form.description }}
+                    </div>
+
+                    <div class="client-form-group full">
+                        <label for="{{ ticket_form.asset.id_for_label }}">Equipo relacionado</label>
+                        {{ ticket_form.asset }}
+                    </div>
+
+                    <div class="client-form-actions">
+                        <button type="submit" class="client-btn-submit">💬 Enviar Solicitud</button>
+                    </div>
+                </form>
+            </div>
+
+            <div class="client-panel-title">💬 Comunicación con soporte</div>
+
+            <div class="client-empty-chat">
+                {% if client_active_ticket %}
+                    Cuando conectemos el chat real, aquí vas a ver los mensajes asociados a tu ticket activo
+                    <strong>{{ client_active_ticket.ticket_number }}</strong>.
+                {% else %}
+                    Cuando tengas un ticket activo, aquí aparecerá la conversación con soporte.
+                {% endif %}
+            </div>
+        </div>
+
+    </div>
+</div>
+
+
+{% else %}
+
+<style>
+    .staff-dashboard .kpi-grid {
+        gap: 19px;
+        margin-top: 19px;
+    }
+
+    .staff-dashboard .stock-alerts-section {
+        margin-top: 19px;
+        margin-bottom: 19px;
+    }
+
+    .staff-dashboard .stock-alerts-grid {
+        gap: 19px;
+    }
+
+    .staff-dashboard .dashboard-grid-two {
+        gap: 19px;
+        margin-top: 19px !important;
+    }
+
+    .staff-dashboard .dashboard-grid-two > .table-card {
+        margin-top: 0;
+    }
+
+    .staff-dashboard > .table-card {
+        margin-top: 19px !important;
+    }
+</style>
+
+<div class="staff-dashboard">
+
+<h1 class="page-title">
+    Bienvenido, {{ request.user.first_name }}
+</h1>
+
+<p class="page-subtitle">
+    Panel principal de NovaDesk Pro
+</p>
+
+<div class="kpi-grid">
+    <div class="kpi-card">
+        <h3>Total Tickets</h3>
+        <h1>{{ total_tickets }}</h1>
+    </div>
+
+    <div class="kpi-card">
+        <h3>Abiertos</h3>
+        <h1>{{ open_tickets }}</h1>
+    </div>
+
+    <div class="kpi-card">
+        <h3>Pendientes</h3>
+        <h1>{{ pending_tickets }}</h1>
+    </div>
+
+    <div class="kpi-card">
+        <h3>Cerrados</h3>
+        <h1>{{ closed_tickets }}</h1>
+    </div>
+</div>
+
+<section class="stock-alerts-section">
+    <div class="section-header">
+        <div>
+            <h2>Alertas de insumos</h2>
+            <p>Estado actual del inventario de consumibles de impresión.</p>
+        </div>
+    </div>
+
+    <div class="stock-alerts-grid">
+        <div class="stock-alert-card stock-alert-danger">
+            <div class="stock-alert-icon">
+                <i class="bi bi-x-octagon"></i>
+            </div>
+
+            <div class="stock-alert-content">
+                <span class="stock-alert-label">Sin stock</span>
+                <strong class="stock-alert-value">{{ consumables_out_of_stock }}</strong>
+                <span class="stock-alert-description">Consumibles agotados</span>
+            </div>
+        </div>
+
+        <div class="stock-alert-card stock-alert-warning">
+            <div class="stock-alert-icon">
+                <i class="bi bi-exclamation-triangle"></i>
+            </div>
+
+            <div class="stock-alert-content">
+                <span class="stock-alert-label">Stock bajo</span>
+                <strong class="stock-alert-value">{{ consumables_low_stock }}</strong>
+                <span class="stock-alert-description">Requieren reposición</span>
+            </div>
+        </div>
+
+        <div class="stock-alert-card stock-alert-purple">
+            <div class="stock-alert-icon">
+                <i class="bi bi-box-seam"></i>
+            </div>
+
+            <div class="stock-alert-content">
+                <span class="stock-alert-label">Sobrestock</span>
+                <strong class="stock-alert-value">{{ consumables_overstock }}</strong>
+                <span class="stock-alert-description">Superan el máximo</span>
+            </div>
+        </div>
+    </div>
+</section>
+
+<div class="dashboard-grid-two" style="margin-top:30px;">
+    <div class="table-card">
+        <div class="table-header">
+            <div>
+                <h3>Tickets por estado</h3>
+                <p class="page-subtitle">Distribución actual de los tickets.</p>
+            </div>
+        </div>
+
+        <div class="dashboard-chart-container">
+            <canvas id="ticketStatusChart"></canvas>
+        </div>
+    </div>
+
+    <div class="table-card">
+        <div class="table-header">
+            <div>
+                <h3>Tickets por prioridad</h3>
+                <p class="page-subtitle">Distribución por nivel de prioridad.</p>
+            </div>
+        </div>
+
+        <div class="dashboard-chart-container">
+            <canvas id="ticketPriorityChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<div class="table-card" style="margin-top:30px;">
+    <div class="table-header">
+        <div>
+            <h3>Actividad reciente</h3>
+            <p class="page-subtitle">Últimos movimientos registrados en el sistema.</p>
+        </div>
+    </div>
+
+    <div class="activity-feed">
+        {% for activity in recent_activities %}
+            <div class="activity-feed-item">
+                <div class="activity-feed-icon">
+                    {% if activity.action == "create" %}
+                        ➕
+                    {% elif activity.action == "update" %}
+                        ✏
+                    {% elif activity.action == "delete" %}
+                        🗑
+                    {% elif activity.action == "assign" %}
+                        👨‍🔧
+                    {% elif activity.action == "status" %}
+                        🔄
+                    {% elif activity.action == "comment" %}
+                        💬
+                    {% elif activity.action == "attachment" %}
+                        📎
+                    {% elif activity.action == "login" %}
+                        🔐
+                    {% elif activity.action == "logout" %}
+                        🚪
+                    {% else %}
+                        ⚙
+                    {% endif %}
+                </div>
+
+                <div class="activity-feed-content">
+                    <div class="activity-feed-header">
+                        <strong>{{ activity.get_action_display }}</strong>
+                        <span>{{ activity.created_at|date:"d/m/Y H:i" }}</span>
+                    </div>
+
+                    <p>{{ activity.description }}</p>
+
+                    <small>
+                        {% if activity.user %}
+                            Realizado por {{ activity.user.first_name }} {{ activity.user.last_name }}
+                        {% else %}
+                            Acción del sistema
+                        {% endif %}
+                    </small>
+                </div>
+            </div>
+        {% empty %}
+            <div class="empty-attachments">
+                <p>No hay actividad registrada.</p>
+            </div>
+        {% endfor %}
+    </div>
+</div>
+
+<form method="post" action="{% url 'logout' %}" class="logout-form">
+    {% csrf_token %}
+    <button type="submit" class="btn-primary" style="width:180px;">
+        Cerrar sesión
+    </button>
+</form>
+
+{% endif %}
+
+{% endblock %}
+
+{% block extra_js %}
+{% if request.user.role != "CLIENT" %}
+{{ ticket_status_labels|json_script:"ticket-status-labels" }}
+{{ ticket_status_values|json_script:"ticket-status-values" }}
+
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const canvas = document.getElementById("ticketStatusChart");
+
+        if (!canvas || typeof Chart === "undefined") {
+            return;
+        }
+
+        const labels = JSON.parse(
+            document.getElementById("ticket-status-labels").textContent
+        );
+
+        const values = JSON.parse(
+            document.getElementById("ticket-status-values").textContent
+        );
+
+        new Chart(canvas, {
+            type: "doughnut",
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: "Tickets",
+                        data: values,
+                        borderWidth: 2,
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: "bottom",
+                    }
+                }
+            }
+        });
+    });
+</script>
+</div>
+{% endif %}
+{% endblock %}

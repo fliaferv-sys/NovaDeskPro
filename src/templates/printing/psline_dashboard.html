@@ -1,0 +1,342 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}Impresoras{% endblock %}
+
+{% block content %}
+
+<div class="psline-page">
+
+    <!-- HEADER -->
+    <div class="psline-hero">
+        <div>
+            <h1 class="psline-title">Impresoras</h1>
+            <p class="psline-subtitle">
+                Panel ejecutivo para monitoreo de equipos tercerizados, consumibles y control operativo.
+            </p>
+        </div>
+    </div>
+
+    <!-- ACCIONES -->
+    <div class="psline-actions-grid">
+
+        <a href="/admin/printing/consumable/" class="psline-action-card">
+            <span class="psline-action-icon"><i class="bi bi-droplet-half"></i></span>
+            <div>
+                <strong>Consumibles</strong>
+                <small>Gestionar tóner y unidad de imagen.</small>
+            </div>
+        </a>
+
+        <a href="/admin/printing/printingcontract/" class="psline-action-card">
+            <span class="psline-action-icon"><i class="bi bi-file-earmark-text"></i></span>
+            <div>
+                <strong>Contratos</strong>
+                <small>Controlar contratos y proveedor.</small>
+            </div>
+        </a>
+
+        <a href="/admin/printing/meterreading/" class="psline-action-card">
+            <span class="psline-action-icon"><i class="bi bi-speedometer2"></i></span>
+            <div>
+                <strong>Lecturas</strong>
+                <small>Revisar contadores.</small>
+            </div>
+        </a>
+
+        <a href="/admin/printing/maintenancerecord/" class="psline-action-card">
+            <span class="psline-action-icon"><i class="bi bi-tools"></i></span>
+            <div>
+                <strong>Mantenimientos</strong>
+                <small>Servicios técnicos.</small>
+            </div>
+        </a>
+
+        <a href="/admin/printing/stockmovement/" class="psline-action-card">
+            <span class="psline-action-icon"><i class="bi bi-box-seam"></i></span>
+            <div>
+                <strong>Stock de Impresoras</strong>
+                <small>Movimientos de insumos.</small>
+            </div>
+        </a>
+
+        <a href="/admin/printing/printingdevice/" class="psline-action-card">
+            <span class="psline-action-icon"><i class="bi bi-printer"></i></span>
+            <div>
+                <strong>Equipos</strong>
+                <small>Administrar dispositivos.</small>
+            </div>
+        </a>
+
+    </div>
+                          
+    
+
+ <!-- ALERTAS POR TONER -->
+
+<div style="margin-bottom:20px;">
+
+    <h3 style="margin-bottom:10px;">🚨 Alertas por modelo</h3>
+
+    {% for item in model_summary %}
+
+        {% if item.toner_out > 0 or item.drum_out > 0 %}
+            <div style="background:#fee2e2; padding:10px; border-radius:10px; margin-bottom:6px;">
+                <a href="/psline/equipos/?brand={{ item.brand }}&model={{ item.model }}"
+                   style="color:#991b1b; text-decoration:none; font-weight:600;">
+                    🔴 {{ item.brand }} {{ item.model }} sin stock
+                </a>
+            </div>
+
+        {% elif item.toner_low > 0 or item.drum_low > 0 %}
+           <div style="background:#fef3c7; padding:10px; border-radius:10px; margin-bottom:6px;">
+               <a href="/psline/equipos/?brand={{ item.brand }}&model={{ item.model }}"
+                  style="color:#92400e; text-decoration:none; font-weight:600;">
+                   🟡 {{ item.brand }} {{ item.model }} con stock bajo
+              </a>
+            </div>
+
+        {% endif %}
+
+    {% empty %}
+        <p>No hay datos disponibles</p>
+    {% endfor %}
+
+</div>
+
+
+    <!-- KPIs (ARREGLADO) -->
+    <div class="psline-kpis">
+
+        <div class="psline-kpi-card">
+            <span>Total equipos</span>
+            <strong>{{ total_devices }}</strong>
+        </div>
+
+        <div class="psline-kpi-card success">
+            <span>En línea</span>
+            <strong>{{ online_devices }}</strong>
+        </div>
+
+        <div class="psline-kpi-card danger">
+            <span>Fuera de línea</span>
+            <strong>{{ offline_devices }}</strong>
+        </div>
+
+        <div class="psline-kpi-card neutral">
+            <span>Desconocido</span>
+            <strong>{{ unknown_devices }}</strong>
+        </div>
+
+        <div class="psline-kpi-card">
+            <span>Total tóner</span>
+            <strong>{{ toner_total }}</strong>
+        </div>
+
+        <div class="psline-kpi-card">
+            <span>Total unidad de imagen</span>
+            <strong>{{ image_unit_total }}</strong>
+        </div>
+
+        <div class="psline-kpi-card warning">
+            <span>Stock bajo</span>
+            <strong>{{ low_stock_count }}</strong>
+        </div>
+
+        <div class="psline-kpi-card danger">
+            <span>Sin stock</span>
+            <strong>{{ out_of_stock_count }}</strong>
+        </div>
+
+    </div>
+
+    <!-- TABLA -->
+    <div class="psline-table-card">
+        <div class="psline-table-header">
+            <h2>Resumen por modelo</h2>
+            <p>Equipos agrupados por marca y modelo.</p>
+        </div>
+
+        <div class="psline-table-wrapper">
+            <table class="psline-table">
+                <thead>
+                    <tr>
+                        <th>Marca</th>
+                        <th>Modelo</th>
+                        <th>Equipos</th>
+                        <th>En línea</th>
+                        <th>Fuera de línea</th>
+                        <th>Desconocido</th>
+                        <th>Tóner total</th>
+                        <th>Tóner bajo</th>
+                        <th>Tóner sin stock</th>
+                        <th>Unidad imagen total</th>
+                        <th>Unidad imagen baja</th>
+                        <th>Unidad imagen sin stock</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in model_summary %}
+                        <tr>
+                            <td>{{ item.brand }}</td>
+                            <td>
+                                {% if item.is_inventory_only %}
+                                    {{ item.model }}
+                                    <small style="display:block; color:#667085;">Stock sin equipo asociado</small>
+                                {% else %}
+                                    <a href="/psline/equipos/?brand={{ item.brand }}&model={{ item.model }}">{{ item.model }}</a>
+                                {% endif %}
+                            </td>
+                            <td><span class="badge neutral">{{ item.total_devices }}</span></td>
+                            <td><span class="badge success">{{ item.online_devices }}</span></td>
+                            <td><span class="badge danger">{{ item.offline_devices }}</span></td>
+                            <td><span class="badge neutral">{{ item.unknown_devices }}</span></td>
+                            <td><span class="badge {% if item.toner_total <= 0 %}danger{% elif item.toner_low %}warning{% else %}success{% endif %}">{{ item.toner_total }}</span></td>
+                            <td><span class="badge warning">{{ item.toner_low }}</span></td>
+                            <td><span class="badge danger">{{ item.toner_out }}</span></td>
+                            <td><span class="badge {% if item.drum_total <= 0 %}danger{% elif item.drum_low %}warning{% else %}success{% endif %}">{{ item.drum_total }}</span></td>
+                            <td><span class="badge warning">{{ item.drum_low }}</span></td>
+                            <td><span class="badge danger">{{ item.drum_out }}</span></td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="12">No hay equipos ni consumibles registrados.</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+
+<style>
+
+.psline-page {
+    padding: 24px;
+}
+
+/* HERO */
+.psline-hero {
+    margin-bottom: 20px;
+}
+
+.psline-title {
+    font-size: 28px;
+    font-weight: 800;
+}
+
+.psline-subtitle {
+    color: #667085;
+}
+
+/* ACCIONES */
+.psline-actions-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.psline-action-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px;
+    border-radius: 12px;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    text-decoration: none;
+    color: inherit;
+    transition: 0.2s;
+}
+
+.psline-action-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+}
+
+/* KPIs */
+.psline-kpis {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.psline-kpi-card {
+    padding: 18px;
+    border-radius: 12px;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+}
+
+.psline-kpi-card span {
+    color: #667085;
+}
+
+.psline-kpi-card strong {
+    display: block;
+    font-size: 26px;
+    margin-top: 6px;
+}
+
+/* COLORES */
+.success { border-left: 5px solid #22c55e; }
+.danger { border-left: 5px solid #ef4444; }
+.warning { border-left: 5px solid #f59e0b; }
+.neutral { border-left: 5px solid #6b7280; }
+
+/* TABLA */
+.psline-table-card {
+    background: #fff;
+    border-radius: 14px;
+    padding: 20px;
+    border: 1px solid #e5e7eb;
+}
+
+.psline-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.psline-table th {
+    background: #f9fafb;
+    text-align: left;
+    padding: 10px;
+}
+
+.psline-table td {
+    padding: 10px;
+    border-bottom: 1px solid #eee;
+}
+
+.badge {
+    padding: 4px 10px;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.success {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.warning {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.danger {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.neutral {
+    background: #e5e7eb;
+    color: #374151;
+}
+
+</style>
+
+{% endblock %}

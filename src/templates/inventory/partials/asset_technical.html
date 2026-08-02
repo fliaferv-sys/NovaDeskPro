@@ -1,0 +1,65 @@
+<!-- ======================================================
+     INFORMACIÓN TÉCNICA
+     ====================================================== -->
+
+     <div class="table-card">
+
+        <h3>💻 Información técnica</h3>
+    
+        <div class="asset-info-grid">
+    
+            <div class="asset-info-item">
+                <span>Hostname</span>
+                <strong>
+                    {{ asset.hostname|default:"No registrado" }}
+                </strong>
+            </div>
+    
+            <div class="asset-info-item">
+                <span>Sistema operativo</span>
+                <strong>
+                    {{ asset.operating_system|default:"No registrado" }}
+                </strong>
+            </div>
+    
+            <div class="asset-info-item">
+                <span>Dirección IP</span>
+                <strong>
+                    {{ asset.current_ip|default:"Sin información" }}
+                </strong>
+            </div>
+    
+            <div class="asset-info-item">
+                <span>Dirección MAC</span>
+                <strong>
+                    {{ asset.mac_address|default:"Sin información" }}
+                </strong>
+            </div>
+    
+            <div class="asset-info-item">
+                <span>Estado operativo</span>
+    
+                <strong
+                    class="
+                        asset-status
+                        asset-status-{{ asset.operational_status|lower }}
+                    ">
+                    {{ asset.get_operational_status_display }}
+                </strong>
+            </div>
+    
+            <div class="asset-info-item">
+                <span>Estado de conexión</span>
+    
+                <strong
+                    class="
+                        connection-status
+                        connection-status-{{ asset.connection_status|lower }}
+                    ">
+                    {{ asset.get_connection_status_display }}
+                </strong>
+            </div>
+    
+        </div>
+    
+    </div>

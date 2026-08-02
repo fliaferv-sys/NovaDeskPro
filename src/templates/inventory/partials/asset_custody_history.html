@@ -1,0 +1,203 @@
+<!-- ======================================================
+     HISTORIAL DE CUSTODIA
+     ====================================================== -->
+
+     <div class="table-card">
+
+        <div class="table-header">
+    
+            <div>
+    
+                <h3>
+                    📦 Historial de custodia
+                </h3>
+    
+                <p class="page-subtitle">
+                    Entregas, devoluciones, reasignaciones y reservas del equipo.
+                </p>
+    
+            </div>
+    
+            <div style="display:flex; gap:10px; align-items:center;">
+    
+                <span class="attachment-count">
+    
+                    {{ custody_movement_count }}
+                    movimiento{{ custody_movement_count|pluralize }}
+    
+                </span>
+    
+                {% if can_manage_deliveries %}
+    
+                    <a
+                        href="{% url 'deliveries:custody_movement_create' %}?asset={{ asset.pk }}"
+                        class="btn-small">
+    
+                        ➕ Registrar
+    
+                    </a>
+    
+                {% endif %}
+    
+            </div>
+    
+        </div>
+    
+    
+        {% if last_custody_movement %}
+    
+        <div class="asset-info-grid" style="margin-bottom:20px;">
+    
+            <div class="asset-info-item">
+    
+                <span>
+                    Último movimiento
+                </span>
+    
+                <strong>
+                    {{ last_custody_movement.movement_number }}
+                </strong>
+    
+            </div>
+    
+            <div class="asset-info-item">
+    
+                <span>
+                    Tipo
+                </span>
+    
+                <strong>
+                    {{ last_custody_movement.get_movement_type_display }}
+                </strong>
+    
+            </div>
+    
+            <div class="asset-info-item">
+    
+                <span>
+                    Estado
+                </span>
+    
+                <strong>
+                    {{ last_custody_movement.get_status_display }}
+                </strong>
+    
+            </div>
+    
+            <div class="asset-info-item">
+    
+                <span>
+                    Fecha
+                </span>
+    
+                <strong>
+                    {{ last_custody_movement.movement_date|date:"d/m/Y H:i" }}
+                </strong>
+    
+            </div>
+    
+        </div>
+    
+        {% endif %}
+    
+    
+        <div class="table-responsive">
+    
+            <table class="table">
+    
+                <thead>
+    
+                    <tr>
+    
+                        <th>Número</th>
+    
+                        <th>Movimiento</th>
+    
+                        <th>Custodio anterior</th>
+    
+                        <th>Nuevo custodio</th>
+    
+                        <th>Estado</th>
+    
+                        <th>Fecha</th>
+    
+                    </tr>
+    
+                </thead>
+    
+                <tbody>
+
+                    {% for movement in custody_movements %}
+
+                    <tr
+                        class="clickable-row"
+                        {% if movement.pk %}
+                            onclick="location.href='{% url 'deliveries:custody_movement_detail' movement.pk %}'"
+                            style="cursor:pointer;"
+                        {% endif %}
+                    >
+
+                        <td>
+                            <strong>
+                                {{ movement.movement_number }}
+                            </strong>
+                        </td>
+
+                        <td>
+                            {{ movement.get_movement_type_display }}
+                        </td>
+
+                        <td>
+                            {% if movement.previous_custodian %}
+                                {{ movement.previous_custodian.first_name }}
+                                {{ movement.previous_custodian.last_name }}
+                            {% else %}
+                                —
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            {% if movement.recipient %}
+                                {{ movement.recipient.first_name }}
+                                {{ movement.recipient.last_name }}
+                            {% else %}
+                                —
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            <span class="custody-status custody-status-{{ movement.status|lower }}">
+                                {{ movement.get_status_display }}
+                            </span>
+                        </td>
+
+                        <td>
+                            {{ movement.movement_date|date:"d/m/Y H:i" }}
+                        </td>
+
+                    </tr>
+
+                    {% empty %}
+
+                    <tr>
+                        <td colspan="6">
+                            <div class="delivery-empty-state">
+                                <div class="delivery-empty-icon">
+                                    📦
+                                </div>
+                                <p>
+                                    Este equipo todavía no tiene movimientos de custodia.
+                                </p>
+                            </div>
+                        </td>
+                    </tr>
+
+                    {% endfor %}
+
+                </tbody>
+    
+            </table>
+    
+        </div>
+    
+    </div>

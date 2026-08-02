@@ -1,0 +1,393 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}
+Crear Acta Agrupada
+{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+    <div>
+        <span class="workflow-step">Configuración del grupo</span>
+        <h1 class="page-title">{% if editing %}Configurar {{ delivery_batch.batch_number }}{% else %}Completar acta de entrega{% endif %}</h1>
+        <p class="page-subtitle">
+            Los equipos ya fueron seleccionados. Complete los datos del acta para enviarlos al proceso de custodia.
+        </p>
+    </div>
+</div>
+
+<form method="post" enctype="multipart/form-data" class="form-card">
+    {% csrf_token %}
+
+    {% if form.errors or batch_issues %}
+        <div class="correction-summary" role="alert">
+            <strong>⚠️ Hay datos que deben corregirse</strong>
+            <p>Haz clic en cada mensaje para ir directamente al campo o registro correspondiente.</p>
+            <ul>
+                {% for error in form.non_field_errors %}
+                    <li><a href="#delivery-data-section"><b>Datos del acta:</b> {{ error }}</a></li>
+                {% endfor %}
+                {% for field in form %}
+                    {% for error in field.errors %}
+                        <li>
+                            {% if field.name == "assets" %}
+                                <a href="#selected-assets-section"><b>{{ field.label }}:</b> {{ error }}</a>
+                            {% else %}
+                                <a href="#{{ field.id_for_label }}"><b>{{ field.label }}:</b> {{ error }}</a>
+                            {% endif %}
+                        </li>
+                    {% endfor %}
+                {% endfor %}
+                {% for issue in batch_issues %}
+                    <li>
+                        <a href="{% url 'admin:inventory_acquisitionbatch_change' issue.batch.pk %}" target="_blank">
+                            <b>Lote {{ issue.batch.code }}:</b>
+                            {% for text in issue.issues %}{{ text }} {% endfor %}
+                            Abrir lote para corregir →
+                        </a>
+                    </li>
+                {% endfor %}
+            </ul>
+        </div>
+    {% endif %}
+
+    <!-- ========================= -->
+    <!-- ACTIVOS -->
+    <!-- ========================= -->
+
+    <div class="form-section" id="selected-assets-section">
+
+        <h3>📦 Equipos seleccionados</h3>
+
+        <p class="page-subtitle">
+            Estos equipos fueron seleccionados previamente en Inventario.
+            Para cambiar la selección, regrese a la pantalla anterior.
+        </p>
+
+        <div class="selected-assets-summary">
+            <table class="selected-assets-table">
+                <thead>
+                    <tr>
+                        <th>N.º</th>
+                        <th>Código</th>
+                        <th>Tipo</th>
+                        <th>Marca / modelo</th>
+                        <th>Patrimonio</th>
+                        <th>Número de serie</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for asset in selected_assets %}
+                        <tr>
+                            <td>{{ forloop.counter }}</td>
+                            <td>
+                                <input type="hidden" name="assets" value="{{ asset.pk }}">
+                                <strong>{{ asset.internal_code }}</strong>
+                            </td>
+                            <td>{{ asset.get_asset_type_display }}</td>
+                            <td>{{ asset.brand|default:"—" }} {{ asset.model|default:"" }}</td>
+                            <td>{{ asset.patrimonial_code|default:"—" }}</td>
+                            <td>{{ asset.serial_number|default:"—" }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% for error in form.assets.errors %}<div class="form-error">{{ error }}</div>{% endfor %}
+
+    </div>
+
+    <!-- ========================= -->
+    <!-- DATOS -->
+    <!-- ========================= -->
+
+    <div class="form-section" id="delivery-data-section">
+
+        <h3>📄 Datos del acta</h3>
+
+        <div class="form-grid">
+            {% for field in form %}
+                {% if field.name != "assets" %}
+                    {% if field.name == "delivery_responsible" %}
+                        <div class="form-block-heading form-group-wide">
+                            <strong>🏢 Origen y autorización</strong>
+                            <span>Datos del área y del funcionario que entrega los equipos.</span>
+                        </div>
+                    {% elif field.name == "recipient" %}
+                        <div class="form-block-heading form-group-wide">
+                            <strong>📍 Destino y receptor</strong>
+                            <span>Datos del nuevo custodio y del lugar donde quedarán asignados los equipos.</span>
+                        </div>
+                    {% elif field.name == "delivery_date" %}
+                        <div class="form-block-heading form-group-wide">
+                            <strong>📅 Datos finales de la entrega</strong>
+                            <span>Fecha prevista y observaciones generales del acta.</span>
+                        </div>
+                    {% endif %}
+                    <div class="form-group {% if field.name == 'observations' %}form-group-wide{% endif %} {% if field.errors %}has-error{% endif %}">
+                        <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                        {{ field }}
+                        {% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}
+                        {% for error in field.errors %}<div class="form-error">{{ error }}</div>{% endfor %}
+                    </div>
+                {% endif %}
+            {% endfor %}
+        </div>
+
+        {% for error in form.non_field_errors %}<div class="form-error">{{ error }}</div>{% endfor %}
+
+    </div>
+
+    <!-- ========================= -->
+    <!-- BOTONES -->
+    <!-- ========================= -->
+
+    <div class="form-actions">
+
+        <button type="submit" class="btn-primary">
+            💾 {% if editing %}Guardar configuración{% else %}Crear Acta Agrupada{% endif %}
+        </button>
+
+        <a href="{% url 'deliveries:delivery_batch_list' %}" class="btn-secondary">
+            Cancelar
+        </a>
+
+    </div>
+
+</form>
+
+<style>
+
+.form-card {
+    background: #ffffff;
+    padding: 25px;
+    border-radius: 12px;
+    border: 1px solid #e5e7eb;
+}
+
+.form-section {
+    margin-bottom: 30px;
+}
+
+.asset-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-height: 350px;
+    overflow-y: auto;
+}
+
+.asset-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    border-radius: 10px;
+    border: 1px solid #e5e7eb;
+    cursor: pointer;
+    transition: 0.2s;
+}
+
+.asset-item:hover {
+    background: #f9fafb;
+    border-color: #c7d2fe;
+}
+
+.asset-info {
+    display: flex;
+    flex-direction: column;
+}
+
+.asset-info span {
+    font-size: 13px;
+    color: #6b7280;
+}
+
+.empty-text {
+    color: #6b7280;
+    font-size: 14px;
+}
+
+.form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+
+.workflow-step {
+    display: inline-block;
+    margin-bottom: 5px;
+    color: #175cd3;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.correction-summary {
+    margin-bottom: 22px;
+    padding: 15px 17px;
+    border: 1px solid #fda29b;
+    border-left: 5px solid #d92d20;
+    border-radius: 10px;
+    background: #fff4f3;
+    color: #912018;
+}
+.correction-summary > strong { font-size:15px; }
+.correction-summary p { margin:5px 0 10px; font-size:13px; }
+.correction-summary ul { margin:0; padding-left:20px; }
+.correction-summary li { margin:6px 0; }
+.correction-summary a { color:#912018 !important; text-decoration:underline; }
+.correction-summary a:hover { color:#b42318 !important; }
+
+.selected-assets-summary {
+    max-height: 280px;
+    border: 1px solid #d0d5dd;
+    border-radius: 9px;
+    overflow-y: auto;
+    overflow-x: auto;
+}
+
+.selected-assets-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+.selected-assets-table th,
+.selected-assets-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid #e4e7ec;
+    text-align: left;
+    white-space: nowrap;
+}
+.selected-assets-table th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: #eef4fb;
+    color: #344054;
+    font-size: 11px;
+    text-transform: uppercase;
+}
+.selected-assets-table tbody tr:nth-child(even) { background:#f8fafc; }
+.selected-assets-table tbody tr:last-child td { border-bottom:0; }
+
+.form-group-wide { grid-column: 1 / -1; }
+.form-block-heading {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 10px;
+    padding: 12px 14px;
+    border-left: 4px solid var(--secondary-color, #f68b1e);
+    border-radius: 8px;
+    background: #f8fafc;
+}
+.form-block-heading strong { color:#101828; font-size:16px; }
+.form-block-heading span { color:#667085; font-size:13px; }
+.form-group label { display:block; margin-bottom:6px; font-weight:700; }
+.form-group input, .form-group select, .form-group textarea { width:100%; box-sizing:border-box; }
+.form-group small { display:block; margin-top:5px; color:#667085; }
+.form-error { margin-top:5px; color:#b42318; font-size:13px; }
+
+.form-group.has-error {
+    padding: 10px;
+    border: 2px solid #f04438;
+    border-radius: 10px;
+    background: #fff4f3;
+}
+.form-group.has-error label {
+    color: #b42318;
+}
+.form-group.has-error input,
+.form-group.has-error select,
+.form-group.has-error textarea {
+    border-color: #d92d20 !important;
+    box-shadow: 0 0 0 3px rgba(217, 45, 32, .12);
+}
+.form-group.client-error {
+    padding: 10px;
+    border: 2px solid #f04438;
+    border-radius: 10px;
+    background: #fff4f3;
+}
+.form-group.client-error label { color: #b42318; }
+.form-group.client-error input,
+.form-group.client-error select,
+.form-group.client-error textarea {
+    border-color: #d92d20 !important;
+    box-shadow: 0 0 0 3px rgba(217, 45, 32, .12);
+}
+
+.correction-target {
+    outline: 3px solid #f04438 !important;
+    outline-offset: 3px;
+    background-color: #fff4f3 !important;
+    transition: outline-color .25s ease, background-color .25s ease;
+}
+
+@media (max-width: 800px) {
+    .form-grid { grid-template-columns: 1fr; }
+}
+
+.form-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 20px;
+}
+
+</style>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const deliveryForm = document.querySelector("form.form-card");
+    if (deliveryForm) {
+        deliveryForm.addEventListener("invalid", function (event) {
+            const group = event.target.closest(".form-group");
+            if (!group) return;
+            group.classList.add("client-error");
+            window.setTimeout(function () {
+                group.scrollIntoView({ behavior: "smooth", block: "center" });
+                event.target.focus({ preventScroll: true });
+            }, 0);
+        }, true);
+
+        deliveryForm.addEventListener("input", function (event) {
+            if (event.target.checkValidity()) {
+                const group = event.target.closest(".form-group");
+                if (group) group.classList.remove("client-error");
+            }
+        });
+
+        deliveryForm.addEventListener("change", function (event) {
+            if (event.target.checkValidity()) {
+                const group = event.target.closest(".form-group");
+                if (group) group.classList.remove("client-error");
+            }
+        });
+    }
+
+    document.querySelectorAll('.correction-summary a[href^="#"]').forEach(function (link) {
+        link.addEventListener("click", function (event) {
+            const target = document.querySelector(link.getAttribute("href"));
+            if (!target) return;
+
+            event.preventDefault();
+            document.querySelectorAll(".correction-target").forEach(function (element) {
+                element.classList.remove("correction-target");
+            });
+
+            target.scrollIntoView({ behavior: "smooth", block: "center" });
+            target.classList.add("correction-target");
+            if (typeof target.focus === "function") {
+                target.focus({ preventScroll: true });
+            }
+
+            window.setTimeout(function () {
+                target.classList.remove("correction-target");
+            }, 3500);
+        });
+    });
+});
+</script>
+
+{% endblock %}

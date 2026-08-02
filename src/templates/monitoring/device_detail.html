@@ -1,0 +1,512 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}Detalle del equipo | NovaDesk Pro{% endblock %}
+
+{% block content %}
+<div class="device-detail-page">
+
+    <div class="device-detail-header">
+        <div>
+            <h1>{{ device.computer_name }}</h1>
+            <p>
+                Información completa del equipo monitoreado.
+            </p>
+        </div>
+
+    <<div class="device-detail-actions">
+           <a
+              href="{% url 'monitoring:dashboard' %}"
+              class="secondary-button"
+            >
+              Volver al monitoreo
+          </a>
+
+          <a
+               href="{% url 'inventory:asset_detail' device.asset.pk %}"
+              class="secondary-button"
+            >
+               Ver activo completo
+            </a>
+
+         <a
+              href="{% url 'monitoring:ip_history' %}?q={{ device.ip_address }}"
+               class="primary-button"
+            >
+               Ver historial de IP
+         </a>
+    </div>
+    </div>
+
+    <div class="device-status-card">
+        <div>
+            <span class="device-status-label">Estado actual</span>
+
+            {% if device.is_online %}
+                <strong class="device-status-online">
+                    En línea
+                </strong>
+            {% else %}
+                <strong class="device-status-offline">
+                    Fuera de línea
+                </strong>
+            {% endif %}
+        </div>
+
+        <div>
+            <span class="device-status-label">Última comunicación</span>
+            <strong>
+                {{ device.last_seen|date:"d/m/Y H:i:s" }}
+            </strong>
+        </div>
+
+        <div>
+            <span class="device-status-label">Versión del agente</span>
+            <strong>
+                {{ device.agent_version|default:"Sin información" }}
+            </strong>
+        </div>
+    </div>
+
+    <div class="device-grid">
+
+        <section class="device-card">
+            <h2>Identificación</h2>
+
+            <div class="device-info-row">
+                <span>Nombre del equipo</span>
+                <strong>{{ device.computer_name }}</strong>
+            </div>
+
+            <div class="device-info-row">
+                <span>Código interno</span>
+                <strong>{{ device.asset.internal_code }}</strong>
+            </div>
+
+            <div class="device-info-row">
+                <span>Código patrimonial</span>
+                <strong>
+                    {{ device.asset.patrimonial_code|default:"Sin información" }}
+                </strong>
+            </div>
+
+            <div class="device-info-row">
+                <span>Número de serie</span>
+                <strong>
+                    {{ device.asset.serial_number|default:"Sin información" }}
+                </strong>
+            </div>
+
+            <div class="device-info-row">
+                <span>Marca y modelo</span>
+                <strong>
+                    {{ device.asset.brand|default:"" }}
+                    {{ device.asset.model|default:"" }}
+                </strong>
+            </div>
+        </section>
+
+        <section class="device-card">
+            <h2>Conexión actual</h2>
+
+            <div class="device-info-row">
+                <span>Dirección IP</span>
+                <strong>{{ device.ip_address|default:"Sin IP" }}</strong>
+            </div>
+
+            <div class="device-info-row">
+                <span>Dirección MAC</span>
+                <strong>{{ device.mac_address|default:"Sin MAC" }}</strong>
+            </div>
+
+            <div class="device-info-row">
+                <span>Usuario conectado</span>
+                <strong>{{ device.logged_user|default:"Sin usuario" }}</strong>
+            </div>
+
+            <div class="device-info-row">
+                <span>Primera comunicación</span>
+                <strong>
+                    {{ device.first_seen|date:"d/m/Y H:i:s" }}
+                </strong>
+            </div>
+
+            <div class="device-info-row">
+                <span>Última actualización</span>
+                <strong>
+                    {{ device.updated_at|date:"d/m/Y H:i:s" }}
+                </strong>
+            </div>
+        </section>
+
+        <section class="device-card">
+            <h2>Información técnica</h2>
+
+            <div class="device-info-row">
+                <span>Sistema operativo</span>
+                <strong>
+                    {{ device.operating_system|default:"Sin información" }}
+                </strong>
+            </div>
+
+            <div class="device-info-row">
+                <span>Procesador</span>
+                <strong>
+                    {{ device.processor|default:"Sin información" }}
+                </strong>
+            </div>
+
+            <div class="device-info-row">
+                <span>Memoria RAM</span>
+                <strong>
+                    {% if device.ram_total_gb %}
+                        {{ device.ram_total_gb }} GB
+                    {% else %}
+                        Sin información
+                    {% endif %}
+                </strong>
+            </div>
+
+            <div class="device-info-row">
+                <span>Disco total</span>
+                <strong>
+                    {% if device.disk_total_gb %}
+                        {{ device.disk_total_gb }} GB
+                    {% else %}
+                        Sin información
+                    {% endif %}
+                </strong>
+            </div>
+
+            <div class="device-info-row">
+                <span>Disco disponible</span>
+                <strong>
+                    {% if device.disk_free_gb %}
+                        {{ device.disk_free_gb }} GB
+                    {% else %}
+                        Sin información
+                    {% endif %}
+                </strong>
+            </div>
+        </section>
+
+        <section class="device-card">
+            <h2>Asignación y ubicación</h2>
+
+            <div class="device-info-row">
+                <span>Usuario asignado</span>
+                <strong>
+                    {{ device.asset.assigned_user|default:"Sin asignar" }}
+                </strong>
+            </div>
+
+            <div class="device-info-row">
+                <span>Sucursal</span>
+                <strong>
+                    {{ device.asset.branch|default:"Sin información" }}
+                </strong>
+            </div>
+
+            <div class="device-info-row">
+                <span>Ubicación física</span>
+                <strong>
+                    {{ device.asset.physical_location|default:"Sin información" }}
+                </strong>
+            </div>
+
+            <div class="device-info-row">
+                <span>Departamento</span>
+                <strong>
+                    {{ device.asset.department|default:"Sin información" }}
+                </strong>
+            </div>
+
+            <div class="device-info-row">
+                <span>Estado operativo</span>
+                <strong>
+                    {{ device.asset.operational_status|default:"Sin información" }}
+                </strong>
+            </div>
+        </section>
+
+    </div>
+
+    <section class="device-history-card">
+        <div class="device-history-header">
+            <div>
+                <h2>Historial de direcciones IP</h2>
+                <p>
+                    Registros encontrados: {{ ip_history_count }}
+                </p>
+            </div>
+        </div>
+
+        <div class="device-history-table-container">
+            <table class="device-history-table">
+                <thead>
+                    <tr>
+                        <th>Dirección IP</th>
+                        <th>Usuario</th>
+                        <th>Dirección MAC</th>
+                        <th>Primera detección</th>
+                        <th>Última detección</th>
+                        <th>Detecciones</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                    {% for record in ip_history %}
+                        <tr>
+                            <td>
+                                <strong>{{ record.ip_address }}</strong>
+                            </td>
+
+                            <td>
+                                {{ record.logged_user|default:"Sin usuario" }}
+                            </td>
+
+                            <td>
+                                {{ record.mac_address|default:"Sin MAC" }}
+                            </td>
+
+                            <td>
+                                {{ record.first_seen|date:"d/m/Y H:i:s" }}
+                            </td>
+
+                            <td>
+                                {{ record.last_seen|date:"d/m/Y H:i:s" }}
+                            </td>
+
+                            <td>
+                                <span class="detection-badge">
+                                    {{ record.detection_count }}
+                                </span>
+                            </td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="6" class="empty-history">
+                                Este equipo todavía no tiene historial de IP.
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+</div>
+
+<style>
+    .device-detail-page {
+        padding: 24px;
+    }
+
+    .device-detail-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 20px;
+        margin-bottom: 24px;
+    }
+
+    .device-detail-header h1 {
+        margin: 0 0 6px;
+        font-size: 28px;
+        color: #101828;
+    }
+
+    .device-detail-header p {
+        margin: 0;
+        color: #667085;
+    }
+
+    .device-detail-actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+
+    .primary-button,
+    .secondary-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 42px;
+        padding: 10px 16px;
+        border-radius: 8px;
+        font-weight: 600;
+        text-decoration: none;
+        box-sizing: border-box;
+    }
+
+    .primary-button {
+        background: #123a63;
+        color: white;
+    }
+
+    .secondary-button {
+        background: white;
+        border: 1px solid #123a63;
+        color: #123a63;
+    }
+
+    .device-status-card {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(180px, 1fr));
+        gap: 18px;
+        padding: 20px;
+        margin-bottom: 24px;
+        border: 1px solid #e4e7ec;
+        border-radius: 12px;
+        background: white;
+    }
+
+    .device-status-label {
+        display: block;
+        margin-bottom: 7px;
+        color: #667085;
+        font-size: 13px;
+    }
+
+    .device-status-online {
+        color: #198754;
+    }
+
+    .device-status-offline {
+        color: #dc3545;
+    }
+
+    .device-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(320px, 1fr));
+        gap: 18px;
+        margin-bottom: 24px;
+    }
+
+    .device-card,
+    .device-history-card {
+        border: 1px solid #e4e7ec;
+        border-radius: 12px;
+        background: white;
+        box-shadow: 0 4px 12px rgba(16, 24, 40, 0.04);
+    }
+
+    .device-card {
+        padding: 20px;
+    }
+
+    .device-card h2,
+    .device-history-card h2 {
+        margin: 0 0 18px;
+        font-size: 18px;
+        color: #101828;
+    }
+
+    .device-info-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 20px;
+        padding: 11px 0;
+        border-bottom: 1px solid #eaecf0;
+    }
+
+    .device-info-row:last-child {
+        border-bottom: 0;
+    }
+
+    .device-info-row span {
+        color: #667085;
+    }
+
+    .device-info-row strong {
+        color: #101828;
+        text-align: right;
+        overflow-wrap: anywhere;
+    }
+
+    .device-history-card {
+        overflow: hidden;
+    }
+
+    .device-history-header {
+        padding: 20px;
+        border-bottom: 1px solid #eaecf0;
+    }
+
+    .device-history-header h2 {
+        margin-bottom: 5px;
+    }
+
+    .device-history-header p {
+        margin: 0;
+        color: #667085;
+    }
+
+    .device-history-table-container {
+        overflow-x: auto;
+    }
+
+    .device-history-table {
+        width: 100%;
+        min-width: 900px;
+        border-collapse: collapse;
+    }
+
+    .device-history-table th,
+    .device-history-table td {
+        padding: 14px 16px;
+        text-align: left;
+        border-bottom: 1px solid #eaecf0;
+    }
+
+    .device-history-table th {
+        background: #f8fafc;
+        color: #344054;
+        font-size: 13px;
+        text-transform: uppercase;
+    }
+
+    .detection-badge {
+        display: inline-block;
+        min-width: 34px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: #e7f0ff;
+        color: #123a63;
+        font-weight: 700;
+        text-align: center;
+    }
+
+    .empty-history {
+        padding: 35px !important;
+        text-align: center !important;
+        color: #667085;
+    }
+
+    @media (max-width: 900px) {
+        .device-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .device-status-card {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    @media (max-width: 700px) {
+        .device-detail-header {
+            align-items: flex-start;
+            flex-direction: column;
+        }
+
+        .device-info-row {
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .device-info-row strong {
+            text-align: left;
+        }
+    }
+</style>
+{% endblock %}

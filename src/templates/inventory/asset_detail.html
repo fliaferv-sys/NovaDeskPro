@@ -1,0 +1,53 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}
+Detalle del Equipo
+{% endblock %}
+
+{% block content %}
+
+{% include "inventory/partials/asset_header.html" %}
+
+<div class="asset-detail-grid">
+
+    <div class="asset-main-column">
+
+        <!-- ✅ DATOS GENERALES (incluye el lote dentro) -->
+        {% include "inventory/partials/asset_general.html" %}
+
+        <!-- ✅ INFORMACIÓN TÉCNICA -->
+        {% include "inventory/partials/asset_technical.html" %}
+        
+        <!-- ✅ HISTORIAL DE CUSTODIA -->
+        {% include "inventory/partials/asset_custody_history.html" %}
+
+        <!-- ✅ GARANTÍA Y COMPRA -->
+        {% include "inventory/partials/asset_purchase.html" %}
+
+        <!-- ✅ OBSERVACIONES -->
+        {% include "inventory/partials/asset_observations.html" %}
+
+        <!-- ✅ HISTORIAL DE TICKETS -->
+        {% include "inventory/partials/asset_ticket_history.html" %}
+
+        <!-- ✅ HISTORIAL TÉCNICO -->
+        {% include "inventory/partials/asset_technical_history.html" %}
+
+    </div>
+
+    <aside class="asset-side-column">
+
+        <!-- ✅ SALUD DEL EQUIPO -->
+        {% include "inventory/partials/asset_health.html" %}
+
+        <!-- ✅ USUARIO ASIGNADO -->
+        {% include "inventory/partials/asset_user.html" %}
+
+        <!-- ✅ RESUMEN -->
+        {% include "inventory/partials/asset_summary.html" %}
+
+    </aside>
+
+</div>
+
+{% endblock %}
