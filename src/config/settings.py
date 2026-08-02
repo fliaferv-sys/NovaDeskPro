@@ -13,6 +13,8 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 import os
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
+
 
 # ==========================================================
 # RUTAS DEL PROYECTO
@@ -26,6 +28,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # ==========================================================
 
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "")
+
+if not SECRET_KEY:
+    raise ImproperlyConfigured(
+        "La variable de entorno DJANGO_SECRET_KEY es obligatoria."
+    )
 
 DEBUG = os.environ.get("DJANGO_DEBUG", "False").lower() in {
     "1", "true", "yes", "on",
