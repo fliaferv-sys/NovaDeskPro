@@ -10,7 +10,7 @@
 ## Secuencia de publicación
 
 1. Crear un entorno virtual nuevo e instalar `requirements.txt`.
-2. Exportar las variables de `.env.production.example` desde un almacén seguro.
+2. Exportar las variables de `.env.example` desde un almacén seguro.
 3. Ejecutar `python src/manage.py check --deploy`.
 4. Ejecutar `python src/manage.py migrate`.
 5. Ejecutar `python src/manage.py collectstatic --noinput`.
