@@ -11,6 +11,7 @@ from apps.deliveries.models import AssetCustodyMovement
 from apps.accounts.access import (
     can_manage_deliveries,
     can_manage_inventory,
+    can_register_intervention,
     roles_required,
 )
 
@@ -25,25 +26,6 @@ from .models import Asset
 # ==========================================================
 # PERMISOS DEL MÓDULO INVENTARIO
 # ==========================================================
-
-
-
-def can_register_intervention(user):
-    """
-    Permite registrar intervenciones técnicas a:
-    - Administradores
-    - Supervisores
-    - Técnicos
-    - Superusuarios
-    """
-    return (
-        user.is_superuser
-        or user.role in {
-            "ADMIN",
-            "SUPERVISOR",
-            "TECHNICIAN",
-        }
-    )
 
 
 

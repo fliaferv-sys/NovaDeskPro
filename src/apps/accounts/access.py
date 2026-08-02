@@ -41,3 +41,11 @@ INVENTORY_MANAGEMENT_ROLES = frozenset({"ADMIN", "SUPERVISOR"})
 
 def can_manage_inventory(user):
     return user_has_role(user, INVENTORY_MANAGEMENT_ROLES)
+
+INTERVENTION_REGISTRATION_ROLES = frozenset(
+    {"ADMIN", "SUPERVISOR", "TECHNICIAN"}
+)
+
+
+def can_register_intervention(user):
+    return user_has_role(user, INTERVENTION_REGISTRATION_ROLES)
