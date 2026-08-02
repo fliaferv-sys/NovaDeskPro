@@ -34,3 +34,10 @@ DELIVERY_MANAGEMENT_ROLES = frozenset({"ADMIN", "SUPERVISOR"})
 
 def can_manage_deliveries(user):
     return user_has_role(user, DELIVERY_MANAGEMENT_ROLES)
+
+
+INVENTORY_MANAGEMENT_ROLES = frozenset({"ADMIN", "SUPERVISOR"})
+
+
+def can_manage_inventory(user):
+    return user_has_role(user, INVENTORY_MANAGEMENT_ROLES)

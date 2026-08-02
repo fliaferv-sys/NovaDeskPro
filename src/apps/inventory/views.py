@@ -8,7 +8,11 @@ from django.shortcuts import (
 )
 
 from apps.deliveries.models import AssetCustodyMovement
-from apps.accounts.access import can_manage_deliveries, roles_required
+from apps.accounts.access import (
+    can_manage_deliveries,
+    can_manage_inventory,
+    roles_required,
+)
 
 
 from .forms import (
@@ -22,20 +26,6 @@ from .models import Asset
 # PERMISOS DEL MÓDULO INVENTARIO
 # ==========================================================
 
-def can_manage_inventory(user):
-    """
-    Permite administrar el inventario a:
-    - Administradores
-    - Supervisores
-    - Superusuarios
-    """
-    return (
-        user.is_superuser
-        or user.role in {
-            "ADMIN",
-            "SUPERVISOR",
-        }
-    )
 
 
 def can_register_intervention(user):
