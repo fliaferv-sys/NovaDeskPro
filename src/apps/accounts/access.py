@@ -4,8 +4,6 @@ from django.core.exceptions import PermissionDenied
 
 
 GLOBAL_ROLES = frozenset({"ADMIN", "SUPERVISOR", "AUDITOR"})
-TECHNICAL_ROLES = frozenset({"ADMIN", "SUPERVISOR", "AUDITOR", "TECHNICIAN"})
-
 
 def user_has_role(user, allowed_roles):
     return bool(
