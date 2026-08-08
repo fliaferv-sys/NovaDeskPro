@@ -214,7 +214,7 @@ Detalle del Ticket #{{ ticket.ticket_number }}
 
     .chat-box-modern {
         padding: 0 2px 6px;
-        max-height: 340px;
+        max-height: 350px;
         overflow-y: auto;
         display: flex;
         flex-direction: column;
@@ -1171,64 +1171,122 @@ Detalle del Ticket #{{ ticket.ticket_number }}
                 id="chatContainer"
                 data-live-url="{% url 'tickets:ticket_conversation_status' ticket.pk %}"
                 data-revision="{{ conversation_revision }}">
-                {% for comment in comments %}
-                    {% if comment.is_system or comment.comment_type == 'ASSIGN' or comment.comment_type == 'STATUS' or comment.comment_type == 'ATTACHMENT' %}
-                        <div class="chat-system-message">
-                            <div class="system-icon">{% if comment.comment_type == "ASSIGN" %}👨‍🔧{% elif comment.comment_type == "STATUS" %}🔄{% elif comment.comment_type == "ATTACHMENT" %}📎{% else %}⚙️{% endif %}</div>
-                            <div class="system-content">
-                                <span class="system-label">{% if comment.comment_type == "ASSIGN" %}ASIGNACIÓN{% elif comment.comment_type == "STATUS" %}CAMBIO DE ESTADO{% elif comment.comment_type == "ATTACHMENT" %}ARCHIVO ADJUNTO{% else %}SISTEMA{% endif %}</span>
-                                <span class="system-text">{{ comment.message }}</span>
-                                <span class="system-time">{{ comment.created_at|date:"H:i" }}</span>
-                            </div>
-                        </div>
-                    {% else %}
-                        <div class="chat-message-modern {% if comment.author == request.user %}chat-message-own{% else %}chat-message-other{% endif %}">
-                            <div class="chat-avatar-modern">
-                                {% if comment.author.profile_image %}
-                                    <img src="{{ comment.author.profile_image.url }}" alt="{{ comment.author.first_name }}">
-                                {% else %}
-                                    <span class="avatar-initials">{{ comment.author.first_name|first }}{{ comment.author.last_name|first }}</span>
-                                {% endif %}
-                            </div>
-                            <div class="chat-content-modern">
-                                <div class="chat-sender">
-                                    {{ comment.author.first_name }} {{ comment.author.last_name }}
-                                    {% if comment.author == ticket.assigned_to %}<span class="tech-badge">👨‍🔧 Técnico</span>{% endif %}
-                                    <span class="chat-time">{{ comment.created_at|date:"H:i" }}</span>
-                                </div>
-                                <div class="chat-bubble-modern">{{ comment.message|linebreaks }}</div>
-                            </div>
-                        </div>
-                    {% endif %}
-                {% endfor %}
+                {% for item in conversation_items %}
 
-                {% for attachment in attachments %}
-                    <div class="chat-message-modern chat-message-other">
-                        <div class="chat-avatar-modern"><span class="avatar-initials">📎</span></div>
-                        <div class="chat-content-modern">
-                            <div class="chat-sender">
-                                {{ attachment.uploaded_by.first_name }} {{ attachment.uploaded_by.last_name }}
-                                <span class="chat-time">{{ attachment.created_at|date:"H:i" }}</span>
-                            </div>
-                            <div class="chat-bubble-modern attachment-bubble">
-                                <div class="attachment-in-chat">
-                                    <div class="attachment-icon">{% if "image/" in attachment.content_type %}📷{% elif "pdf" in attachment.content_type %}📄{% elif "word" in attachment.content_type %}📝{% elif "excel" in attachment.content_type %}📊{% else %}📁{% endif %}</div>
-                                    <div class="attachment-info-chat">
-                                        <a href="{% url 'tickets:attachment_download' ticket.pk attachment.pk %}" target="_blank" rel="noopener" class="attachment-link">{{ attachment.original_name }}</a>
-                                        <span class="attachment-size">{{ attachment.size|filesizeformat }}</span>
-                                    </div>
-                                    <a href="{% url 'tickets:attachment_download' ticket.pk attachment.pk %}?download=1" class="attachment-download-btn"><i class="bi bi-download"></i></a>
-                                </div>
-                            </div>
+    {% if item.type == "comment" %}
+
+        {% with comment=item.object %}
+
+            {% if comment.is_system or comment.comment_type == 'ASSIGN' or comment.comment_type == 'STATUS' or comment.comment_type == 'ATTACHMENT' %}
+                <div class="chat-system-message">
+                    <div class="system-icon">
+                        {% if comment.comment_type == "ASSIGN" %}👨‍🔧
+                        {% elif comment.comment_type == "STATUS" %}🔄
+                        {% elif comment.comment_type == "ATTACHMENT" %}📎
+                        {% else %}⚙️{% endif %}
+                    </div>
+
+                    <div class="system-content">
+                        <span class="system-label">
+                            {% if comment.comment_type == "ASSIGN" %}ASIGNACIÓN
+                            {% elif comment.comment_type == "STATUS" %}CAMBIO DE ESTADO
+                            {% elif comment.comment_type == "ATTACHMENT" %}ARCHIVO ADJUNTO
+                            {% else %}SISTEMA{% endif %}
+                        </span>
+
+                        <span class="system-text">{{ comment.message }}</span>
+                        <span class="system-time">{{ comment.created_at|date:"H:i" }}</span>
+                    </div>
+                </div>
+
+            {% else %}
+
+                <div class="chat-message-modern {% if comment.author == request.user %}chat-message-own{% else %}chat-message-other{% endif %}">
+                    <div class="chat-avatar-modern">
+                        {% if comment.author.profile_image %}
+                            <img src="{{ comment.author.profile_image.url }}">
+                        {% else %}
+                            <span class="avatar-initials">
+                                {{ comment.author.first_name|first }}{{ comment.author.last_name|first }}
+                            </span>
+                        {% endif %}
+                    </div>
+
+                    <div class="chat-content-modern">
+                        <div class="chat-sender">
+                            {{ comment.author.first_name }} {{ comment.author.last_name }}
+                            <span class="chat-time">{{ comment.created_at|date:"H:i" }}</span>
+                        </div>
+
+                        <div class="chat-bubble-modern">
+                            {{ comment.message|linebreaks }}
                         </div>
                     </div>
-                {% empty %}
-                    <div class="chat-empty">
-                        <span class="empty-icon">💬</span>
-                        <p>Todavía no hay mensajes en este ticket.</p>
-                        <p class="empty-sub">Sé el primero en comentar</p>
+                </div>
+
+            {% endif %}
+
+        {% endwith %}
+
+
+    {% elif item.type == "attachment" %}
+
+        {% with attachment=item.object %}
+
+            <div class="chat-message-modern chat-message-other">
+                <div class="chat-avatar-modern">
+                    <span class="avatar-initials">📎</span>
+                </div>
+
+                <div class="chat-content-modern">
+
+                    <div class="chat-sender">
+                        {{ attachment.uploaded_by.first_name }} {{ attachment.uploaded_by.last_name }}
+                        <span class="chat-time">{{ attachment.created_at|date:"H:i" }}</span>
                     </div>
-                {% endfor %}
+
+                    <div class="chat-bubble-modern attachment-bubble">
+
+                        <div class="attachment-in-chat">
+
+                            <div class="attachment-icon">
+                                {% if "image/" in attachment.content_type %}📷
+                                {% elif "pdf" in attachment.content_type %}📄
+                                {% else %}📁{% endif %}
+                            </div>
+
+                            <div class="attachment-info-chat">
+                                <a href="{% url 'tickets:attachment_download' ticket.pk attachment.pk %}"
+                                   target="_blank"
+                                   class="attachment-link">
+                                    {{ attachment.original_name }}
+                                </a>
+
+                                <span class="attachment-size">
+                                    {{ attachment.size|filesizeformat }}
+                                </span>
+                            </div>
+
+                        </div>
+
+                    </div>
+
+                </div>
+            </div>
+
+        {% endwith %}
+
+    {% endif %}
+
+{% empty %}
+
+<div class="chat-empty">
+    <span class="empty-icon">💬</span>
+    <p>Todavía no hay mensajes en este ticket.</p>
+    <p class="empty-sub">Sé el primero en comentar</p>
+</div>
+
+{% endfor %}
 
             </div>
 
@@ -1892,7 +1950,7 @@ Detalle del Ticket #{{ ticket.ticket_number }}
             }
         };
 
-        window.setInterval(refreshConversation, 5000);
+        window.setInterval(refreshConversation, 30000);
         document.addEventListener('visibilitychange', function () {
             if (!document.hidden) {
                 refreshConversation();

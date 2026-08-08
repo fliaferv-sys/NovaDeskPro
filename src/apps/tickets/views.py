@@ -580,12 +580,36 @@ def ticket_detail_view(request, pk):
         if estimated_time == 0:
             estimated_time = 5
 
-    comments = ticket.comments.all()
-    latest_comment = comments.order_by("-created_at").first()
-    conversation_revision = (
-        f"{comments.count()}:{latest_comment.pk if latest_comment else 'empty'}"
+        comments = ticket.comments.all()
+        latest_comment = comments.order_by("-created_at").first()
+        conversation_revision = (
+            f"{comments.count()}:{latest_comment.pk if latest_comment else 'empty'}"
+        )
+        attachments = ticket.attachments.all()
+
+        conversation_items = [
+        {
+            "type": "comment",
+            "date": comment.created_at,
+            "object": comment,
+        }
+        for comment in comments
+        
+    ]
+
+    conversation_items.extend(
+        [
+            {
+                "type": "attachment",
+                "date": attachment.created_at,
+                "object": attachment,
+            }
+            for attachment in attachments
+        ]
     )
-    attachments = ticket.attachments.all()
+
+    conversation_items.sort(key=lambda item: item["date"])
+    
 
     comment_form = TicketCommentForm()
     assign_form = TicketAssignForm(instance=ticket, department=ticket.department)
@@ -1140,6 +1164,7 @@ def ticket_detail_view(request, pk):
             "comments": comments,
             "conversation_revision": conversation_revision,
             "attachments": attachments,
+            "conversation_items": conversation_items,
             "comment_form": comment_form,
             "assign_form": assign_form,
             "transfer_form": transfer_form,
