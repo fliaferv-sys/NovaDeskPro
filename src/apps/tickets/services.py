@@ -35,6 +35,7 @@ def auto_assign_ticket(ticket):
             role=User.Role.TECHNICIAN,
             is_active=True,
             approval_status=User.ApprovalStatus.APPROVED,
+            availability_status=User.AvailabilityStatus.AVAILABLE,
             department=ticket.department,
         )
         .annotate(

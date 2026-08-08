@@ -126,10 +126,23 @@ class Branch(models.Model):
 # ==========================================================
 
 class User(AbstractUser):
+
+    class AvailabilityStatus(models.TextChoices):
+        AVAILABLE = "AVAILABLE", "Disponible"
+        BUSY = "BUSY", "Ocupado"
+        UNAVAILABLE = "UNAVAILABLE", "No disponible"
+
     last_auto_assignment_at = models.DateTimeField(
         null=True,
         blank=True,
         verbose_name="Última asignación automática",
+    )
+
+    availability_status = models.CharField(
+        max_length=20,
+        choices=AvailabilityStatus.choices,
+        default=AvailabilityStatus.AVAILABLE,
+        verbose_name="Disponibilidad",
     )
 
     # ======================================================
