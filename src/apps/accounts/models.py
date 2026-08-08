@@ -126,6 +126,11 @@ class Branch(models.Model):
 # ==========================================================
 
 class User(AbstractUser):
+    last_auto_assignment_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Última asignación automática",
+    )
 
     # ======================================================
     # ROLES DEL SISTEMA

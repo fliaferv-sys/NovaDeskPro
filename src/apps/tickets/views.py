@@ -22,6 +22,7 @@ from apps.activity.models import ActivityLog
 from apps.activity.services import register_activity
 
 from apps.core.models import Department, TicketCategory
+from apps.tickets.services import auto_assign_ticket
 
 from apps.accounts.services import get_user_department
 from .authorization_pdf import generate_authorization_pdf
@@ -37,6 +38,7 @@ from .forms import (
 )
 from .models import (
     Ticket,
+    TicketComment,
     QuickAction,
     SystemAccessRequest,
     AuthorizationDocument,
@@ -333,6 +335,37 @@ def ticket_create_view(request):
                 ticket.department = Department.objects.get(code=dept_code)
 
             ticket.save()
+
+            assigned_technician = auto_assign_ticket(ticket)
+
+            if assigned_technician:
+                TicketComment.objects.create(
+                    ticket=ticket,
+                    author=request.user,
+                    message=(
+                        "🤖 Ticket asignado automáticamente a "
+                        f"{assigned_technician.get_full_name() or assigned_technician.email} "
+                        "por menor carga de trabajo."
+                    ),
+                    is_system=True,
+                    comment_type="ASSIGN",
+                )
+
+                register_activity(
+                    request=request,
+                    action=ActivityLog.ACTION_ASSIGN,
+                    module="Tickets",
+                    description=(
+                        f"El ticket {ticket.ticket_number} fue asignado "
+                        "automáticamente a "
+                        f"{assigned_technician.get_full_name() or assigned_technician.email} "
+                        f"por menor carga del departamento "
+                        f"{ticket.department}."
+                    ),
+                    object_type="Ticket",
+                    object_id=str(ticket.pk),
+                )
+
             # ==========================================================
             # CREAR SOLICITUD FORMAL DE ACCESO
             # ==========================================================
