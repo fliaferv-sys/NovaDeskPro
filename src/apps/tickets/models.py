@@ -154,13 +154,6 @@ class Ticket(models.Model):
         ordering = ["-created_at"]
 
     def save(self, *args, **kwargs):
-        if self.assigned_to_id and self.status == self.Status.OPEN:
-            self.status = self.Status.IN_PROGRESS
-            if kwargs.get("update_fields") is not None:
-                kwargs["update_fields"] = set(kwargs["update_fields"]) | {
-                    "status",
-                }
-
         if not self.ticket_number:
             last_ticket = Ticket.objects.order_by("-created_at").first()
 

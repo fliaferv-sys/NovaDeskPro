@@ -40,21 +40,27 @@
     <!-- ========================================================== -->
 
     <div class="stats-grid">
-        <div class="stat-card">
+        <a href="{% url 'tickets:ticket_list' %}?view=all"
+           class="stat-card stat-card-link{% if selected_view == 'all' %} is-selected{% endif %}"
+           {% if selected_view == 'all' %}aria-current="page"{% endif %}>
             <span>Total de tickets</span>
             <strong>{{ total_tickets }}</strong>
             <div class="stat-label">Todas las solicitudes</div>
-        </div>
-        <div class="stat-card stat-pending">
+        </a>
+        <a href="{% url 'tickets:ticket_list' %}?view=active"
+           class="stat-card stat-card-link stat-pending{% if selected_view == 'active' %} is-selected{% endif %}"
+           {% if selected_view == 'active' %}aria-current="page"{% endif %}>
             <span>Pendientes</span>
             <strong>{{ pending_tickets }}</strong>
             <div class="stat-label">En espera de resolución</div>
-        </div>
-        <div class="stat-card stat-resolved">
+        </a>
+        <a href="{% url 'tickets:ticket_list' %}?view=resolved"
+           class="stat-card stat-card-link stat-resolved{% if selected_view == 'resolved' %} is-selected{% endif %}"
+           {% if selected_view == 'resolved' %}aria-current="page"{% endif %}>
             <span>Resueltos</span>
             <strong>{{ resolved_tickets }}</strong>
             <div class="stat-label">Completados</div>
-        </div>
+        </a>
     </div>
 
     <!-- ========================================================== -->
@@ -73,12 +79,15 @@
                     <th>Estado</th>
                     <th>Prioridad</th>
                     <th>Fecha</th>
-                    <th>Acciones</th>
                 </tr>
            </thead>
 <tbody>
     {% for ticket in tickets %}
-        <tr>
+        <tr class="ticket-row"
+            data-url="{% url 'tickets:ticket_detail' ticket.pk %}"
+            tabindex="0"
+            role="link"
+            aria-label="Abrir ticket {{ ticket.ticket_number }}">
             <td data-label="Número">
                 <strong>{{ ticket.ticket_number }}</strong>
             </td>
@@ -125,16 +134,11 @@
 
             <td data-label="Fecha">{{ ticket.created_at|date:"d/m/Y H:i" }}</td>
 
-            <td data-label="Acciones">
-                <a href="{% url 'tickets:ticket_detail' ticket.pk %}" class="btn btn-sm btn-outline">
-                    <i class="bi bi-eye"></i> Ver
-                </a>
-            </td>
         </tr>
 
     {% empty %}
         <tr>
-            <td colspan="9" class="empty-table"> <!-- 🔥 CAMBIAMOS 8 → 9 -->
+            <td colspan="8" class="empty-table">
                 <i class="bi bi-inbox" style="font-size:32px;display:block;margin-bottom:8px;color:#d0d5dd;"></i>
                 <p style="margin:0;color:#667085;">No hay tickets para mostrar.</p>
             </td>
@@ -289,6 +293,24 @@
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
     }
 
+    .stat-card-link {
+        color: inherit;
+        text-decoration: none;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .stat-card-link:hover,
+    .stat-card-link:focus-visible {
+        border-color: #98a2b3;
+        box-shadow: 0 2px 6px rgba(16, 24, 40, 0.1);
+        outline: none;
+    }
+
+    .stat-card-link.is-selected {
+        border-color: #123a63;
+        box-shadow: 0 0 0 2px rgba(18, 58, 99, 0.12);
+    }
+
     .stat-card span {
         display: block;
         font-size: 13px;
@@ -347,6 +369,16 @@
 
     .table tbody tr:hover {
         background: #fafbfc;
+    }
+
+    .ticket-row {
+        cursor: pointer;
+    }
+
+    .ticket-row:focus-visible {
+        outline: 2px solid #123a63;
+        outline-offset: -2px;
+        background: #f8fafc;
     }
 
     .badge {
@@ -498,11 +530,6 @@
             text-transform: uppercase;
         }
 
-        .table tbody td[data-label="Acciones"] .btn {
-            width: 100%;
-            justify-content: center;
-        }
-
         .table tbody td[data-label] > * {
             min-width: 0;
             max-width: 100%;
@@ -533,6 +560,26 @@
         const refreshIntervalMs = 10000;
         const liveStatus = document.getElementById("ticketLiveStatus");
         let refreshInProgress = false;
+
+        const isInteractiveTarget = function (target) {
+            return Boolean(target.closest(
+                "a, button, input, select, textarea, form, [contenteditable='true']"
+            ));
+        };
+
+        document.addEventListener("click", function (event) {
+            const row = event.target.closest(".ticket-row[data-url]");
+            if (!row || isInteractiveTarget(event.target)) return;
+            window.location.assign(row.dataset.url);
+        });
+
+        document.addEventListener("keydown", function (event) {
+            if (event.key !== "Enter") return;
+            const row = event.target.closest(".ticket-row[data-url]");
+            if (!row || isInteractiveTarget(event.target)) return;
+            event.preventDefault();
+            window.location.assign(row.dataset.url);
+        });
 
         const setLiveState = function (state, text) {
             if (!liveStatus) return;

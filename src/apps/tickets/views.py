@@ -22,7 +22,10 @@ from apps.activity.models import ActivityLog
 from apps.activity.services import register_activity
 
 from apps.core.models import Department, TicketCategory
-from apps.tickets.services import auto_assign_ticket
+from apps.tickets.services import (
+    assign_pending_tickets_for_department,
+    auto_assign_ticket,
+)
 
 from apps.accounts.models import (
     TechnicianWorkday,
@@ -182,11 +185,11 @@ def ticket_list_view(request):
 
     # 1. Solo superusuarios y auditores tienen visibilidad global.
     if user.is_superuser or user.role in TICKET_GLOBAL_ROLES:
-        tickets = Ticket.objects.all()
+        allowed_tickets = Ticket.objects.all()
 
     # 2. Clientes ven SOLO sus tickets
     elif user.role == "CLIENT":
-        tickets = Ticket.objects.filter(requester=user)
+        allowed_tickets = Ticket.objects.filter(requester=user)
 
     # 3. Administradores, supervisores y técnicos trabajan por departamento.
     elif user.role in TICKET_DEPARTMENT_ROLES:
@@ -195,17 +198,42 @@ def ticket_list_view(request):
         if hasattr(user, 'department') and user.department:
             user_dept = user.department
         if user_dept:
-            tickets = Ticket.objects.filter(department=user_dept)
+            allowed_tickets = Ticket.objects.filter(department=user_dept)
         else:
-            tickets = Ticket.objects.none()
+            allowed_tickets = Ticket.objects.none()
 
     # 4. Cualquier otro rol queda sin bandeja operativa.
     else:
-        tickets = Ticket.objects.none()
+        allowed_tickets = Ticket.objects.none()
 
-    total_tickets = tickets.count()
-    resolved_tickets = tickets.filter(status__in=["RESOLVED", "CLOSED"]).count()
-    pending_tickets = tickets.filter(status__in=["OPEN", "IN_PROGRESS", "WAITING"]).count()
+    active_statuses = [
+        Ticket.Status.OPEN,
+        Ticket.Status.IN_PROGRESS,
+        Ticket.Status.WAITING,
+    ]
+    resolved_statuses = [
+        Ticket.Status.RESOLVED,
+        Ticket.Status.CLOSED,
+    ]
+
+    total_tickets = allowed_tickets.count()
+    pending_tickets = allowed_tickets.filter(
+        status__in=active_statuses
+    ).count()
+    resolved_tickets = allowed_tickets.filter(
+        status__in=resolved_statuses
+    ).count()
+
+    selected_view = request.GET.get("view", "active")
+    if selected_view == "all":
+        tickets = allowed_tickets
+    elif selected_view == "resolved":
+        tickets = allowed_tickets.filter(status__in=resolved_statuses)
+    else:
+        selected_view = "active"
+        tickets = allowed_tickets.filter(status__in=active_statuses)
+
+    tickets = tickets.order_by("-created_at")
 
     department = get_user_department(request.user)
     
@@ -218,6 +246,7 @@ def ticket_list_view(request):
             "total_tickets": total_tickets,
             "resolved_tickets": resolved_tickets,
             "pending_tickets": pending_tickets,
+            "selected_view": selected_view,
             "department": department,
         },
     )
@@ -582,31 +611,51 @@ def ticket_detail_view(request, pk):
     estimated_time = 0
     
     # Solo calcular si el ticket está en estado activo
-    if ticket.status in ['OPEN', 'IN_PROGRESS', 'PENDING']:
+    if ticket.status in [
+        Ticket.Status.OPEN,
+        Ticket.Status.IN_PROGRESS,
+        Ticket.Status.WAITING,
+    ]:
         tickets_before = Ticket.objects.filter(
-            status__in=['OPEN', 'IN_PROGRESS', 'PENDING'],
-            created_at__lt=ticket.created_at
+            status__in=[
+                Ticket.Status.OPEN,
+                Ticket.Status.IN_PROGRESS,
+                Ticket.Status.WAITING,
+            ],
+            created_at__lt=ticket.created_at,
         ).count()
+
         queue_position = tickets_before + 1
         estimated_time = tickets_before * 15
+
         if estimated_time == 0:
             estimated_time = 5
 
-        comments = ticket.comments.all()
-        latest_comment = comments.order_by("-created_at").first()
-        conversation_revision = (
-            f"{comments.count()}:{latest_comment.pk if latest_comment else 'empty'}"
-        )
-        attachments = ticket.attachments.all()
 
-        conversation_items = [
+    # ============================================================
+    # CONVERSACIÓN DEL TICKET
+    # ============================================================
+
+    comments = ticket.comments.all()
+
+    latest_comment = comments.order_by(
+        "-created_at"
+    ).first()
+
+    conversation_revision = (
+        f"{comments.count()}:"
+        f"{latest_comment.pk if latest_comment else 'empty'}"
+    )
+
+    attachments = ticket.attachments.all()
+
+    conversation_items = [
         {
             "type": "comment",
             "date": comment.created_at,
             "object": comment,
         }
         for comment in comments
-        
     ]
 
     conversation_items.extend(
@@ -620,7 +669,9 @@ def ticket_detail_view(request, pk):
         ]
     )
 
-    conversation_items.sort(key=lambda item: item["date"])
+    conversation_items.sort(
+        key=lambda item: item["date"]
+    )
     
 
     comment_form = TicketCommentForm()
@@ -658,67 +709,40 @@ def ticket_detail_view(request, pk):
 
             if forms_are_valid:
                 if ticket.assigned_to_id is None:
-                    if request.user.role != "TECHNICIAN":
-                        messages.error(
-                            request,
-                            "Debe asignar un tecnico responsable antes de responder.",
-                        )
-                        return redirect(
-                            "tickets:ticket_detail",
-                            pk=ticket.pk,
-                        )
-
-                    ticket.assigned_to = request.user
-                    status_changed = ticket.status == Ticket.Status.OPEN
-                    if status_changed:
-                        ticket.status = Ticket.Status.IN_PROGRESS
-                    ticket.save(
-                        update_fields=["assigned_to", "status", "updated_at"]
+                    messages.error(
+                        request,
+                        "Debe asignar un tecnico responsable antes de responder.",
                     )
+                    return redirect(
+                        "tickets:ticket_detail",
+                        pk=ticket.pk,
+                    )
+
+                if (
+                    request.user.pk == ticket.assigned_to_id
+                    and ticket.status == Ticket.Status.OPEN
+                ):
+                    ticket.status = Ticket.Status.IN_PROGRESS
+                    ticket.save(update_fields=["status", "updated_at"])
 
                     ticket.comments.create(
                         author=request.user,
-                        message=(
-                            f"Ticket autoasignado a "
-                            f"{request.user.get_full_name() or request.user.email} "
-                            "al responder por primera vez."
-                        ),
+                        message="Estado cambiado automaticamente a 'En proceso'.",
                         is_system=True,
-                        comment_type="ASSIGN",
+                        comment_type="STATUS",
                     )
-
                     register_activity(
                         request=request,
-                        action=ActivityLog.ACTION_ASSIGN,
+                        action=ActivityLog.ACTION_STATUS,
                         module="Tickets",
                         description=(
-                            f"El ticket {ticket.ticket_number} se autoasigno "
-                            f"a {request.user.get_full_name() or request.user.email} "
-                            "al responder."
+                            f"El ticket {ticket.ticket_number} cambio "
+                            "automaticamente de 'Abierto' a 'En proceso' "
+                            "con la primera respuesta del tecnico asignado."
                         ),
                         object_type="Ticket",
                         object_id=str(ticket.pk),
                     )
-
-                    if status_changed:
-                        ticket.comments.create(
-                            author=request.user,
-                            message="Estado cambiado automaticamente a 'En proceso'.",
-                            is_system=True,
-                            comment_type="STATUS",
-                        )
-                        register_activity(
-                            request=request,
-                            action=ActivityLog.ACTION_STATUS,
-                            module="Tickets",
-                            description=(
-                                f"El ticket {ticket.ticket_number} cambio "
-                                "automaticamente de 'Abierto' a 'En proceso' "
-                                "al asignarse un tecnico."
-                            ),
-                            object_type="Ticket",
-                            object_id=str(ticket.pk),
-                        )
 
                 comment = comment_form.save(commit=False)
                 comment.ticket = ticket
@@ -813,6 +837,7 @@ def ticket_detail_view(request, pk):
 
         elif form_type == "assign":
             require_ticket_management_access(request.user, ticket)
+            old_status_code = ticket.status
             old_status = ticket.get_status_display()
             old_technician = ticket.assigned_to
 
@@ -825,12 +850,6 @@ def ticket_detail_view(request, pk):
             if assign_form.is_valid():
                 ticket = assign_form.save()
 
-                if (
-                    ticket.assigned_to_id is not None
-                    and ticket.status == Ticket.Status.OPEN
-                ):
-                    ticket.status = Ticket.Status.IN_PROGRESS
-                    ticket.save(update_fields=["status", "updated_at"])
 
                 if old_technician != ticket.assigned_to:
                     technician_name = (
@@ -886,6 +905,25 @@ def ticket_detail_view(request, pk):
                         ),
                         object_type="Ticket",
                         object_id=str(ticket.pk),
+                    )
+
+                    # ==================================================
+                    # LIBERAR CUPO Y ATENDER COLA PENDIENTE
+                    # ==================================================
+
+                if (
+                    old_status_code in [
+                        Ticket.Status.OPEN,
+                        Ticket.Status.IN_PROGRESS,
+                        Ticket.Status.WAITING,
+                    ]
+                    and ticket.status in [
+                        Ticket.Status.RESOLVED,
+                        Ticket.Status.CLOSED,
+                    ]
+                ):
+                    assign_pending_tickets_for_department(
+                        ticket.department
                     )
 
                 return redirect("tickets:ticket_detail", pk=ticket.pk)
@@ -1216,6 +1254,7 @@ def ticket_update_view(request, pk):
     ).prefetch_related('ticket_categories')
 
     if request.method == "POST":
+        old_status_code = ticket.status
         form = TicketForm(
             request.POST,
             instance=ticket,
@@ -1224,6 +1263,25 @@ def ticket_update_view(request, pk):
 
         if form.is_valid():
             ticket = form.save()
+
+            # ==================================================
+            # LIBERAR CUPO Y ATENDER COLA PENDIENTE
+            # ==================================================
+
+            if (
+                old_status_code in [
+                    Ticket.Status.OPEN,
+                    Ticket.Status.IN_PROGRESS,
+                    Ticket.Status.WAITING,
+                ]
+                and ticket.status in [
+                    Ticket.Status.RESOLVED,
+                    Ticket.Status.CLOSED,
+                ]
+            ):
+                assign_pending_tickets_for_department(
+                    ticket.department
+                )
 
             register_activity(
                 request=request,
@@ -1351,6 +1409,10 @@ def dashboard_view(request):
             workday, created = start_technician_workday(user)
 
             if created:
+                assign_pending_tickets_for_department(
+                    user.department,
+                    technician=user,
+                )
                 messages.success(
                     request,
                     (
@@ -1418,8 +1480,7 @@ def dashboard_view(request):
             )
 
         return redirect("tickets:dashboard")
-    
-     # CAMBIAR DISPONIBILIDAD
+ # CAMBIAR DISPONIBILIDAD
     if (
         request.method == "POST"
         and user.role == User.Role.TECHNICIAN
@@ -1436,6 +1497,12 @@ def dashboard_view(request):
         if new_status in valid_statuses:
             user.availability_status = new_status
             user.save(update_fields=["availability_status"])
+
+            if new_status == User.AvailabilityStatus.AVAILABLE:
+                assign_pending_tickets_for_department(
+                    user.department,
+                    technician=user,
+                )
 
             messages.success(
                 request,

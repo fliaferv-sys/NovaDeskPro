@@ -1,8 +1,11 @@
+from datetime import timedelta
+
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
-from apps.accounts.models import User
+from apps.accounts.models import TechnicianWorkday, User, WorkShift
 from apps.activity.models import ActivityLog
 from apps.core.models import Department
 
@@ -13,6 +16,10 @@ from .models import (
     SystemAccessRequest,
     Ticket,
     TicketComment,
+)
+from .services import (
+    assign_pending_tickets_for_department,
+    auto_assign_ticket,
 )
 
 
@@ -114,6 +121,90 @@ class TicketAuthorizationTests(TestCase):
         )
         self.assertEqual(detail_response.status_code, 403)
 
+    def test_ticket_list_filters_states_and_keeps_global_counters(self):
+        tickets_by_status = {Ticket.Status.OPEN: self.ticket}
+        for status in [
+            Ticket.Status.IN_PROGRESS,
+            Ticket.Status.WAITING,
+            Ticket.Status.RESOLVED,
+            Ticket.Status.CLOSED,
+        ]:
+            tickets_by_status[status] = Ticket.objects.create(
+                title=f"Ticket {status}",
+                description="Prueba de filtro.",
+                requester=self.owner,
+                department=self.systems_department,
+                status=status,
+            )
+
+        self.client.force_login(self.owner)
+        list_url = reverse("tickets:ticket_list")
+
+        active_response = self.client.get(list_url)
+        self.assertEqual(active_response.context["selected_view"], "active")
+        self.assertQuerySetEqual(
+            active_response.context["tickets"],
+            [
+                tickets_by_status[Ticket.Status.WAITING],
+                tickets_by_status[Ticket.Status.IN_PROGRESS],
+                tickets_by_status[Ticket.Status.OPEN],
+            ],
+        )
+        self.assertNotContains(active_response, "Ticket RESOLVED")
+        self.assertNotContains(active_response, "Ticket CLOSED")
+
+        resolved_response = self.client.get(list_url, {"view": "resolved"})
+        self.assertQuerySetEqual(
+            resolved_response.context["tickets"],
+            [
+                tickets_by_status[Ticket.Status.CLOSED],
+                tickets_by_status[Ticket.Status.RESOLVED],
+            ],
+        )
+
+        all_response = self.client.get(list_url, {"view": "all"})
+        self.assertEqual(all_response.context["tickets"].count(), 5)
+
+        for response in [active_response, resolved_response, all_response]:
+            self.assertEqual(response.context["total_tickets"], 5)
+            self.assertEqual(response.context["pending_tickets"], 3)
+            self.assertEqual(response.context["resolved_tickets"], 2)
+
+        detail_url = reverse(
+            "tickets:ticket_detail",
+            args=[self.ticket.pk],
+        )
+        self.assertContains(
+            active_response,
+            f'data-url="{detail_url}"',
+            html=False,
+        )
+
+    def test_all_filter_does_not_expand_department_scope(self):
+        support_ticket = Ticket.objects.create(
+            title="Ticket de soporte ajeno",
+            description="No pertenece a Sistemas.",
+            requester=self.owner,
+            department=self.support_department,
+            status=Ticket.Status.RESOLVED,
+        )
+        systems_ticket = Ticket.objects.create(
+            title="Ticket resuelto de Sistemas",
+            description="Pertenece al departamento.",
+            requester=self.owner,
+            department=self.systems_department,
+            status=Ticket.Status.RESOLVED,
+        )
+        self.client.force_login(self.manager)
+
+        response = self.client.get(
+            reverse("tickets:ticket_list"),
+            {"view": "all"},
+        )
+
+        self.assertContains(response, systems_ticket.title)
+        self.assertNotContains(response, support_ticket.title)
+
     def test_support_manager_cannot_delete_systems_ticket(self):
         self.client.force_login(self.support_manager)
         response = self.client.post(
@@ -183,7 +274,7 @@ class TicketAuthorizationTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
 
-    def test_technician_is_auto_assigned_when_replying(self):
+    def test_unassigned_ticket_is_not_auto_assigned_when_replying(self):
         self.client.force_login(self.technician)
         response = self.client.post(
             reverse("tickets:ticket_detail", args=[self.ticket.pk]),
@@ -195,9 +286,9 @@ class TicketAuthorizationTests(TestCase):
 
         self.assertEqual(response.status_code, 302)
         self.ticket.refresh_from_db()
-        self.assertEqual(self.ticket.assigned_to, self.technician)
-        self.assertEqual(self.ticket.status, Ticket.Status.IN_PROGRESS)
-        self.assertTrue(
+        self.assertIsNone(self.ticket.assigned_to)
+        self.assertEqual(self.ticket.status, Ticket.Status.OPEN)
+        self.assertFalse(
             TicketComment.objects.filter(
                 ticket=self.ticket,
                 author=self.technician,
@@ -294,7 +385,7 @@ class TicketAuthorizationTests(TestCase):
             ).exists()
         )
 
-    def test_manual_assignment_moves_open_ticket_to_in_progress(self):
+    def test_manual_assignment_keeps_open_ticket_open(self):
         self.client.force_login(self.manager)
         response = self.client.post(
             reverse("tickets:ticket_detail", args=[self.ticket.pk]),
@@ -308,15 +399,119 @@ class TicketAuthorizationTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.ticket.refresh_from_db()
         self.assertEqual(self.ticket.assigned_to, self.technician)
-        self.assertEqual(self.ticket.status, Ticket.Status.IN_PROGRESS)
+        self.assertEqual(self.ticket.status, Ticket.Status.OPEN)
 
-    def test_model_prevents_open_ticket_with_assigned_technician(self):
+    def test_model_allows_open_ticket_with_assigned_technician(self):
         self.ticket.assigned_to = self.technician
         self.ticket.status = Ticket.Status.OPEN
         self.ticket.save()
 
         self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.status, Ticket.Status.OPEN)
+
+    def test_assigned_technician_first_reply_moves_ticket_to_in_progress(self):
+        self.ticket.assigned_to = self.technician
+        self.ticket.save(update_fields=["assigned_to"])
+        self.client.force_login(self.technician)
+
+        response = self.client.post(
+            reverse("tickets:ticket_detail", args=[self.ticket.pk]),
+            {
+                "form_type": "comment",
+                "message": "Estoy revisando el inconveniente.",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.assigned_to, self.technician)
         self.assertEqual(self.ticket.status, Ticket.Status.IN_PROGRESS)
+        self.assertTrue(
+            self.ticket.comments.filter(
+                is_system=True,
+                comment_type="STATUS",
+            ).exists()
+        )
+        self.assertTrue(
+            ActivityLog.objects.filter(
+                object_id=str(self.ticket.pk),
+                action=ActivityLog.ACTION_STATUS,
+            ).exists()
+        )
+
+    def test_auto_assignment_keeps_ticket_open_and_respects_three_ticket_cap(self):
+        now = timezone.now()
+        shift = WorkShift.objects.create(
+            name="Turno de prueba",
+            start_time=(now - timedelta(hours=1)).time(),
+            end_time=(now + timedelta(hours=7)).time(),
+        )
+        TechnicianWorkday.objects.create(
+            technician=self.technician,
+            date=timezone.localdate(),
+            shift=shift,
+            started_at=now,
+            scheduled_end_at=now + timedelta(hours=7),
+        )
+
+        for index in range(3):
+            Ticket.objects.create(
+                title=f"Ticket activo {index}",
+                description="Carga activa.",
+                requester=self.owner,
+                department=self.systems_department,
+                assigned_to=self.technician,
+            )
+
+        self.assertIsNone(auto_assign_ticket(self.ticket))
+        self.ticket.refresh_from_db()
+        self.assertIsNone(self.ticket.assigned_to)
+        self.assertEqual(self.ticket.status, Ticket.Status.OPEN)
+
+        active_ticket = Ticket.objects.filter(
+            assigned_to=self.technician,
+        ).first()
+        active_ticket.status = Ticket.Status.RESOLVED
+        active_ticket.save(update_fields=["status"])
+
+        self.assertEqual(auto_assign_ticket(self.ticket), self.technician)
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.assigned_to, self.technician)
+        self.assertEqual(self.ticket.status, Ticket.Status.OPEN)
+
+    def test_pending_queue_assigns_oldest_open_ticket_without_changing_status(self):
+        now = timezone.now()
+        shift = WorkShift.objects.create(
+            name="Turno para cola",
+            start_time=(now - timedelta(hours=1)).time(),
+            end_time=(now + timedelta(hours=7)).time(),
+        )
+        TechnicianWorkday.objects.create(
+            technician=self.technician,
+            date=timezone.localdate(),
+            shift=shift,
+            started_at=now,
+            scheduled_end_at=now + timedelta(hours=7),
+        )
+        newer_ticket = Ticket.objects.create(
+            title="Ticket posterior",
+            description="Debe quedar segundo.",
+            requester=self.owner,
+            department=self.systems_department,
+        )
+
+        assigned = assign_pending_tickets_for_department(
+            self.systems_department,
+            technician=self.technician,
+        )
+
+        self.ticket.refresh_from_db()
+        newer_ticket.refresh_from_db()
+        self.assertEqual(assigned[0][0], self.ticket)
+        self.assertEqual(self.ticket.assigned_to, self.technician)
+        self.assertEqual(self.ticket.status, Ticket.Status.OPEN)
+        self.assertEqual(newer_ticket.assigned_to, self.technician)
+        self.assertEqual(newer_ticket.status, Ticket.Status.OPEN)
 
     def test_manager_can_transfer_ticket_to_another_department(self):
         self.ticket.assigned_to = self.technician
