@@ -35,33 +35,36 @@
         </div>
     </div>
 
-    <!-- ========================================================== -->
     <!--  ESTADÍSTICAS RÁPIDAS -->
-    <!-- ========================================================== -->
+<!-- ========================================================== -->
 
-    <div class="stats-grid">
-        <a href="{% url 'tickets:ticket_list' %}?view=all"
-           class="stat-card stat-card-link{% if selected_view == 'all' %} is-selected{% endif %}"
-           {% if selected_view == 'all' %}aria-current="page"{% endif %}>
-            <span>Total de tickets</span>
-            <strong>{{ total_tickets }}</strong>
-            <div class="stat-label">Todas las solicitudes</div>
-        </a>
-        <a href="{% url 'tickets:ticket_list' %}?view=active"
-           class="stat-card stat-card-link stat-pending{% if selected_view == 'active' %} is-selected{% endif %}"
-           {% if selected_view == 'active' %}aria-current="page"{% endif %}>
-            <span>Pendientes</span>
-            <strong>{{ pending_tickets }}</strong>
-            <div class="stat-label">En espera de resolución</div>
-        </a>
-        <a href="{% url 'tickets:ticket_list' %}?view=resolved"
-           class="stat-card stat-card-link stat-resolved{% if selected_view == 'resolved' %} is-selected{% endif %}"
-           {% if selected_view == 'resolved' %}aria-current="page"{% endif %}>
-            <span>Resueltos</span>
-            <strong>{{ resolved_tickets }}</strong>
-            <div class="stat-label">Completados</div>
-        </a>
-    </div>
+<div class="stats-grid">
+
+    <a href="{% url 'tickets:ticket_list' %}?view=all"
+       class="stat-card stat-card-link{% if selected_view == 'all' %} is-selected{% endif %}"
+       {% if selected_view == 'all' %}aria-current="page"{% endif %}>
+        <span>Total de tickets</span>
+        <strong>{{ total_tickets }}</strong>
+        <div class="stat-label">Todas las solicitudes</div>
+    </a>
+
+    <a href="{% url 'tickets:ticket_list' %}?view=active"
+       class="stat-card stat-card-link stat-pending{% if selected_view == 'active' %} is-selected{% endif %}"
+       {% if selected_view == 'active' %}aria-current="page"{% endif %}>
+        <span>Pendientes</span>
+        <strong>{{ pending_tickets }}</strong>
+        <div class="stat-label">En espera de resolución</div>
+    </a>
+
+    <a href="{% url 'tickets:ticket_list' %}?view=resolved"
+       class="stat-card stat-card-link stat-resolved{% if selected_view == 'resolved' %} is-selected{% endif %}"
+       {% if selected_view == 'resolved' %}aria-current="page"{% endif %}>
+        <span>Resueltos</span>
+        <strong>{{ resolved_tickets }}</strong>
+        <div class="stat-label">Completados</div>
+    </a>
+
+</div>
 
     <!-- ========================================================== -->
     <!--  TABLA DE TICKETS -->
@@ -78,75 +81,96 @@
                     <th>Técnico</th>
                     <th>Estado</th>
                     <th>Prioridad</th>
+                    <th>SLA</th>
                     <th>Fecha</th>
                 </tr>
-           </thead>
-<tbody>
-    {% for ticket in tickets %}
-        <tr class="ticket-row"
-            data-url="{% url 'tickets:ticket_detail' ticket.pk %}"
-            tabindex="0"
-            role="link"
-            aria-label="Abrir ticket {{ ticket.ticket_number }}">
-            <td data-label="Número">
-                <strong>{{ ticket.ticket_number }}</strong>
-            </td>
+            </thead>
+            <tbody>
+                {% for ticket in tickets %}
+                <tr class="ticket-row" data-url="{% url 'tickets:ticket_detail' ticket.pk %}" tabindex="0" role="link"
+                    aria-label="Abrir ticket {{ ticket.ticket_number }}">
+                    <td data-label="Número">
+                        <strong>{{ ticket.ticket_number }}</strong>
+                    </td>
 
-            <td data-label="Título">{{ ticket.title }}</td>
+                    <td data-label="Título">{{ ticket.title }}</td>
 
-            <td data-label="Solicitante">{{ ticket.requester.get_full_name|default:ticket.requester.username }}</td>
+                    <td data-label="Solicitante">{{ ticket.requester.get_full_name|default:ticket.requester.username }}
+                    </td>
 
-            <td data-label="Departamento">
-                {% if ticket.department %}
-                    <span 
-                        class="badge-dept"
-                        style="background: {{ ticket.department.primary_color|default:'#123a63' }};"
-                    >
-                        {{ ticket.department.name }}
-                    </span>
-                {% else %}
-                    <span class="badge-dept badge-dept-default">
-                        Sin asignar
-                    </span>
-                {% endif %}
-            </td>
+                    <td data-label="Departamento">
+                        {% if ticket.department %}
+                        <span class="badge-dept"
+                            style="background: {{ ticket.department.primary_color|default:'#123a63' }};">
+                            {{ ticket.department.name }}
+                        </span>
+                        {% else %}
+                        <span class="badge-dept badge-dept-default">
+                            Sin asignar
+                        </span>
+                        {% endif %}
+                    </td>
 
-            <!-- 🔥 NUEVO: TÉCNICO -->
-            <td data-label="Técnico">
-                {% if ticket.assigned_to %}
-                    {{ ticket.assigned_to.get_full_name|default:ticket.assigned_to.username }}
-                {% else %}
-                    <span style="color:#999;">Sin asignar</span>
-                {% endif %}
-            </td>
+                    <!-- 🔥 NUEVO: TÉCNICO -->
+                    <td data-label="Técnico">
+                        {% if ticket.assigned_to %}
+                        {{ ticket.assigned_to.get_full_name|default:ticket.assigned_to.username }}
+                        {% else %}
+                        <span style="color:#999;">Sin asignar</span>
+                        {% endif %}
+                    </td>
 
-            <td data-label="Estado">
-                <span class="badge badge-status-{{ ticket.status|lower }}">
-                    {{ ticket.get_status_display }}
-                </span>
-            </td>
+                    <td data-label="Estado">
+                        <span class="badge badge-status-{{ ticket.status|lower }}">
+                            {{ ticket.get_status_display }}
+                        </span>
+                    </td>
 
-            <td data-label="Prioridad">
-                <span class="badge badge-priority-{{ ticket.priority|lower }}">
-                    {{ ticket.get_priority_display }}
-                </span>
-            </td>
+                    <td data-label="Prioridad">
+                        <span class="badge badge-priority-{{ ticket.priority|lower }}">
+                            {{ ticket.get_priority_display }}
+                        </span>
+                    </td>
 
-            <td data-label="Fecha">{{ ticket.created_at|date:"d/m/Y H:i" }}</td>
+                    <td data-label="SLA">
+                        {% if ticket.sla_visual.status == "OK" %}
+                        <span style="color: #15803d; font-weight: 600;">
+                            🟢 {{ ticket.sla_visual.text }}
+                        </span>
 
-        </tr>
+                        {% elif ticket.sla_visual.status == "WARNING" %}
+                        <span style="color: #b45309; font-weight: 600;">
+                            🟡 {{ ticket.sla_visual.text }}
+                        </span>
 
-    {% empty %}
-        <tr>
-            <td colspan="8" class="empty-table">
-                <i class="bi bi-inbox" style="font-size:32px;display:block;margin-bottom:8px;color:#d0d5dd;"></i>
-                <p style="margin:0;color:#667085;">No hay tickets para mostrar.</p>
-            </td>
-        </tr>
-    {% endfor %}
-</tbody>
-</table>
-</div>
+                        {% elif ticket.sla_visual.status == "EXPIRED" %}
+                        <span style="color: #b91c1c; font-weight: 600;">
+                            🔴 {{ ticket.sla_visual.text }}
+                        </span>
+
+                        {% else %}
+                        <span style="color: #64748b;">
+                            — Sin SLA
+                        </span>
+                        {% endif %}
+                    </td>
+
+                    <td data-label="Fecha">{{ ticket.created_at|date:"d/m/Y H:i" }}</td>
+
+                </tr>
+
+                {% empty %}
+                <tr>
+                    <td colspan="9" class="empty-table">
+                        <i class="bi bi-inbox"
+                            style="font-size:32px;display:block;margin-bottom:8px;color:#d0d5dd;"></i>
+                        <p style="margin:0;color:#667085;">No hay tickets para mostrar.</p>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
 
 </div>
 
@@ -235,7 +259,10 @@
     }
 
     @keyframes ticket-live-pulse {
-        to { opacity: 0.35; transform: scale(0.8); }
+        to {
+            opacity: 0.35;
+            transform: scale(0.8);
+        }
     }
 
     .btn {
@@ -389,15 +416,45 @@
         font-weight: 600;
     }
 
-    .badge-status-open { background: #cff4fc; color: #055160; }
-    .badge-status-in_progress { background: #fff3cd; color: #664d03; }
-    .badge-status-resolved { background: #d1e7dd; color: #0f5132; }
-    .badge-status-closed { background: #e9ecef; color: #344054; }
+    .badge-status-open {
+        background: #cff4fc;
+        color: #055160;
+    }
 
-    .badge-priority-low { background: #d1e7dd; color: #0f5132; }
-    .badge-priority-medium { background: #fff3cd; color: #664d03; }
-    .badge-priority-high { background: #f8d7da; color: #842029; }
-    .badge-priority-urgent { background: #dc3545; color: white; }
+    .badge-status-in_progress {
+        background: #fff3cd;
+        color: #664d03;
+    }
+
+    .badge-status-resolved {
+        background: #d1e7dd;
+        color: #0f5132;
+    }
+
+    .badge-status-closed {
+        background: #e9ecef;
+        color: #344054;
+    }
+
+    .badge-priority-low {
+        background: #d1e7dd;
+        color: #0f5132;
+    }
+
+    .badge-priority-medium {
+        background: #fff3cd;
+        color: #664d03;
+    }
+
+    .badge-priority-high {
+        background: #f8d7da;
+        color: #842029;
+    }
+
+    .badge-priority-urgent {
+        background: #dc3545;
+        color: white;
+    }
 
     /* ========================================================== */
     /*  BADGES DE DEPARTAMENTO CON COLORES DINÁMICOS */
@@ -410,7 +467,7 @@
         font-size: 12px;
         font-weight: 600;
         color: white;
-        text-shadow: 0 1px 2px rgba(0,0,0,0.15);
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
         transition: transform 0.2s;
     }
 
@@ -530,7 +587,7 @@
             text-transform: uppercase;
         }
 
-        .table tbody td[data-label] > * {
+        .table tbody td[data-label]>* {
             min-width: 0;
             max-width: 100%;
         }

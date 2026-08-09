@@ -108,7 +108,7 @@ class Ticket(models.Model):
         null=True,
         blank=True,
         related_name="tickets",
-        verbose_name="Departamento"
+        verbose_name="Departamento",
     )
 
     assigned_group = models.CharField(
@@ -129,7 +129,7 @@ class Ticket(models.Model):
         blank=True,
         null=True,
         verbose_name="Estado del SLA",
-        help_text="OK, WARNING o EXPIRED"
+        help_text="OK, WARNING o EXPIRED",
     )
 
     resolved_at = models.DateTimeField(
@@ -171,7 +171,9 @@ class Ticket(models.Model):
 
         if self.department and self.department.sla_hours:
             if not self.due_date:
-                self.due_date = timezone.now() + timedelta(hours=self.department.sla_hours)
+                self.due_date = timezone.now() + timedelta(
+                    hours=self.department.sla_hours
+                )
 
         self.update_sla_status()
 
@@ -190,75 +192,126 @@ class Ticket(models.Model):
             self.sla_status = None
         return self.sla_status
 
-    def __str__(self):
+    @property
+    def sla_visual(self):
+        """
+        Devuelve la información visual actual del SLA.
+        No modifica el ticket ni la base de datos.
+        """
+
+        if not self.due_date:
+            return {
+                "status": "NONE",
+                "text": "Sin SLA",
+            }
+
+        # En tickets terminados usamos el momento de resolución
+        # para no seguir contando el SLA después de resolverlos.
+        if (
+            self.status in {self.Status.RESOLVED, self.Status.CLOSED}
+            and self.resolved_at
+        ):
+            reference_time = self.resolved_at
+        else:
+            reference_time = timezone.now()
+
+        remaining_seconds = (self.due_date - reference_time).total_seconds()
+
+        expired = remaining_seconds < 0
+
+        total_minutes = int(abs(remaining_seconds) // 60)
+
+        days, remaining_minutes = divmod(
+            total_minutes,
+            24 * 60,
+        )
+
+        hours, minutes = divmod(
+            remaining_minutes,
+            60,
+        )
+
+        if days > 0:
+            time_text = f"{days} d {hours} h"
+        elif hours > 0:
+            time_text = f"{hours} h {minutes} min"
+        else:
+            time_text = f"{minutes} min"
+
+        if expired:
+            return {
+                "status": "EXPIRED",
+                "text": f"Vencido hace {time_text}",
+            }
+
+        if remaining_seconds <= 4 * 60 * 60:
+            return {
+                "status": "WARNING",
+                "text": f"{time_text} restantes",
+            }
+
+        return {
+            "status": "OK",
+            "text": f"{time_text} restantes",
+        }
+
+def __str__(self):
         return f"{self.ticket_number} - {self.title}"
+
 
 class QuickAction(models.Model):
     """
     Accesos rápidos para precargar tickets.
     Se gestionan desde el admin sin tocar código.
     """
-    
-    title = models.CharField(
-        max_length=200,
-        verbose_name="Título del ticket"
-    )
-    
-    description = models.TextField(
-        verbose_name="Descripción del ticket"
-    )
-    
+
+    title = models.CharField(max_length=200, verbose_name="Título del ticket")
+
+    description = models.TextField(verbose_name="Descripción del ticket")
+
     department = models.ForeignKey(
         "core.Department",
         on_delete=models.CASCADE,
         related_name="quick_actions",
-        verbose_name="Departamento"
+        verbose_name="Departamento",
     )
-    
+
     icon = models.CharField(
         max_length=50,
         blank=True,
         default="bi-tag",
         verbose_name="Icono",
-        help_text="Clase de Bootstrap Icons (ej: bi-printer, bi-laptop, bi-lightning)"
+        help_text="Clase de Bootstrap Icons (ej: bi-printer, bi-laptop, bi-lightning)",
     )
-    
+
     label = models.CharField(
         max_length=50,
         blank=True,
         verbose_name="Etiqueta",
-        help_text="Texto corto que aparece debajo (ej: Hardware, Red, Electricidad)"
+        help_text="Texto corto que aparece debajo (ej: Hardware, Red, Electricidad)",
     )
-    
-    is_active = models.BooleanField(
-        default=True,
-        verbose_name="Activo"
-    )
-    
-    order = models.PositiveIntegerField(
-        default=0,
-        verbose_name="Orden"
-    )
-    
+
+    is_active = models.BooleanField(default=True, verbose_name="Activo")
+
+    order = models.PositiveIntegerField(default=0, verbose_name="Orden")
+
     created_at = models.DateTimeField(
-        auto_now_add=True,
-        verbose_name="Fecha de creación"
+        auto_now_add=True, verbose_name="Fecha de creación"
     )
-    
+
     updated_at = models.DateTimeField(
-        auto_now=True,
-        verbose_name="Última actualización"
+        auto_now=True, verbose_name="Última actualización"
     )
-    
+
     class Meta:
         verbose_name = "Acceso rápido"
         verbose_name_plural = "Accesos rápidos"
         ordering = ["department", "order", "title"]
-    
+
     def __str__(self):
         return f"{self.department.name} - {self.title}"
 
-    
+
 class TicketComment(models.Model):
 
     class CommentType(models.TextChoices):
@@ -379,10 +432,12 @@ class TicketAttachment(models.Model):
     def __str__(self):
         return self.original_name
 
- # ==========================================================
+
+# ==========================================================
 # SOLICITUDES DE ACCESO A SISTEMAS
 # ALTA, BAJA, MODIFICACIÓN Y PERMISOS
 # ==========================================================
+
 
 class SystemAccessRequest(models.Model):
 
@@ -504,12 +559,14 @@ class SystemAccessRequest(models.Model):
             f"{self.ticket.ticket_number} - "
             f"{self.get_operation_display()} - "
             f"{self.requested_system}"
-        )   
+        )
+
 
 # ==========================================================
 # FORMULARIOS GENERADOS POR NOVADESK
 # DOCUMENTOS SIN FIRMA PARA DESCARGAR
 # ==========================================================
+
 
 class GeneratedAuthorizationForm(models.Model):
 
@@ -570,11 +627,13 @@ class GeneratedAuthorizationForm(models.Model):
             f"{self.access_request.ticket.ticket_number} - "
             f"Formulario generado - Versión {self.version}"
         )
-    
+
+
 # ==========================================================
 # DOCUMENTOS DE AUTORIZACIÓN
 # FORMULARIOS FIRMADOS
 # ==========================================================
+
 
 class AuthorizationDocument(models.Model):
 
@@ -683,7 +742,7 @@ class AuthorizationDocument(models.Model):
             f"{self.access_request.ticket.ticket_number} - "
             f"Versión {self.version} - "
             f"{self.get_validation_status_display()}"
-        )    
+        )
 
 
 class AccessIdentityDocument(models.Model):
