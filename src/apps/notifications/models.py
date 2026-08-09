@@ -10,6 +10,8 @@ class Notification(models.Model):
     TYPE_STOCK_OUT = "STOCK_OUT"
     TYPE_LOW_STOCK = "LOW_STOCK"
     TYPE_CONTRACT_EXPIRING = "CONTRACT_EXPIRING"
+    TYPE_TICKET_ASSIGNED = "TICKET_ASSIGNED"
+    TYPE_TICKET_COMMENT = "TICKET_COMMENT"
     TYPE_GENERAL = "GENERAL"
 
     TYPE_CHOICES = [
@@ -17,6 +19,8 @@ class Notification(models.Model):
         (TYPE_STOCK_OUT, "Consumible sin stock"),
         (TYPE_LOW_STOCK, "Consumible con stock bajo"),
         (TYPE_CONTRACT_EXPIRING, "Contrato próximo a vencer"),
+        (TYPE_TICKET_ASSIGNED, "Ticket asignado"),
+        (TYPE_TICKET_COMMENT, "Nueva respuesta en ticket"),
         (TYPE_GENERAL, "Notificación general"),
     ]
 

@@ -311,7 +311,7 @@ Inventario
 <style>
 
     .inventory-page {
-        padding: 24px;
+        padding: 18px 12px;
     }
 
     .inventory-header-actions {
@@ -323,9 +323,9 @@ Inventario
     .inventory-filters {
         display: grid;
         grid-template-columns: minmax(280px, 2fr) repeat(3, minmax(145px, 1fr));
-        gap: 14px;
-        margin-bottom: 18px;
-        padding: 18px;
+        gap: 10px 12px;
+        margin-bottom: 16px;
+        padding: 14px;
         border: 1px solid #e4e7ec;
         border-radius: 12px;
         background: #fff;
@@ -354,6 +354,15 @@ Inventario
         display: flex;
         align-items: flex-end;
         gap: 8px;
+        grid-column: 1 / -1;
+    }
+
+    .inventory-filter-actions .btn-primary {
+        width: 220px;
+    }
+
+    .inventory-filter-actions .btn-secondary {
+        width: auto;
     }
 
     .btn-custody {
@@ -401,13 +410,13 @@ Inventario
         width: 100%;
         border-collapse: collapse;
         table-layout: auto;
-        min-width: 1000px;
+        min-width: 1450px;
     }
 
     .inventory-table thead th {
         text-align: left;
-        padding: 18px 20px;
-        font-size: 14px;
+        padding: 14px 12px;
+        font-size: 13px;
         font-weight: 700;
         color: #344054;
         border-bottom: 1px solid #e5e7eb;
@@ -416,11 +425,37 @@ Inventario
     }
 
     .inventory-table tbody td {
-        padding: 18px 20px;
-        font-size: 15px;
+        padding: 10px 10px;
+        font-size: 14px;
         color: #101828;
         border-bottom: 1px solid #eef2f7;
         vertical-align: middle;
+    }
+
+    .inventory-table td,
+    .inventory-table th {
+        vertical-align: middle;
+    }
+
+    .inventory-table td strong {
+        white-space: nowrap;
+    }
+
+    .inventory-table th:nth-child(12),
+    .inventory-table td:nth-child(12) {
+        min-width: 250px;
+    }
+
+    .inventory-table th:nth-child(13),
+    .inventory-table td:nth-child(13) {
+        min-width: 150px;
+    }
+
+    .inventory-table td:nth-child(8),
+    .inventory-table td:nth-child(9),
+    .inventory-table td:nth-child(11),
+    .inventory-table td:nth-child(12) {
+        white-space: nowrap;
     }
 
     .selection-column {

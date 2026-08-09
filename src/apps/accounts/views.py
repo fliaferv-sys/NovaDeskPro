@@ -28,6 +28,9 @@ def home_view(request):
     if request.user.role == "CLIENT":
         return redirect("tickets:ticket_create")
 
+    if request.user.role == User.Role.TECHNICIAN:
+        return redirect("tickets:dashboard")
+
     total_tickets = Ticket.objects.count()
 
     open_tickets = Ticket.objects.filter(

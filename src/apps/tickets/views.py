@@ -21,6 +21,9 @@ from django.db.models import Q
 from apps.activity.models import ActivityLog
 from apps.activity.services import register_activity
 
+from apps.notifications.models import Notification
+from apps.notifications.services import create_or_update_notification
+
 from apps.core.models import Department, TicketCategory
 from apps.tickets.services import (
     assign_pending_tickets_for_department,
@@ -791,6 +794,33 @@ def ticket_detail_view(request, pk):
                     object_id=str(ticket.pk),
                 )
 
+                notification_recipient = None
+
+                if request.user.pk == ticket.requester_id:
+                    notification_recipient = ticket.assigned_to
+
+                elif (
+                    ticket.assigned_to_id
+                    and request.user.pk == ticket.assigned_to_id
+                ):
+                    notification_recipient = ticket.requester
+
+                if notification_recipient and notification_recipient.pk != request.user.pk:
+                    create_or_update_notification(
+                        recipient=notification_recipient,
+                        notification_type=Notification.TYPE_TICKET_COMMENT,
+                        level=Notification.LEVEL_INFO,
+                        title=f"Nueva respuesta: {ticket.ticket_number}",
+                        message=(
+                            f"{request.user.get_full_name() or request.user.email} "
+                            f"respondió en el ticket {ticket.ticket_number}: "
+                            f"{ticket.title}."
+                        ),
+                        link=f"/tickets/{ticket.pk}/",
+                        object_type="Ticket",
+                        object_id=ticket.pk,
+                    )
+
                 if request.headers.get("X-Requested-With") == "XMLHttpRequest":
                     latest_comment = ticket.comments.order_by(
                         "-created_at"
@@ -880,6 +910,25 @@ def ticket_detail_view(request, pk):
                         object_type="Ticket",
                         object_id=str(ticket.pk),
                     )
+
+                    if ticket.assigned_to:
+                        create_or_update_notification(
+                            recipient=ticket.assigned_to,
+                            notification_type=Notification.TYPE_TICKET_ASSIGNED,
+                            level=Notification.LEVEL_INFO,
+                            title=f"Ticket asignado: {ticket.ticket_number}",
+                            message=(
+                                f"Se te asignó el ticket "
+                                f"{ticket.ticket_number}: {ticket.title}."
+                            ),
+                            link=f"/tickets/{ticket.pk}/",
+                            object_type="Ticket",
+                            object_id=ticket.pk,
+                            unique_key=(
+                                f"ticket-assigned-{ticket.pk}-"
+                                f"{ticket.assigned_to.pk}"
+                            ),
+                        )
 
                 if old_status != ticket.get_status_display():
                     new_status = ticket.get_status_display()
