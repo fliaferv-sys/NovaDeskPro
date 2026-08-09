@@ -24,7 +24,10 @@ from apps.activity.services import register_activity
 from apps.core.models import Department, TicketCategory
 from apps.tickets.services import auto_assign_ticket
 
-from apps.accounts.models import User
+from apps.accounts.models import (
+    TechnicianWorkday,
+    User,
+)
 
 
 from apps.accounts.services import (
@@ -1494,18 +1497,6 @@ def dashboard_view(request):
                 .order_by("-started_at")
                 .first()
             )
-
-    if user.role == User.Role.TECHNICIAN:
-        today_workday = (
-            TechnicianWorkday.objects
-            .filter(
-                technician=user,
-                date=timezone.localdate(),
-            )
-            .select_related("shift")
-            .first()
-        )
-
     context = {
         'queue_data': queue_data,
         'stats': stats,

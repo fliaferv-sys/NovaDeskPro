@@ -18,6 +18,7 @@ from .views import (
 app_name = "tickets"
 
 urlpatterns = [
+
     path("", ticket_list_view, name="ticket_list"),
     path("nuevo/", ticket_create_view, name="ticket_create"),
     path("<uuid:pk>/", ticket_detail_view, name="ticket_detail"),
