@@ -518,3 +518,176 @@ class User(AbstractUser):
             == self.ApprovalStatus.APPROVED
             and not self.is_account_expired
         )
+
+    # ==========================================================
+# TURNOS LABORALES DE TÉCNICOS
+# ==========================================================
+
+
+class WorkShift(models.Model):
+    """
+    Define los turnos laborales disponibles para los técnicos.
+
+    Ejemplos:
+    - Turno 07:00 a 15:00
+    - Turno 08:00 a 16:00
+    """
+
+    name = models.CharField(
+        max_length=100,
+        unique=True,
+        verbose_name="Nombre del turno",
+    )
+
+    start_time = models.TimeField(
+        verbose_name="Hora de entrada",
+    )
+
+    end_time = models.TimeField(
+        verbose_name="Hora de salida",
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name="Activo",
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Fecha de creación",
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name="Última actualización",
+    )
+
+    class Meta:
+        verbose_name = "Turno laboral"
+        verbose_name_plural = "Turnos laborales"
+        ordering = [
+            "start_time",
+            "end_time",
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.name} "
+            f"({self.start_time.strftime('%H:%M')} - "
+            f"{self.end_time.strftime('%H:%M')})"
+        )
+
+
+# ==========================================================
+# JORNADA DIARIA DEL TÉCNICO
+# ==========================================================
+
+
+class TechnicianWorkday(models.Model):
+    """
+    Registra la presencia diaria de un técnico.
+
+    Cuando el técnico inicia su jornada:
+    - se registra la hora real de llegada;
+    - se determina el turno correspondiente;
+    - se calcula la hora programada de salida.
+
+    Al llegar a la hora de salida, la jornada podrá
+    finalizarse automáticamente.
+    """
+
+    class Status(models.TextChoices):
+        ACTIVE = "ACTIVE", "Presente"
+        FINISHED = "FINISHED", "Finalizada"
+
+    technician = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="technician_workdays",
+        limit_choices_to={
+            "role": "TECHNICIAN",
+        },
+        verbose_name="Técnico",
+    )
+
+    date = models.DateField(
+        verbose_name="Fecha",
+    )
+
+    shift = models.ForeignKey(
+        WorkShift,
+        on_delete=models.PROTECT,
+        related_name="technician_workdays",
+        verbose_name="Turno",
+    )
+
+    started_at = models.DateTimeField(
+        verbose_name="Inicio real de jornada",
+    )
+
+    scheduled_end_at = models.DateTimeField(
+        verbose_name="Fin programado de jornada",
+    )
+
+    ended_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Fin real de jornada",
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.ACTIVE,
+        verbose_name="Estado de jornada",
+    )
+
+    ended_automatically = models.BooleanField(
+        default=False,
+        verbose_name="Finalizada automáticamente",
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Fecha de creación",
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name="Última actualización",
+    )
+
+    class Meta:
+        verbose_name = "Jornada de técnico"
+        verbose_name_plural = "Jornadas de técnicos"
+        ordering = [
+            "-date",
+            "-started_at",
+        ]
+
+        
+
+    def __str__(self):
+        technician_name = (
+            self.technician.get_full_name().strip()
+            or self.technician.email
+        )
+
+        return (
+            f"{technician_name} - "
+            f"{self.date.strftime('%d/%m/%Y')} - "
+            f"{self.shift.name}"
+        )
+
+    @property
+    def is_active_workday(self):
+        return (
+            self.status == self.Status.ACTIVE
+            and self.ended_at is None
+        )
+
+    
+
+    
+
+        

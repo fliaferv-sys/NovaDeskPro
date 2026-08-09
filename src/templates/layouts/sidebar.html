@@ -10,7 +10,7 @@
     <div class="sidebar-brand">
 
     <a
-        href="{% url 'dashboard:executive_dashboard' %}"
+        href="{% if request.user.role == 'CLIENT' %}{% url 'tickets:ticket_create' %}{% elif request.user.role == 'TECHNICIAN' %}{% url 'tickets:dashboard' %}{% else %}{% url 'dashboard:executive_dashboard' %}{% endif %}"
         class="sidebar-brand-link">
 
         <span class="sidebar-brand-logo">
@@ -68,195 +68,70 @@
 
 </div>
 
-    <button
-        type="button"
-        class="sidebar-toggle-button"
-        id="sidebarToggleButton"
-        aria-label="Contraer menú"
-        aria-expanded="true"
-        title="Contraer menú">
 
-        <i
-            class="bi bi-chevron-left"
-            id="sidebarToggleIcon">
-        </i>
+<button
+    type="button"
+    class="sidebar-toggle-button"
+    id="sidebarToggleButton"
+    aria-label="Contraer menú"
+    aria-expanded="true"
+    title="Contraer menú">
 
-    </button>
+    <i
+        class="bi bi-chevron-left"
+        id="sidebarToggleIcon">
+    </i>
 
-    <nav class="sidebar-menu">
+</button>
 
-        <!-- ============================================= -->
-<!-- PANEL PRINCIPAL -->
-<!-- CLIENTE: NUEVO TICKET -->
-<!-- OTROS ROLES: PANEL PRINCIPAL NORMAL -->
-<!-- ============================================= -->
 
-<a
-    href="{% if request.user.role == 'CLIENT' %}{% url 'tickets:ticket_create' %}{% else %}/{% endif %}"
-    class="sidebar-menu-link"
-    title="Panel principal">
+<nav class="sidebar-menu">
 
-    <i class="bi bi-house-door"></i>
-
-    <span class="sidebar-menu-text">
-        Panel principal
-    </span>
-
-</a>
-
-            
-<!-- ============================================= -->
-<!-- TICKETS / HISTORIAL -->
-<!-- ============================================= -->
-
-<a
-    href="{% url 'tickets:ticket_list' %}"
-    class="sidebar-menu-link"
-    title="{% if request.user.role == 'CLIENT' %}Historial{% else %}Tickets{% endif %}">
-
-    <i class="bi bi-ticket-perforated"></i>
-
-    <span class="sidebar-menu-text">
-        {% if request.user.role == "CLIENT" %}
-            Historial
-        {% else %}
-            Tickets
-        {% endif %}
-    </span>
-
-</a>
-
-       
-
-       
-
-        
-        {% if request.user.role == "CLIENT" %}
+    <!-- ============================================= -->
+    <!-- PANEL PRINCIPAL -->
+    <!-- ============================================= -->
 
     <a
-        href="{% url 'inventory:my_asset_list' %}?v={% now 'U' %}"
+        href="{% if request.user.role == 'CLIENT' %}{% url 'tickets:ticket_create' %}{% elif request.user.role == 'TECHNICIAN' %}{% url 'tickets:dashboard' %}{% else %}/{% endif %}"
         class="sidebar-menu-link"
-        title="Mis equipos"
-        id="misEquiposLink">
+        title="Panel principal">
 
-        <i class="bi bi-pc-display"></i>
+        <i class="bi bi-house-door"></i>
 
         <span class="sidebar-menu-text">
-            Mis equipos
+            Panel principal
         </span>
 
     </a>
 
-{% else %}
+
+    <!-- ============================================= -->
+    <!-- TICKETS -->
+    <!-- ============================================= -->
+
+    <a
+        href="{% url 'tickets:ticket_list' %}"
+        class="sidebar-menu-link"
+        title="{% if request.user.role == 'CLIENT' %}Historial{% else %}Tickets{% endif %}">
+
+        <i class="bi bi-ticket-perforated"></i>
+
+        <span class="sidebar-menu-text">
+            {% if request.user.role == "CLIENT" %}
+                Historial
+            {% else %}
+                Tickets
+            {% endif %}
+        </span>
+
+    </a>
 
 
-<a
-                href="{% url 'dashboard:executive_dashboard' %}"
-                class="sidebar-menu-link"
-                title="Dashboard">
+    <!-- ============================================= -->
+    <!-- MENÚ DEL CLIENTE -->
+    <!-- ============================================= -->
 
-                <i class="bi bi-speedometer2"></i>
-
-                <span class="sidebar-menu-text">
-                    Dashboard
-                </span>
-
-            </a>
-
-
-
-        <!-- ============================================= -->
-        <!-- BLOQUE CLIENT vs ADMIN/TECNICO -->
-        <!-- ============================================= -->
-
-             <a
-                href="{% url 'user_list' %}"
-                class="sidebar-menu-link"
-                title="Usuarios">
-
-                <i class="bi bi-people"></i>
-
-                <span class="sidebar-menu-text">
-                    Usuarios
-                </span>
-
-            </a>  
-            
-
-            
-            <a
-                href="{% url 'inventory:asset_list' %}"
-                class="sidebar-menu-link"
-                title="Inventario">
-
-                <i class="bi bi-pc-display"></i>
-
-                <span class="sidebar-menu-text">
-                    Inventario
-                </span>
-
-            </a>
-
-            <!-- Impresoras -->
-            <a
-                href="{% url 'printing:dashboard' %}"
-                class="sidebar-menu-link"
-                title="Impresoras">
-
-                <i class="bi bi-printer"></i>
-
-                <span class="sidebar-menu-text">
-                    Impresoras
-                </span>
-            </a>
-
-            
-
-            <a
-                href="{% url 'deliveries:custody_movement_list' %}"
-                class="sidebar-menu-link"
-                title="Entregas y custodia">
-
-                <i class="bi bi-box-seam"></i>
-
-                <span class="sidebar-menu-text">
-                    Custodia
-                </span>
-
-            </a>
-
-            {% if request.user.is_superuser or request.user.role == "ADMIN" or request.user.role == "SUPERVISOR" %}
-
-            <a
-                href="{% url 'monitoring:dashboard' %}"
-                class="sidebar-menu-link"
-                title="Monitoreo">
-
-                <i class="bi bi-display"></i>
-
-                <span class="sidebar-menu-text">
-                    Monitoreo
-                </span>
-            </a>
-
-               
-
-                <a
-                href="{% url 'notifications:notification_list' %}"
-                class="sidebar-menu-link"
-                title="Notificaciones">
-
-                <i class="bi bi-bell"></i>
-
-                <span class="sidebar-menu-text">
-                    Notificaciones
-                </span>
-
-            </a>
-
-        <!-- ============================================= -->
-        <!-- MIS EQUIPOS - CON RECARGA FORZADA -->
-        <!-- ============================================= -->
+    {% if request.user.role == "CLIENT" %}
 
         <a
             href="{% url 'inventory:my_asset_list' %}?v={% now 'U' %}"
@@ -272,28 +147,196 @@
 
         </a>
 
-            {% endif %}
 
-            {% if request.user.is_superuser or request.user.role == "ADMIN" %}
+    {% else %}
 
-                <a
-                    href="/admin/"
-                    class="sidebar-menu-link"
-                    title="Administración">
 
-                    <i class="bi bi-gear"></i>
+        <!-- ============================================= -->
+        <!-- DASHBOARD -->
+        <!-- TÉCNICO: DASHBOARD DE TICKETS -->
+        <!-- OTROS: DASHBOARD EJECUTIVO -->
+        <!-- ============================================= -->
 
-                    <span class="sidebar-menu-text">
-                        Administración
-                    </span>
+        {% if request.user.role != "TECHNICIAN" %}
 
-                </a>
+    <a
+        href="{% url 'dashboard:executive_dashboard' %}"
+        class="sidebar-menu-link"
+        title="Dashboard">
 
-            {% endif %}
+        <i class="bi bi-speedometer2"></i>
+
+        <span class="sidebar-menu-text">
+            Dashboard
+        </span>
+
+    </a>
+
+{% endif %}
+
+
+        <!-- ============================================= -->
+        <!-- USUARIOS -->
+        <!-- ============================================= -->
+
+       {% if request.user.is_superuser or request.user.role == "ADMIN" or request.user.role == "SUPERVISOR" %}
+
+    <a
+        href="{% url 'user_list' %}"
+        class="sidebar-menu-link"
+        title="Usuarios">
+
+        <i class="bi bi-people"></i>
+
+        <span class="sidebar-menu-text">
+            Usuarios
+        </span>
+
+    </a>
+
+{% endif %}
+
+
+        <!-- ============================================= -->
+        <!-- INVENTARIO -->
+        <!-- ============================================= -->
+
+        <a
+            href="{% url 'inventory:asset_list' %}"
+            class="sidebar-menu-link"
+            title="Inventario">
+
+            <i class="bi bi-pc-display"></i>
+
+            <span class="sidebar-menu-text">
+                Inventario
+            </span>
+
+        </a>
+
+
+        <!-- ============================================= -->
+        <!-- IMPRESORAS -->
+        <!-- ============================================= -->
+
+        <a
+            href="{% url 'printing:dashboard' %}"
+            class="sidebar-menu-link"
+            title="Impresoras">
+
+            <i class="bi bi-printer"></i>
+
+            <span class="sidebar-menu-text">
+                Impresoras
+            </span>
+
+        </a>
+
+
+        <!-- ============================================= -->
+        <!-- ENTREGAS Y CUSTODIA -->
+        <!-- ============================================= -->
+
+        <a
+            href="{% url 'deliveries:custody_movement_list' %}"
+            class="sidebar-menu-link"
+            title="Entregas y custodia">
+
+            <i class="bi bi-box-seam"></i>
+
+            <span class="sidebar-menu-text">
+                Custodia
+            </span>
+
+        </a>
+
+
+        <!-- ============================================= -->
+        <!-- ADMIN / SUPERVISOR -->
+        <!-- ============================================= -->
+
+        {% if request.user.is_superuser or request.user.role == "ADMIN" or request.user.role == "SUPERVISOR" %}
+
+
+            <!-- MONITOREO -->
+
+            <a
+                href="{% url 'monitoring:dashboard' %}"
+                class="sidebar-menu-link"
+                title="Monitoreo">
+
+                <i class="bi bi-display"></i>
+
+                <span class="sidebar-menu-text">
+                    Monitoreo
+                </span>
+
+            </a>
+
+
+            <!-- NOTIFICACIONES -->
+
+            <a
+                href="{% url 'notifications:notification_list' %}"
+                class="sidebar-menu-link"
+                title="Notificaciones">
+
+                <i class="bi bi-bell"></i>
+
+                <span class="sidebar-menu-text">
+                    Notificaciones
+                </span>
+
+            </a>
+
+
+            <!-- ============================================= -->
+            <!-- MIS EQUIPOS -->
+            <!-- ============================================= -->
+
+            <a
+                href="{% url 'inventory:my_asset_list' %}?v={% now 'U' %}"
+                class="sidebar-menu-link"
+                title="Mis equipos"
+                id="misEquiposLink">
+
+                <i class="bi bi-pc-display"></i>
+
+                <span class="sidebar-menu-text">
+                    Mis equipos
+                </span>
+
+            </a>
 
         {% endif %}
 
-    </nav>
+
+        <!-- ============================================= -->
+        <!-- ADMINISTRACIÓN DJANGO -->
+        <!-- SOLO SUPERUSUARIO / ADMIN -->
+        <!-- ============================================= -->
+
+        {% if request.user.is_superuser or request.user.role == "ADMIN" %}
+
+            <a
+                href="/admin/"
+                class="sidebar-menu-link"
+                title="Administración">
+
+                <i class="bi bi-gear"></i>
+
+                <span class="sidebar-menu-text">
+                    Administración
+                </span>
+
+            </a>
+
+        {% endif %}
+
+
+    {% endif %}
+
+</nav>
 
 </aside>
 

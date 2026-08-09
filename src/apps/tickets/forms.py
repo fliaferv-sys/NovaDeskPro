@@ -10,7 +10,11 @@ from .validators import (
 )
 from .file_security import validate_attachment_signature
 
-from apps.accounts.models import User
+from apps.accounts.models import (
+    TechnicianWorkday,
+    User,
+)
+
 from apps.core.models import Department
 from apps.inventory.models import Asset
 from .models import (
@@ -463,13 +467,25 @@ class TicketAssignForm(forms.ModelForm):
 
         super().__init__(*args, **kwargs)
 
-        technicians = User.objects.filter(role=User.Role.TECHNICIAN)
+        technicians = User.objects.filter(
+            role=User.Role.TECHNICIAN,
+            is_active=True,
+            approval_status=User.ApprovalStatus.APPROVED,
+        )
+
+
         if department is not None:
             technicians = technicians.filter(department=department)
-        self.fields["assigned_to"].queryset = technicians
 
-        self.fields["assigned_to"].empty_label = "Seleccione un técnico"
+        self.fields["assigned_to"].queryset = (
+            technicians
+            .distinct()
+            .order_by("first_name", "last_name")
+        )
 
+        self.fields["assigned_to"].empty_label = (
+            "Seleccione un técnico"
+        )
 
 class TicketTransferForm(forms.Form):
     destination_department = forms.ModelChoiceField(

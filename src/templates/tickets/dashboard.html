@@ -796,6 +796,408 @@ Dashboard - Sistema de Tickets
             </div>
         </div>
 
+        
+        {% if request.user.role == "TECHNICIAN" %}
+
+            <div style="
+                background: white;
+                border-radius: 16px;
+                padding: 20px 24px;
+                border: 1px solid #e9edf4;
+            ">
+
+                <h3 style="
+                    margin: 0 0 14px 0;
+                    font-size: 16px;
+                    color: #0a1a3a;
+                ">
+                    🕒 Mi jornada
+                </h3>
+
+                {% if today_workday and today_workday.status == "ACTIVE" %}
+
+                    <div style="
+                        display: grid;
+                        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+                        gap: 12px;
+                    ">
+
+                        <div style="
+                            background: #f8fafc;
+                            padding: 12px;
+                            border-radius: 10px;
+                        ">
+                            <div style="font-size:12px; color:#7a8ba3;">
+                                Estado
+                            </div>
+
+                            <strong style="color:#27ae60;">
+                                🟢 Presente
+                            </strong>
+                        </div>
+
+                        <div style="
+                            background: #f8fafc;
+                            padding: 12px;
+                            border-radius: 10px;
+                        ">
+                            <div style="font-size:12px; color:#7a8ba3;">
+                                Turno
+                            </div>
+
+                            <strong>
+                                {{ today_workday.shift.name }}
+                            </strong>
+                        </div>
+
+                        <div style="
+                            background: #f8fafc;
+                            padding: 12px;
+                            border-radius: 10px;
+                        ">
+                            <div style="font-size:12px; color:#7a8ba3;">
+                                Inicio real
+                            </div>
+
+                            <strong>
+                                {{ today_workday.started_at|date:"H:i" }}
+                            </strong>
+                        </div>
+
+                        <div style="
+                            background: #f8fafc;
+                            padding: 12px;
+                            border-radius: 10px;
+                        ">
+                            <div style="font-size:12px; color:#7a8ba3;">
+                                Salida programada
+                            </div>
+
+                            <strong>
+                                {{ today_workday.scheduled_end_at|date:"H:i" }}
+                            </strong>
+                        </div>
+
+                    </div>
+                                                <div
+                        id="workday-countdown-box"
+                        data-end="{{ today_workday.scheduled_end_at|date:'c' }}"
+                        style="
+                            margin-top: 16px;
+                            background: #f8fafc;
+                            border-radius: 10px;
+                            padding: 14px 16px;
+                        "
+                    >
+                        <div style="
+                            font-size: 12px;
+                            color: #7a8ba3;
+                            margin-bottom: 4px;
+                        ">
+                            ⏱ Tiempo restante de jornada
+                        </div>
+
+                        <strong
+                            id="workday-countdown"
+                            style="
+                                font-size: 20px;
+                                color: #0a1a3a;
+                            "
+                        >
+                            --:--:--
+                        </strong>
+                    </div>
+
+
+                    <form
+                        method="post"
+                        style="margin-top: 16px;"
+                        onsubmit="return confirm('¿Confirma que desea finalizar su jornada laboral? Su disponibilidad cambiará a No disponible.');"
+                    >
+                        {% csrf_token %}
+
+                        <input
+                            type="hidden"
+                            name="form_type"
+                            value="finish_workday"
+                        >
+
+                        <button
+                            type="submit"
+                            style="
+                                border: none;
+                                background: #dc3545;
+                                color: white;
+                                padding: 11px 20px;
+                                border-radius: 10px;
+                                font-weight: 600;
+                                cursor: pointer;
+                            "
+                        >
+                            🔴 Finalizar jornada
+                        </button>
+                    </form>
+
+                                        <form
+                        id="auto-finish-workday-form"
+                        method="post"
+                        style="display:none;"
+                    >
+                        {% csrf_token %}
+
+                        <input
+                            type="hidden"
+                            name="form_type"
+                            value="finish_workday"
+                        >
+
+                        <input
+                            type="hidden"
+                            name="automatic"
+                            value="1"
+                        >
+                    </form>
+
+                {% elif today_workday and today_workday.status == "FINISHED" %}
+
+                    <div style="
+                        display: grid;
+                        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+                        gap: 12px;
+                    ">
+
+                        <div style="
+                            background: #f8fafc;
+                            padding: 12px;
+                            border-radius: 10px;
+                        ">
+                            <div style="font-size:12px; color:#7a8ba3;">
+                                Estado
+                            </div>
+
+                            <strong>
+                                ⚫ Jornada finalizada
+                            </strong>
+                        </div>
+
+                        <div style="
+                            background: #f8fafc;
+                            padding: 12px;
+                            border-radius: 10px;
+                        ">
+                            <div style="font-size:12px; color:#7a8ba3;">
+                                Turno
+                            </div>
+
+                            <strong>
+                                {{ today_workday.shift.name }}
+                            </strong>
+                        </div>
+
+                        <div style="
+                            background: #f8fafc;
+                            padding: 12px;
+                            border-radius: 10px;
+                        ">
+                            <div style="font-size:12px; color:#7a8ba3;">
+                                Inicio real
+                            </div>
+
+                        <strong>
+                            {{ today_workday.started_at|date:"H:i" }}
+                        </strong>
+                    </div>
+
+                <div style="
+                     background: #f8fafc;
+                    padding: 12px;
+                    border-radius: 10px;
+                ">
+                <div style="font-size:12px; color:#7a8ba3;">
+                    Salida real
+                </div>
+
+                <strong>
+                    {{ today_workday.ended_at|date:"H:i" }}
+                </strong>
+            </div>
+
+        </div>
+
+        <p style="
+            margin-top: 14px;
+            color: #7a8ba3;
+            font-size: 13px;
+        ">
+            La jornada de hoy ya fue finalizada.
+        </p>
+            <form
+                method="post"
+                style="margin-top: 16px;"
+                onsubmit="return confirm('¿Confirma que desea iniciar una nueva jornada laboral?');"
+            >
+                {% csrf_token %}
+
+                <input
+                    type="hidden"
+                    name="form_type"
+                    value="start_workday"
+                >
+
+                <button
+                    type="submit"
+                    style="
+                        border: none;
+                        background: #198754;
+                        color: white;
+                        padding: 11px 20px;
+                        border-radius: 10px;
+                        font-weight: 600;
+                        cursor: pointer;
+                    "
+                >
+                    🟢 Iniciar nueva jornada
+                </button>
+            </form>            
+                    
+                {% else %}
+
+                    <p style="
+                        margin: 0 0 14px 0;
+                        color: #7a8ba3;
+                        font-size: 13px;
+                    ">
+                        Todavía no registraste tu llegada de hoy.
+                    </p>
+
+                    <form
+                        method="post"
+                        onsubmit="return confirm('¿Confirma que desea iniciar su jornada laboral?');"
+                    >
+
+                        {% csrf_token %}
+
+                        <input
+                            type="hidden"
+                            name="form_type"
+                            value="start_workday"
+                        >
+
+                        <button
+                            type="submit"
+                            style="
+                                border: none;
+                                background: #198754;
+                                color: white;
+                                padding: 11px 20px;
+                                border-radius: 10px;
+                                font-weight: 600;
+                                cursor: pointer;
+                            "
+                        >
+                            🟢 Iniciar jornada
+                        </button>
+
+                    </form>
+
+                {% endif %}
+
+            </div>
+
+        {% endif %}
+        {% if request.user.role == "TECHNICIAN" %}
+            <div style="
+                background: white;
+                border-radius: 16px;
+                padding: 20px 24px;
+                border: 1px solid #e9edf4;
+            ">
+                <h3 style="
+                    margin: 0 0 14px 0;
+                    font-size: 16px;
+                    color: #0a1a3a;
+                ">
+                    👨‍🔧 Mi disponibilidad
+                </h3>
+
+                <form method="post">
+                    {% csrf_token %}
+
+                    <input
+                        type="hidden"
+                        name="form_type"
+                        value="availability"
+                    >
+
+                    <div style="
+                        display: flex;
+                        gap: 12px;
+                        align-items: center;
+                        flex-wrap: wrap;
+                    ">
+                        <select
+                            name="availability_status"
+                            style="
+                                flex: 1;
+                                min-width: 180px;
+                                padding: 10px 12px;
+                                border: 1px solid #dbe2ea;
+                                border-radius: 10px;
+                                background: white;
+                            "
+                        >
+                            <option
+                                value="AVAILABLE"
+                                {% if request.user.availability_status == "AVAILABLE" %}selected{% endif %}
+                            >
+                                🟢 Disponible
+                            </option>
+
+                            <option
+                                value="BUSY"
+                                {% if request.user.availability_status == "BUSY" %}selected{% endif %}
+                            >
+                                🟡 Ocupado
+                            </option>
+
+                            <option
+                                value="UNAVAILABLE"
+                                {% if request.user.availability_status == "UNAVAILABLE" %}selected{% endif %}
+                            >
+                                🔴 No disponible
+                            </option>
+                        </select>
+
+                        <button
+                            type="submit"
+                            style="
+                                border: none;
+                                background: #0a1a3a;
+                                color: white;
+                                padding: 10px 18px;
+                                border-radius: 10px;
+                                font-weight: 600;
+                                cursor: pointer;
+                            "
+                        >
+                            Actualizar estado
+                        </button>
+                    </div>
+
+                    <div style="
+                        margin-top: 12px;
+                        font-size: 13px;
+                        color: #7a8ba3;
+                    ">
+                        Estado actual:
+                        <strong>
+                            {{ request.user.get_availability_status_display }}
+                        </strong>
+                    </div>
+                </form>
+            </div>
+        {% endif %}
+
         <!-- ESTADÍSTICAS DE LA COLA (para técnicos) -->
         {% if is_technician %}
             <div style="background: white; border-radius: 16px; padding: 20px 24px; border: 1px solid #e9edf4;">
@@ -869,5 +1271,87 @@ Dashboard - Sistema de Tickets
     </div>
 
 </div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+
+    const countdownBox = document.getElementById(
+        "workday-countdown-box"
+    );
+
+    const countdown = document.getElementById(
+        "workday-countdown"
+    );
+
+    const autoFinishForm = document.getElementById(
+        "auto-finish-workday-form"
+    );
+
+    if (!countdownBox || !countdown || !autoFinishForm) {
+        return;
+    }
+
+    const endValue = countdownBox.dataset.end;
+    const endTime = new Date(endValue).getTime();
+
+    if (Number.isNaN(endTime)) {
+        countdown.textContent = "--:--:--";
+        return;
+    }
+
+    let submitted = false;
+
+    function updateCountdown() {
+
+        const now = Date.now();
+        let remaining = endTime - now;
+
+        if (remaining <= 0) {
+
+            countdown.textContent = "00:00:00";
+
+            if (!submitted) {
+                submitted = true;
+                autoFinishForm.submit();
+            }
+
+            return;
+        }
+
+        const totalSeconds = Math.floor(
+            remaining / 1000
+        );
+
+        const hours = Math.floor(
+            totalSeconds / 3600
+        );
+
+        const minutes = Math.floor(
+            (totalSeconds % 3600) / 60
+        );
+
+        const seconds = totalSeconds % 60;
+
+        countdown.textContent =
+            String(hours).padStart(2, "0")
+            + ":"
+            + String(minutes).padStart(2, "0")
+            + ":"
+            + String(seconds).padStart(2, "0");
+    }
+
+    updateCountdown();
+
+    const interval = setInterval(function () {
+
+        updateCountdown();
+
+        if (submitted) {
+            clearInterval(interval);
+        }
+
+    }, 1000);
+});
+</script>
 
 {% endblock %}

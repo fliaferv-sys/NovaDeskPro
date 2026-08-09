@@ -24,7 +24,16 @@ from apps.activity.services import register_activity
 from apps.core.models import Department, TicketCategory
 from apps.tickets.services import auto_assign_ticket
 
-from apps.accounts.services import get_user_department
+from apps.accounts.models import User
+
+
+from apps.accounts.services import (
+    close_expired_workdays,
+    finish_technician_workday,
+    get_user_department,
+    start_technician_workday,
+)
+
 from .authorization_pdf import generate_authorization_pdf
 
 from .forms import (
@@ -1318,6 +1327,129 @@ def dashboard_view(request):
     """
     user = request.user
 
+    # ------------------------------------------------------
+    # CERRAR JORNADAS VENCIDAS
+    # ------------------------------------------------------
+
+    if user.role == User.Role.TECHNICIAN:
+        close_expired_workdays()
+
+
+        # ======================================================
+    # INICIAR JORNADA DEL TÉCNICO
+    # ======================================================
+
+    if (
+        request.method == "POST"
+        and user.role == User.Role.TECHNICIAN
+        and request.POST.get("form_type") == "start_workday"
+    ):
+        try:
+            workday, created = start_technician_workday(user)
+
+            if created:
+                messages.success(
+                    request,
+                    (
+                        "Jornada iniciada correctamente. "
+                        f"Turno: {workday.shift.name}. "
+                        "Salida programada: "
+                        f"{timezone.localtime(workday.scheduled_end_at):%H:%M}."
+                    ),
+                )
+            else:
+                messages.info(
+                    request,
+                    "Ya existe una jornada activa.",
+                )
+
+        except ValueError as error:
+            messages.error(
+                request,
+                str(error),
+            )
+
+        return redirect("tickets:dashboard")
+
+    # ======================================================
+    # FINALIZAR JORNADA DEL TÉCNICO
+    # ======================================================
+
+    if (
+        request.method == "POST"
+        and user.role == User.Role.TECHNICIAN
+        and request.POST.get("form_type") == "finish_workday"
+    ):
+        try:
+            automatic = request.POST.get("automatic") == "1"
+
+            workday = finish_technician_workday(
+                user,
+                automatically=automatic,
+            )
+
+            if automatic:
+                messages.success(
+                    request,
+                    (
+                        "La jornada finalizó automáticamente "
+                        "al cumplirse la hora programada. "
+                        "Hora de salida: "
+                        f"{timezone.localtime(workday.ended_at):%H:%M}."
+                    ),
+                )
+            else:
+                messages.success(
+                    request,
+                    (
+                        "Jornada finalizada correctamente. "
+                        "Hora de salida: "
+                        f"{timezone.localtime(workday.ended_at):%H:%M}."
+                    ),
+                )
+
+        except ValueError as error:
+            messages.error(
+                request,
+                str(error),
+            )
+
+        return redirect("tickets:dashboard")
+    
+     # CAMBIAR DISPONIBILIDAD
+    if (
+        request.method == "POST"
+        and user.role == User.Role.TECHNICIAN
+        and request.POST.get("form_type") == "availability"
+    ):
+        new_status = request.POST.get("availability_status")
+
+        valid_statuses = {
+            User.AvailabilityStatus.AVAILABLE,
+            User.AvailabilityStatus.BUSY,
+            User.AvailabilityStatus.UNAVAILABLE,
+        }
+
+        if new_status in valid_statuses:
+            user.availability_status = new_status
+            user.save(update_fields=["availability_status"])
+
+            messages.success(
+                request,
+                (
+                    "Tu disponibilidad fue actualizada a "
+                    f"{user.get_availability_status_display()}."
+                ),
+            )
+        else:
+            messages.error(
+                request,
+                "El estado de disponibilidad seleccionado no es válido.",
+            )
+
+        return redirect("tickets:dashboard")
+    
+
     queue_data = get_user_position_in_queue(user)
     stats = get_user_dashboard_stats(user)
     active_ticket = get_user_active_ticket(user)
@@ -1334,6 +1466,45 @@ def dashboard_view(request):
     department = get_user_department(request.user)
 
     
+    today_workday = None
+
+    if user.role == User.Role.TECHNICIAN:
+        active_workday = (
+            TechnicianWorkday.objects
+            .filter(
+                technician=user,
+                status=TechnicianWorkday.Status.ACTIVE,
+                ended_at__isnull=True,
+            )
+            .select_related("shift")
+            .order_by("-started_at")
+            .first()
+        )
+
+        if active_workday:
+            today_workday = active_workday
+        else:
+            today_workday = (
+                TechnicianWorkday.objects
+                .filter(
+                    technician=user,
+                    date=timezone.localdate(),
+                )
+                .select_related("shift")
+                .order_by("-started_at")
+                .first()
+            )
+
+    if user.role == User.Role.TECHNICIAN:
+        today_workday = (
+            TechnicianWorkday.objects
+            .filter(
+                technician=user,
+                date=timezone.localdate(),
+            )
+            .select_related("shift")
+            .first()
+        )
 
     context = {
         'queue_data': queue_data,
@@ -1344,6 +1515,7 @@ def dashboard_view(request):
         'is_technician': is_technician,
         'is_admin': is_admin,
         'department': department,
+        'today_workday': today_workday,
     }
 
     return render(
@@ -1351,6 +1523,8 @@ def dashboard_view(request):
         'tickets/dashboard.html',
         context
     )
+
+
 
 # ==========================================================
 # VALIDAR SOLICITUD DE ACCESO
