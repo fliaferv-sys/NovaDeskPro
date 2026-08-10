@@ -6,6 +6,7 @@ from .views import (
     notification_mark_read,
     notification_reopen,
     notification_resolve,
+    push_subscribe,
 )
 
 
@@ -37,5 +38,10 @@ urlpatterns = [
         "<uuid:pk>/reabrir/",
         notification_reopen,
         name="notification_reopen",
+    ),
+    path(
+        "push/suscribir/",
+        push_subscribe,
+        name="push_subscribe",
     ),
 ]

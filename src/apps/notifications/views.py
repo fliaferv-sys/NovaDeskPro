@@ -4,7 +4,11 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from .models import Notification
+import json
+
+from django.http import JsonResponse
+
+from .models import Notification, PushSubscription
 
 
 def _notification_base_queryset(user):
@@ -213,3 +217,47 @@ def notification_reopen(request, pk):
     notification.reopen(user=request.user)
 
     return redirect("notifications:notification_list")
+
+@login_required
+@require_POST
+def push_subscribe(request):
+    try:
+        payload = json.loads(request.body.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return JsonResponse(
+            {"ok": False, "error": "JSON inválido."},
+            status=400,
+        )
+
+    endpoint = payload.get("endpoint", "").strip()
+    keys = payload.get("keys") or {}
+    p256dh = keys.get("p256dh", "").strip()
+    auth = keys.get("auth", "").strip()
+
+    if not endpoint or not p256dh or not auth:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "La suscripción Push está incompleta.",
+            },
+            status=400,
+        )
+
+    subscription, created = PushSubscription.objects.update_or_create(
+        endpoint=endpoint,
+        defaults={
+            "user": request.user,
+            "p256dh": p256dh,
+            "auth": auth,
+            "user_agent": request.META.get("HTTP_USER_AGENT", ""),
+            "is_active": True,
+        },
+    )
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "created": created,
+            "subscription_id": str(subscription.pk),
+        }
+    )

@@ -236,3 +236,57 @@ class Notification(models.Model):
 
     def __str__(self):
         return self.title
+class PushSubscription(models.Model):
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+    )
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="push_subscriptions",
+        verbose_name="Usuario",
+    )
+
+    endpoint = models.TextField(
+        "Endpoint Push",
+        unique=True,
+    )
+
+    p256dh = models.TextField(
+        "Clave pública p256dh",
+    )
+
+    auth = models.TextField(
+        "Clave de autenticación",
+    )
+
+    user_agent = models.TextField(
+        "Navegador / dispositivo",
+        blank=True,
+    )
+
+    is_active = models.BooleanField(
+        "Activa",
+        default=True,
+    )
+
+    created_at = models.DateTimeField(
+        "Fecha de creación",
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        "Última actualización",
+        auto_now=True,
+    )
+
+    class Meta:
+        verbose_name = "Suscripción Push"
+        verbose_name_plural = "Suscripciones Push"
+        ordering = ["-updated_at"]
+
+    def __str__(self):
+        return f"{self.user} - {self.endpoint[:50]}"

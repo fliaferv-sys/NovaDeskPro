@@ -271,8 +271,13 @@
         defer>
     </script>
 
+    <script>
+        window.NovaDeskPWA = {
+            vapidPublicKey: "{{ webpush_vapid_public_key|escapejs }}"
+        };
+    </script>
     <script
-        src="{% static 'js/pwa.js' %}?v=1.0.0"
+        src="{% static 'js/pwa.js' %}?v=1.1.0"
         defer>
     </script>
 
