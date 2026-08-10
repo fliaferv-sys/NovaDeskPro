@@ -634,7 +634,6 @@ def ticket_detail_view(request, pk):
         if estimated_time == 0:
             estimated_time = 5
 
-
     # ============================================================
     # CONVERSACIÓN DEL TICKET
     # ============================================================

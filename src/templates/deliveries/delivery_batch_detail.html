@@ -272,7 +272,7 @@ DATOS GENERALES
                     {% for document in batch_documents %}
                         <tr>
                             <td>{{ document.get_document_type_display }}</td>
-                            <td><a href="{% url 'deliveries:delivery_batch_document_download' batch.pk document.pk %}" target="_blank" rel="noopener">Abrir</a></td>
+                            <td><a href="{% url 'deliveries:delivery_batch_document_download' delivery_batch.pk document.pk %}" target="_blank" rel="noopener">Abrir</a></td>
                             <td>{% if document.signatures_verified %}✅ Firmas verificadas{% else %}Pendiente{% endif %}</td>
                             <td>{{ document.uploaded_by.get_full_name|default:document.uploaded_by.username }}</td>
                             <td>{{ document.uploaded_at|date:"d/m/Y H:i" }}</td>

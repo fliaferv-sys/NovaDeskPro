@@ -757,7 +757,7 @@ Detalle del Movimiento
                                     <td>
 
                                         <a
-                                            href="{% url 'deliveries:delivery_document_download' movement.pk document.pk %}"
+                                            href="{% url 'deliveries:delivery_batch_document_download' movement.delivery_batch.pk document.pk %}"
                                             target="_blank"
                                             rel="noopener"
                                             class="btn-secondary">
