@@ -6,6 +6,10 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.accounts.models import TechnicianWorkday, User, WorkShift
+from apps.accounts.services import (
+    close_expired_workdays,
+    finish_technician_workday,
+)
 from apps.activity.models import ActivityLog
 from apps.core.models import Department
 
@@ -22,6 +26,7 @@ from .services import (
     auto_assign_ticket,
     lock_ticket_from_auto_rebalancing,
     rebalance_unworked_auto_assigned_tickets,
+    release_safe_tickets_for_inactive_technician,
 )
 
 
@@ -1279,6 +1284,187 @@ class TicketAutoRebalanceTests(TestCase):
                 self.assertEqual(response.status_code, 302)
                 queued.refresh_from_db()
                 self.assertEqual(queued.assigned_to, technician)
+
+    def test_manual_and_automatic_workday_finish_release_safe_ticket(self):
+        technician = self.technicians[0]
+
+        for automatically in [False, True]:
+            with self.subTest(automatically=automatically):
+                Ticket.objects.all().delete()
+                TechnicianWorkday.objects.all().delete()
+                technician.availability_status = User.AvailabilityStatus.AVAILABLE
+                technician.save(update_fields=["availability_status"])
+                self.start_workday(technician)
+                ticket = self.create_auto_ticket(technician, 1)
+
+                finish_technician_workday(
+                    technician,
+                    automatically=automatically,
+                )
+
+                ticket.refresh_from_db()
+                technician.refresh_from_db()
+                self.assertIsNone(ticket.assigned_to)
+                self.assertEqual(ticket.status, Ticket.Status.OPEN)
+                self.assertEqual(
+                    ticket.assignment_origin,
+                    Ticket.AssignmentOrigin.UNKNOWN,
+                )
+                self.assertEqual(
+                    technician.availability_status,
+                    User.AvailabilityStatus.UNAVAILABLE,
+                )
+
+    def test_close_expired_workdays_releases_safe_ticket(self):
+        technician = self.technicians[0]
+        workday = self.start_workday(technician)
+        workday.scheduled_end_at = timezone.now() - timedelta(minutes=1)
+        workday.save(update_fields=["scheduled_end_at"])
+        ticket = self.create_auto_ticket(technician, 1)
+
+        self.assertEqual(close_expired_workdays(), 1)
+
+        ticket.refresh_from_db()
+        self.assertIsNone(ticket.assigned_to)
+        self.assertEqual(ticket.status, Ticket.Status.OPEN)
+
+    def test_unavailable_releases_safe_ticket_but_busy_does_not(self):
+        technician = self.technicians[0]
+        self.start_workday(technician)
+        ticket = self.create_auto_ticket(technician, 1)
+        self.client.force_login(technician)
+
+        busy_response = self.client.post(
+            reverse("tickets:dashboard"),
+            {
+                "form_type": "availability",
+                "availability_status": User.AvailabilityStatus.BUSY,
+            },
+        )
+        self.assertEqual(busy_response.status_code, 302)
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.assigned_to, technician)
+
+        unavailable_response = self.client.post(
+            reverse("tickets:dashboard"),
+            {
+                "form_type": "availability",
+                "availability_status": User.AvailabilityStatus.UNAVAILABLE,
+            },
+        )
+        self.assertEqual(unavailable_response.status_code, 302)
+        ticket.refresh_from_db()
+        self.assertIsNone(ticket.assigned_to)
+
+    def test_inactive_policy_keeps_all_protected_assignment_types(self):
+        technician = self.technicians[0]
+        protected = [
+            Ticket.objects.create(
+                title="En progreso",
+                description="No mover.",
+                requester=self.requester,
+                department=self.department,
+                assigned_to=technician,
+                assignment_origin=Ticket.AssignmentOrigin.AUTO,
+                status=Ticket.Status.IN_PROGRESS,
+            ),
+            Ticket.objects.create(
+                title="En espera",
+                description="No mover.",
+                requester=self.requester,
+                department=self.department,
+                assigned_to=technician,
+                assignment_origin=Ticket.AssignmentOrigin.AUTO,
+                status=Ticket.Status.WAITING,
+            ),
+            Ticket.objects.create(
+                title="Automático bloqueado",
+                description="No mover.",
+                requester=self.requester,
+                department=self.department,
+                assigned_to=technician,
+                assignment_origin=Ticket.AssignmentOrigin.AUTO,
+                auto_rebalance_locked_at=timezone.now(),
+            ),
+            Ticket.objects.create(
+                title="Manual",
+                description="No mover.",
+                requester=self.requester,
+                department=self.department,
+                assigned_to=technician,
+                assignment_origin=Ticket.AssignmentOrigin.MANUAL,
+            ),
+            Ticket.objects.create(
+                title="Desconocido",
+                description="No mover.",
+                requester=self.requester,
+                department=self.department,
+                assigned_to=technician,
+                assignment_origin=Ticket.AssignmentOrigin.UNKNOWN,
+            ),
+        ]
+        worked = Ticket.objects.create(
+            title="Automático trabajado",
+            description="No mover aunque el bloqueo falte.",
+            requester=self.requester,
+            department=self.department,
+            assigned_to=technician,
+            assignment_origin=Ticket.AssignmentOrigin.AUTO,
+        )
+        TicketComment.objects.create(
+            ticket=worked,
+            author=technician,
+            message="Intervención técnica real.",
+            is_system=False,
+        )
+        protected.append(worked)
+        technician.availability_status = User.AvailabilityStatus.UNAVAILABLE
+        technician.save(update_fields=["availability_status"])
+
+        release_safe_tickets_for_inactive_technician(
+            technician,
+            reason="prueba de política segura",
+        )
+
+        for ticket in protected:
+            ticket.refresh_from_db()
+            self.assertEqual(ticket.assigned_to, technician)
+
+    def test_release_reassigns_safely_logs_and_preserves_reactivation_date(self):
+        previous, recipient, _ = self.technicians
+        self.start_workday(previous)
+        self.start_workday(recipient)
+        requested_at = timezone.now() - timedelta(minutes=10)
+        ticket = self.create_auto_ticket(previous, 1)
+        ticket.reactivation_requested_at = requested_at
+        ticket.save(update_fields=["reactivation_requested_at"])
+        previous.availability_status = User.AvailabilityStatus.UNAVAILABLE
+        previous.save(update_fields=["availability_status"])
+
+        released = release_safe_tickets_for_inactive_technician(
+            previous,
+            reason="el técnico dejó de estar operativo",
+        )
+
+        ticket.refresh_from_db()
+        self.assertEqual(len(released), 1)
+        self.assertEqual(ticket.assigned_to, recipient)
+        self.assertEqual(ticket.assignment_origin, Ticket.AssignmentOrigin.AUTO)
+        self.assertEqual(ticket.reactivation_requested_at, requested_at)
+        self.assertEqual(
+            Ticket.objects.filter(
+                assigned_to=recipient,
+                status__in=[Ticket.Status.OPEN, Ticket.Status.IN_PROGRESS],
+            ).count(),
+            1,
+        )
+        logs = ActivityLog.objects.filter(
+            object_type="Ticket",
+            object_id=str(ticket.pk),
+            action=ActivityLog.ACTION_ASSIGN,
+        )
+        self.assertTrue(logs.filter(description__contains="fue liberado").exists())
+        self.assertTrue(logs.filter(description__contains="fue reasignado").exists())
 
 
 @override_settings(

@@ -31,6 +31,7 @@ from apps.tickets.services import (
     auto_assign_ticket,
     lock_ticket_from_auto_rebalancing,
     rebalance_unworked_auto_assigned_tickets,
+    release_safe_tickets_for_inactive_technician,
     request_waiting_reactivation,
     technician_has_effective_ticket,
 )
@@ -1614,6 +1615,11 @@ def dashboard_view(request):
                 )
                 rebalance_unworked_auto_assigned_tickets(
                     user.department
+                )
+            elif new_status == User.AvailabilityStatus.UNAVAILABLE:
+                release_safe_tickets_for_inactive_technician(
+                    user,
+                    reason="el técnico cambió su disponibilidad a No disponible",
                 )
 
             messages.success(

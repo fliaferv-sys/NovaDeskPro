@@ -316,6 +316,19 @@ def finish_technician_workday(
         ]
     )
 
+    from apps.tickets.services import (
+        release_safe_tickets_for_inactive_technician,
+    )
+
+    release_safe_tickets_for_inactive_technician(
+        technician,
+        reason=(
+            "la jornada finalizó automáticamente"
+            if automatically
+            else "el técnico finalizó manualmente su jornada"
+        ),
+    )
+
     return workday
 
 
@@ -381,6 +394,15 @@ def close_expired_workdays():
             update_fields=[
                 "availability_status",
             ]
+        )
+
+        from apps.tickets.services import (
+            release_safe_tickets_for_inactive_technician,
+        )
+
+        release_safe_tickets_for_inactive_technician(
+            technician,
+            reason="la jornada vencida fue cerrada automáticamente",
         )
 
         closed_count += 1

@@ -174,6 +174,89 @@ def _has_real_technician_intervention(ticket, technician):
 
 
 @transaction.atomic
+def release_safe_tickets_for_inactive_technician(technician, reason):
+    """
+    Libera solo asignaciones automáticas OPEN que nunca fueron trabajadas.
+
+    ``reactivation_requested_at`` se conserva deliberadamente: aunque no es
+    habitual en OPEN, borrarlo eliminaría trazabilidad y solo tiene efecto en
+    la lógica de prioridad cuando el ticket está en WAITING.
+    """
+    if (
+        technician is None
+        or technician.availability_status
+        != User.AvailabilityStatus.UNAVAILABLE
+    ):
+        return []
+
+    candidates = list(
+        Ticket.objects
+        .select_for_update()
+        .filter(
+            assigned_to=technician,
+            assignment_origin=Ticket.AssignmentOrigin.AUTO,
+            auto_rebalance_locked_at__isnull=True,
+            status=Ticket.Status.OPEN,
+        )
+        .select_related("department")
+        .order_by("created_at", "id")
+    )
+    released = []
+    previous_name = technician.get_full_name() or technician.email
+
+    for ticket in candidates:
+        if _has_real_technician_intervention(ticket, technician):
+            continue
+
+        ticket.assigned_to = None
+        ticket.assignment_origin = Ticket.AssignmentOrigin.UNKNOWN
+        ticket.save(update_fields=["assigned_to", "assignment_origin"])
+        ActivityLog.objects.create(
+            user=None,
+            action=ActivityLog.ACTION_ASSIGN,
+            module="Tickets",
+            description=(
+                f"El ticket {ticket.ticket_number} fue liberado "
+                f"automáticamente de {previous_name}. Motivo: {reason}."
+            ),
+            object_type="Ticket",
+            object_id=str(ticket.pk),
+        )
+        released.append(ticket)
+
+    departments = {
+        ticket.department
+        for ticket in released
+        if ticket.department_id is not None
+    }
+    for department in departments:
+        assign_pending_tickets_for_department(department)
+
+    results = []
+    for ticket in released:
+        ticket.refresh_from_db()
+        if ticket.assigned_to_id is not None:
+            new_name = (
+                ticket.assigned_to.get_full_name()
+                or ticket.assigned_to.email
+            )
+            ActivityLog.objects.create(
+                user=None,
+                action=ActivityLog.ACTION_ASSIGN,
+                module="Tickets",
+                description=(
+                    f"El ticket {ticket.ticket_number} fue reasignado "
+                    f"automáticamente a {new_name} después de su liberación."
+                ),
+                object_type="Ticket",
+                object_id=str(ticket.pk),
+            )
+        results.append((ticket, ticket.assigned_to))
+
+    return results
+
+
+@transaction.atomic
 def rebalance_unworked_auto_assigned_tickets(department):
     """Equilibra carga moviendo solo tickets automáticos sin trabajo."""
     if department is None:
