@@ -28,6 +28,8 @@ from apps.core.models import Department, TicketCategory
 from apps.tickets.services import (
     assign_pending_tickets_for_department,
     auto_assign_ticket,
+    lock_ticket_from_auto_rebalancing,
+    rebalance_unworked_auto_assigned_tickets,
 )
 
 from apps.accounts.models import (
@@ -751,6 +753,8 @@ def ticket_detail_view(request, pk):
                 comment.author = request.user
                 comment.save()
 
+                lock_ticket_from_auto_rebalancing(ticket, request.user)
+
                 if inline_attachment_form is not None:
                     attachment = inline_attachment_form.save(commit=False)
                     attachment.ticket = ticket
@@ -879,6 +883,24 @@ def ticket_detail_view(request, pk):
             if assign_form.is_valid():
                 ticket = assign_form.save()
 
+                if old_technician != ticket.assigned_to:
+                    ticket.assignment_origin = (
+                        Ticket.AssignmentOrigin.MANUAL
+                        if ticket.assigned_to_id
+                        else Ticket.AssignmentOrigin.UNKNOWN
+                    )
+                    ticket.save(update_fields=["assignment_origin"])
+
+                if (
+                    old_technician
+                    and request.user.pk == old_technician.pk
+                    and old_status_code != ticket.status
+                ):
+                    lock_ticket_from_auto_rebalancing(
+                        ticket,
+                        request.user,
+                    )
+
 
                 if old_technician != ticket.assigned_to:
                     technician_name = (
@@ -1001,6 +1023,7 @@ def ticket_detail_view(request, pk):
 
                 ticket.department = destination
                 ticket.assigned_to = None
+                ticket.assignment_origin = Ticket.AssignmentOrigin.UNKNOWN
                 ticket.status = Ticket.Status.OPEN
                 ticket.due_date = None
                 ticket.sla_status = None
@@ -1059,6 +1082,8 @@ def ticket_detail_view(request, pk):
                 )
                 attachment.size = uploaded_file.size
                 attachment.save()
+
+                lock_ticket_from_auto_rebalancing(ticket, request.user)
 
                 uploader_name = (
                     f"{request.user.first_name} "
@@ -1312,6 +1337,12 @@ def ticket_update_view(request, pk):
         if form.is_valid():
             ticket = form.save()
 
+            if (
+                request.user.pk == ticket.assigned_to_id
+                and old_status_code != ticket.status
+            ):
+                lock_ticket_from_auto_rebalancing(ticket, request.user)
+
             # ==================================================
             # LIBERAR CUPO Y ATENDER COLA PENDIENTE
             # ==================================================
@@ -1461,6 +1492,9 @@ def dashboard_view(request):
                     user.department,
                     technician=user,
                 )
+                rebalance_unworked_auto_assigned_tickets(
+                    user.department
+                )
                 messages.success(
                     request,
                     (
@@ -1550,6 +1584,9 @@ def dashboard_view(request):
                 assign_pending_tickets_for_department(
                     user.department,
                     technician=user,
+                )
+                rebalance_unworked_auto_assigned_tickets(
+                    user.department
                 )
 
             messages.success(

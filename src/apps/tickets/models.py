@@ -9,6 +9,11 @@ from apps.core.sequences import next_business_number
 
 class Ticket(models.Model):
 
+    class AssignmentOrigin(models.TextChoices):
+        AUTO = "AUTO", "Automática"
+        MANUAL = "MANUAL", "Manual"
+        UNKNOWN = "UNKNOWN", "Desconocida"
+
     class Status(models.TextChoices):
         OPEN = "OPEN", "Abierto"
         IN_PROGRESS = "IN_PROGRESS", "En proceso"
@@ -70,6 +75,19 @@ class Ticket(models.Model):
         blank=True,
         null=True,
         verbose_name="Técnico asignado",
+    )
+
+    assignment_origin = models.CharField(
+        max_length=20,
+        choices=AssignmentOrigin.choices,
+        default=AssignmentOrigin.UNKNOWN,
+        verbose_name="Origen de la asignación",
+    )
+
+    auto_rebalance_locked_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Bloqueo de redistribución automática",
     )
 
     asset = models.ForeignKey(

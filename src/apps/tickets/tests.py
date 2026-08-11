@@ -20,6 +20,8 @@ from .models import (
 from .services import (
     assign_pending_tickets_for_department,
     auto_assign_ticket,
+    lock_ticket_from_auto_rebalancing,
+    rebalance_unworked_auto_assigned_tickets,
 )
 
 
@@ -400,6 +402,10 @@ class TicketAuthorizationTests(TestCase):
         self.ticket.refresh_from_db()
         self.assertEqual(self.ticket.assigned_to, self.technician)
         self.assertEqual(self.ticket.status, Ticket.Status.OPEN)
+        self.assertEqual(
+            self.ticket.assignment_origin,
+            Ticket.AssignmentOrigin.MANUAL,
+        )
 
     def test_model_allows_open_ticket_with_assigned_technician(self):
         self.ticket.assigned_to = self.technician
@@ -411,7 +417,8 @@ class TicketAuthorizationTests(TestCase):
 
     def test_assigned_technician_first_reply_moves_ticket_to_in_progress(self):
         self.ticket.assigned_to = self.technician
-        self.ticket.save(update_fields=["assigned_to"])
+        self.ticket.assignment_origin = Ticket.AssignmentOrigin.AUTO
+        self.ticket.save(update_fields=["assigned_to", "assignment_origin"])
         self.client.force_login(self.technician)
 
         response = self.client.post(
@@ -426,6 +433,7 @@ class TicketAuthorizationTests(TestCase):
         self.ticket.refresh_from_db()
         self.assertEqual(self.ticket.assigned_to, self.technician)
         self.assertEqual(self.ticket.status, Ticket.Status.IN_PROGRESS)
+        self.assertIsNotNone(self.ticket.auto_rebalance_locked_at)
         self.assertTrue(
             self.ticket.comments.filter(
                 is_system=True,
@@ -478,6 +486,10 @@ class TicketAuthorizationTests(TestCase):
         self.ticket.refresh_from_db()
         self.assertEqual(self.ticket.assigned_to, self.technician)
         self.assertEqual(self.ticket.status, Ticket.Status.OPEN)
+        self.assertEqual(
+            self.ticket.assignment_origin,
+            Ticket.AssignmentOrigin.AUTO,
+        )
 
     def test_pending_queue_assigns_oldest_open_ticket_without_changing_status(self):
         now = timezone.now()
@@ -531,6 +543,10 @@ class TicketAuthorizationTests(TestCase):
         self.ticket.refresh_from_db()
         self.assertEqual(self.ticket.department, self.support_department)
         self.assertIsNone(self.ticket.assigned_to)
+        self.assertEqual(
+            self.ticket.assignment_origin,
+            Ticket.AssignmentOrigin.UNKNOWN,
+        )
         self.assertEqual(self.ticket.status, Ticket.Status.OPEN)
         self.assertTrue(
             self.ticket.comments.filter(
@@ -556,6 +572,306 @@ class TicketAuthorizationTests(TestCase):
         ].queryset
         self.assertIn(self.technician, choices)
         self.assertNotIn(self.support_technician, choices)
+
+
+class TicketAutoRebalanceTests(TestCase):
+    def setUp(self):
+        self.department = Department.objects.create(
+            code="REBALANCE",
+            name="Rebalanceo",
+        )
+        self.other_department = Department.objects.create(
+            code="OTHER-REBALANCE",
+            name="Otro departamento",
+        )
+        self.requester = User.objects.create_user(
+            username="rebalance-requester",
+            password="test-password",
+            role=User.Role.CLIENT,
+        )
+        self.technicians = [
+            User.objects.create_user(
+                username=f"rebalance-tech-{index}",
+                email=f"rebalance-tech-{index}@example.com",
+                password="test-password",
+                role=User.Role.TECHNICIAN,
+                department=self.department,
+                approval_status=User.ApprovalStatus.APPROVED,
+                availability_status=User.AvailabilityStatus.AVAILABLE,
+            )
+            for index in range(3)
+        ]
+        now = timezone.now()
+        self.shift = WorkShift.objects.create(
+            name="Turno de rebalanceo",
+            start_time=(now - timedelta(hours=1)).time(),
+            end_time=(now + timedelta(hours=7)).time(),
+        )
+
+    def start_workday(self, technician):
+        now = timezone.now()
+        return TechnicianWorkday.objects.create(
+            technician=technician,
+            date=timezone.localdate(),
+            shift=self.shift,
+            started_at=now,
+            scheduled_end_at=now + timedelta(hours=7),
+        )
+
+    def create_auto_ticket(self, technician, index):
+        return Ticket.objects.create(
+            title=f"Ticket automático {index}",
+            description="Pendiente de trabajo.",
+            requester=self.requester,
+            department=self.department,
+            assigned_to=technician,
+            assignment_origin=Ticket.AssignmentOrigin.AUTO,
+        )
+
+    def test_existing_and_unclassified_tickets_are_not_rebalanceable(self):
+        ticket = Ticket.objects.create(
+            title="Ticket sin procedencia",
+            description="Debe quedar inmóvil.",
+            requester=self.requester,
+            department=self.department,
+            assigned_to=self.technicians[0],
+        )
+
+        self.assertEqual(
+            ticket.assignment_origin,
+            Ticket.AssignmentOrigin.UNKNOWN,
+        )
+
+    def test_rebalances_three_unworked_tickets_as_technicians_arrive(self):
+        donor, second, third = self.technicians
+        self.start_workday(donor)
+        tickets = [self.create_auto_ticket(donor, index) for index in range(3)]
+
+        self.start_workday(second)
+        first_moves = rebalance_unworked_auto_assigned_tickets(
+            self.department
+        )
+        self.assertEqual(len(first_moves), 1)
+        self.assertEqual(
+            sorted(
+                Ticket.objects.filter(
+                    assigned_to=technician,
+                    status__in=[
+                        Ticket.Status.OPEN,
+                        Ticket.Status.IN_PROGRESS,
+                        Ticket.Status.WAITING,
+                    ],
+                ).count()
+                for technician in [donor, second]
+            ),
+            [1, 2],
+        )
+
+        self.start_workday(third)
+        second_moves = rebalance_unworked_auto_assigned_tickets(
+            self.department
+        )
+        self.assertEqual(len(second_moves), 1)
+        self.assertEqual(
+            [
+                Ticket.objects.filter(assigned_to=technician).count()
+                for technician in [donor, second, third]
+            ],
+            [1, 1, 1],
+        )
+        for ticket in tickets:
+            ticket.refresh_from_db()
+            self.assertEqual(
+                ticket.assignment_origin,
+                Ticket.AssignmentOrigin.AUTO,
+            )
+        logs = ActivityLog.objects.filter(
+            object_type="Ticket",
+            action=ActivityLog.ACTION_ASSIGN,
+            description__contains="redistribuido automáticamente",
+        )
+        self.assertEqual(logs.count(), 2)
+        self.assertTrue(
+            all(
+                "rebalance-tech" in log.description
+                for log in logs
+            )
+        )
+
+    def test_locked_ticket_stays_with_original_technician(self):
+        donor, second, third = self.technicians
+        for technician in self.technicians:
+            self.start_workday(technician)
+        locked_ticket = self.create_auto_ticket(donor, 0)
+        locked_ticket.auto_rebalance_locked_at = timezone.now()
+        locked_ticket.save(update_fields=["auto_rebalance_locked_at"])
+        self.create_auto_ticket(donor, 1)
+        self.create_auto_ticket(donor, 2)
+
+        rebalance_unworked_auto_assigned_tickets(self.department)
+
+        locked_ticket.refresh_from_db()
+        self.assertEqual(locked_ticket.assigned_to, donor)
+        self.assertEqual(
+            [
+                Ticket.objects.filter(assigned_to=technician).count()
+                for technician in [donor, second, third]
+            ],
+            [1, 1, 1],
+        )
+
+    def test_real_comment_prevents_moving_ticket_even_without_lock_field(self):
+        donor, recipient, _ = self.technicians
+        self.start_workday(donor)
+        self.start_workday(recipient)
+        protected = self.create_auto_ticket(donor, 0)
+        TicketComment.objects.create(
+            ticket=protected,
+            author=donor,
+            message="Trabajo realizado.",
+            is_system=False,
+        )
+        manual = Ticket.objects.create(
+            title="Asignación manual",
+            description="No se mueve.",
+            requester=self.requester,
+            department=self.department,
+            assigned_to=donor,
+            assignment_origin=Ticket.AssignmentOrigin.MANUAL,
+        )
+        unknown = Ticket.objects.create(
+            title="Asignación desconocida",
+            description="No se mueve.",
+            requester=self.requester,
+            department=self.department,
+            assigned_to=donor,
+        )
+
+        moved = rebalance_unworked_auto_assigned_tickets(self.department)
+
+        self.assertEqual(moved, [])
+        for ticket in [protected, manual, unknown]:
+            ticket.refresh_from_db()
+            self.assertEqual(ticket.assigned_to, donor)
+
+    def test_lock_is_irreversible_across_future_auto_assignment(self):
+        technician = self.technicians[0]
+        self.start_workday(technician)
+        ticket = self.create_auto_ticket(technician, 0)
+
+        self.assertTrue(
+            lock_ticket_from_auto_rebalancing(ticket, technician)
+        )
+        locked_at = ticket.auto_rebalance_locked_at
+        ticket.assigned_to = None
+        ticket.assignment_origin = Ticket.AssignmentOrigin.UNKNOWN
+        ticket.save(update_fields=["assigned_to", "assignment_origin"])
+
+        auto_assign_ticket(ticket, technician=technician)
+        ticket.refresh_from_db()
+
+        self.assertEqual(ticket.assignment_origin, Ticket.AssignmentOrigin.AUTO)
+        self.assertEqual(ticket.auto_rebalance_locked_at, locked_at)
+
+    @override_settings(
+        STORAGES={
+            "default": {
+                "BACKEND": "django.core.files.storage.InMemoryStorage",
+            },
+            "staticfiles": {
+                "BACKEND": (
+                    "django.contrib.staticfiles.storage.StaticFilesStorage"
+                ),
+            },
+        }
+    )
+    def test_assigned_technician_attachment_locks_auto_rebalance(self):
+        technician = self.technicians[0]
+        ticket = self.create_auto_ticket(technician, 0)
+        self.client.force_login(technician)
+
+        response = self.client.post(
+            reverse("tickets:ticket_detail", args=[ticket.pk]),
+            {
+                "form_type": "attachment",
+                "file": SimpleUploadedFile(
+                    "evidence.txt",
+                    b"technical evidence",
+                    content_type="text/plain",
+                ),
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        ticket.refresh_from_db()
+        self.assertIsNotNone(ticket.auto_rebalance_locked_at)
+
+    def test_assigned_technician_status_change_locks_auto_rebalance(self):
+        technician = self.technicians[0]
+        ticket = self.create_auto_ticket(technician, 0)
+        self.client.force_login(technician)
+
+        response = self.client.post(
+            reverse("tickets:ticket_detail", args=[ticket.pk]),
+            {
+                "form_type": "assign",
+                "assigned_to": str(technician.pk),
+                "status": Ticket.Status.WAITING,
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.status, Ticket.Status.WAITING)
+        self.assertIsNotNone(ticket.auto_rebalance_locked_at)
+        self.assertEqual(
+            ticket.assignment_origin,
+            Ticket.AssignmentOrigin.AUTO,
+        )
+
+    def test_changing_to_available_triggers_rebalance(self):
+        donor, arriving, _ = self.technicians
+        self.start_workday(donor)
+        self.start_workday(arriving)
+        arriving.availability_status = User.AvailabilityStatus.UNAVAILABLE
+        arriving.save(update_fields=["availability_status"])
+        for index in range(3):
+            self.create_auto_ticket(donor, index)
+        self.client.force_login(arriving)
+
+        response = self.client.post(
+            reverse("tickets:dashboard"),
+            {
+                "form_type": "availability",
+                "availability_status": User.AvailabilityStatus.AVAILABLE,
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            Ticket.objects.filter(assigned_to=arriving).count(),
+            1,
+        )
+
+    def test_successful_workday_start_triggers_rebalance(self):
+        donor, arriving, _ = self.technicians
+        self.start_workday(donor)
+        arriving.availability_status = User.AvailabilityStatus.UNAVAILABLE
+        arriving.save(update_fields=["availability_status"])
+        for index in range(3):
+            self.create_auto_ticket(donor, index)
+        self.client.force_login(arriving)
+
+        response = self.client.post(
+            reverse("tickets:dashboard"),
+            {"form_type": "start_workday"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            Ticket.objects.filter(assigned_to=arriving).count(),
+            1,
+        )
 
 
 @override_settings(
