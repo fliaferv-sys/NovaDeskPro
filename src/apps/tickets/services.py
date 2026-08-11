@@ -14,12 +14,11 @@ from apps.tickets.models import Ticket
 # CONFIGURACIÓN DE AUTOASIGNACIÓN
 # ==========================================================
 
-MAX_ACTIVE_TICKETS_PER_TECHNICIAN = 3
+MAX_ACTIVE_TICKETS_PER_TECHNICIAN = 1
 
 ACTIVE_TICKET_STATUSES = [
     Ticket.Status.OPEN,
     Ticket.Status.IN_PROGRESS,
-    Ticket.Status.WAITING,
 ]
 
 
@@ -28,10 +27,12 @@ ACTIVE_TICKET_STATUSES = [
 # ==========================================================
 
 def _eligible_technicians(department):
+    now = timezone.now()
     active_workday = TechnicianWorkday.objects.filter(
         technician_id=OuterRef("pk"),
         status=TechnicianWorkday.Status.ACTIVE,
         ended_at__isnull=True,
+        scheduled_end_at__gt=now,
     )
     return (
         User.objects
@@ -53,6 +54,24 @@ def _active_ticket_count(technician):
     ).count()
 
 
+def _has_pending_reactivation(technician):
+    return Ticket.objects.filter(
+        assigned_to=technician,
+        status=Ticket.Status.WAITING,
+        reactivation_requested_at__isnull=False,
+    ).exists()
+
+
+def technician_has_effective_ticket(technician, exclude_ticket=None):
+    tickets = Ticket.objects.filter(
+        assigned_to=technician,
+        status__in=ACTIVE_TICKET_STATUSES,
+    )
+    if exclude_ticket is not None:
+        tickets = tickets.exclude(pk=exclude_ticket.pk)
+    return tickets.exists()
+
+
 @transaction.atomic
 def auto_assign_ticket(ticket, technician=None):
     """
@@ -64,7 +83,7 @@ def auto_assign_ticket(ticket, technician=None):
     2. Usuario activo y aprobado.
     3. Estado Disponible.
     4. Jornada laboral activa.
-    5. Menos de 3 tickets activos.
+    5. Ningún ticket efectivo OPEN o IN_PROGRESS.
 
     Criterios de selección:
     1. Menor cantidad de tickets activos.
@@ -72,7 +91,7 @@ def auto_assign_ticket(ticket, technician=None):
        una asignación automática.
     3. ID como último criterio estable.
 
-    Si todos los técnicos llegaron a 3 tickets activos,
+    Si todos los técnicos ocuparon su único cupo efectivo,
     el ticket queda abierto y sin asignar.
     """
 
@@ -88,7 +107,10 @@ def auto_assign_ticket(ticket, technician=None):
     candidates = []
     for candidate in locked_technicians:
         active_count = _active_ticket_count(candidate)
-        if active_count < MAX_ACTIVE_TICKETS_PER_TECHNICIAN:
+        if (
+            active_count < MAX_ACTIVE_TICKETS_PER_TECHNICIAN
+            and not _has_pending_reactivation(candidate)
+        ):
             candidates.append((active_count, candidate))
 
     candidates.sort(
@@ -183,8 +205,14 @@ def rebalance_unworked_auto_assigned_tickets(department):
     moved = []
 
     while max(loads.values()) - min(loads.values()) > 1:
+        recipient_ids = [
+            pk for pk in loads
+            if not _has_pending_reactivation(technicians_by_id[pk])
+        ]
+        if not recipient_ids:
+            break
         recipient_id = min(
-            loads,
+            recipient_ids,
             key=lambda pk: (loads[pk], str(pk)),
         )
         recipient = technicians_by_id[recipient_id]
@@ -269,6 +297,75 @@ def rebalance_unworked_auto_assigned_tickets(department):
     return moved
 
 
+@transaction.atomic
+def request_waiting_reactivation(ticket):
+    """Registra una solicitud sin alterar la prioridad original."""
+    if ticket.status != Ticket.Status.WAITING or not ticket.assigned_to_id:
+        return False
+
+    requested_at = timezone.now()
+    updated = Ticket.objects.filter(
+        pk=ticket.pk,
+        status=Ticket.Status.WAITING,
+        assigned_to_id=ticket.assigned_to_id,
+        reactivation_requested_at__isnull=True,
+    ).update(reactivation_requested_at=requested_at)
+    if updated:
+        ticket.reactivation_requested_at = requested_at
+    return bool(updated)
+
+
+@transaction.atomic
+def assign_next_ticket_for_technician(department, technician):
+    """
+    Ocupa un cupo libre priorizando la reactivación WAITING más antigua.
+
+    Solo cuando no hay una reactivación solicitada asigna el ticket OPEN
+    sin técnico más antiguo del departamento.
+    """
+    if department is None or technician is None:
+        return None
+
+    locked_technician = (
+        _eligible_technicians(department)
+        .select_for_update()
+        .filter(pk=technician.pk)
+        .first()
+    )
+    if (
+        locked_technician is None
+        or _active_ticket_count(locked_technician)
+        >= MAX_ACTIVE_TICKETS_PER_TECHNICIAN
+    ):
+        return None
+
+    waiting_ticket = (
+        Ticket.objects
+        .select_for_update()
+        .filter(
+            assigned_to=locked_technician,
+            department=department,
+            status=Ticket.Status.WAITING,
+            reactivation_requested_at__isnull=False,
+        )
+        .order_by("reactivation_requested_at", "created_at", "id")
+        .first()
+    )
+    if waiting_ticket is not None:
+        waiting_ticket.status = Ticket.Status.OPEN
+        waiting_ticket.reactivation_requested_at = None
+        waiting_ticket.save(
+            update_fields=["status", "reactivation_requested_at", "updated_at"]
+        )
+        return waiting_ticket
+
+    assigned = assign_pending_tickets_for_department(
+        department,
+        technician=locked_technician,
+    )
+    return assigned[0][0] if assigned else None
+
+
 # ==========================================================
 # ASIGNAR TICKETS PENDIENTES CUANDO SE LIBERA UN CUPO
 # ==========================================================
@@ -283,7 +380,7 @@ def assign_pending_tickets_for_department(department, technician=None):
     - un ticket pendiente;
     - y algún técnico con capacidad disponible.
 
-    Cuando todos los técnicos llegan a 3 tickets activos,
+    Cuando todos los técnicos ocupan su único cupo efectivo,
     los tickets restantes continúan sin asignar.
     """
 
@@ -317,7 +414,7 @@ def assign_pending_tickets_for_department(department, technician=None):
 
         if assigned_technician is None:
             # Todos los técnicos están sin jornada,
-            # no disponibles o alcanzaron 3/3.
+            # no disponibles o ya ocuparon su único cupo.
             break
 
         assigned_tickets.append(

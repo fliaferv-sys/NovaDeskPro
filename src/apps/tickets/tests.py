@@ -447,7 +447,7 @@ class TicketAuthorizationTests(TestCase):
             ).exists()
         )
 
-    def test_auto_assignment_keeps_ticket_open_and_respects_three_ticket_cap(self):
+    def test_auto_assignment_keeps_ticket_open_and_respects_one_ticket_cap(self):
         now = timezone.now()
         shift = WorkShift.objects.create(
             name="Turno de prueba",
@@ -462,23 +462,19 @@ class TicketAuthorizationTests(TestCase):
             scheduled_end_at=now + timedelta(hours=7),
         )
 
-        for index in range(3):
-            Ticket.objects.create(
-                title=f"Ticket activo {index}",
-                description="Carga activa.",
-                requester=self.owner,
-                department=self.systems_department,
-                assigned_to=self.technician,
-            )
+        active_ticket = Ticket.objects.create(
+            title="Ticket activo",
+            description="Carga efectiva.",
+            requester=self.owner,
+            department=self.systems_department,
+            assigned_to=self.technician,
+        )
 
         self.assertIsNone(auto_assign_ticket(self.ticket))
         self.ticket.refresh_from_db()
         self.assertIsNone(self.ticket.assigned_to)
         self.assertEqual(self.ticket.status, Ticket.Status.OPEN)
 
-        active_ticket = Ticket.objects.filter(
-            assigned_to=self.technician,
-        ).first()
         active_ticket.status = Ticket.Status.RESOLVED
         active_ticket.save(update_fields=["status"])
 
@@ -522,8 +518,8 @@ class TicketAuthorizationTests(TestCase):
         self.assertEqual(assigned[0][0], self.ticket)
         self.assertEqual(self.ticket.assigned_to, self.technician)
         self.assertEqual(self.ticket.status, Ticket.Status.OPEN)
-        self.assertEqual(newer_ticket.assigned_to, self.technician)
         self.assertEqual(newer_ticket.status, Ticket.Status.OPEN)
+        self.assertIsNone(newer_ticket.assigned_to)
 
     def test_manager_can_transfer_ticket_to_another_department(self):
         self.ticket.assigned_to = self.technician
@@ -872,6 +868,417 @@ class TicketAutoRebalanceTests(TestCase):
             Ticket.objects.filter(assigned_to=arriving).count(),
             1,
         )
+
+    def test_only_open_and_in_progress_consume_capacity(self):
+        technician = self.technicians[0]
+        self.start_workday(technician)
+
+        for status, occupies_capacity in [
+            (Ticket.Status.OPEN, True),
+            (Ticket.Status.IN_PROGRESS, True),
+            (Ticket.Status.WAITING, False),
+            (Ticket.Status.RESOLVED, False),
+            (Ticket.Status.CLOSED, False),
+        ]:
+            with self.subTest(status=status):
+                Ticket.objects.all().delete()
+                Ticket.objects.create(
+                    title=f"Carga {status}",
+                    description="Prueba de capacidad.",
+                    requester=self.requester,
+                    department=self.department,
+                    assigned_to=technician,
+                    status=status,
+                )
+                pending = Ticket.objects.create(
+                    title=f"Pendiente {status}",
+                    description="Debe respetar el cupo.",
+                    requester=self.requester,
+                    department=self.department,
+                )
+
+                assigned = auto_assign_ticket(
+                    pending,
+                    technician=technician,
+                )
+
+                if occupies_capacity:
+                    self.assertIsNone(assigned)
+                else:
+                    self.assertEqual(assigned, technician)
+
+    def test_all_technicians_occupied_leaves_new_ticket_in_queue(self):
+        for index, technician in enumerate(self.technicians):
+            self.start_workday(technician)
+            self.create_auto_ticket(technician, index)
+        pending = Ticket.objects.create(
+            title="Queda en cola",
+            description="Todos tienen un ticket efectivo.",
+            requester=self.requester,
+            department=self.department,
+        )
+
+        self.assertIsNone(auto_assign_ticket(pending))
+        pending.refresh_from_db()
+        self.assertIsNone(pending.assigned_to)
+        self.assertEqual(pending.status, Ticket.Status.OPEN)
+
+    def test_manual_effective_ticket_blocks_auto_but_manual_can_exceed(self):
+        technician = self.technicians[0]
+        self.start_workday(technician)
+        first = Ticket.objects.create(
+            title="Manual uno",
+            description="Ocupa capacidad automática.",
+            requester=self.requester,
+            department=self.department,
+            assigned_to=technician,
+            assignment_origin=Ticket.AssignmentOrigin.MANUAL,
+        )
+        pending = Ticket.objects.create(
+            title="Pendiente automático",
+            description="No debe asignarse.",
+            requester=self.requester,
+            department=self.department,
+        )
+
+        self.assertIsNone(auto_assign_ticket(pending, technician=technician))
+
+        manager = User.objects.create_user(
+            username="rebalance-manager",
+            email="rebalance-manager@example.com",
+            password="test-password",
+            role=User.Role.SUPERVISOR,
+            department=self.department,
+        )
+        self.client.force_login(manager)
+        response = self.client.post(
+            reverse("tickets:ticket_detail", args=[pending.pk]),
+            {
+                "form_type": "assign",
+                "assigned_to": str(technician.pk),
+                "status": Ticket.Status.OPEN,
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        pending.refresh_from_db()
+        self.assertEqual(pending.assigned_to, technician)
+        self.assertEqual(
+            pending.assignment_origin,
+            Ticket.AssignmentOrigin.MANUAL,
+        )
+        self.assertEqual(
+            Ticket.objects.filter(
+                assigned_to=technician,
+                status__in=[Ticket.Status.OPEN, Ticket.Status.IN_PROGRESS],
+            ).count(),
+            2,
+        )
+        self.assertEqual(first.assigned_to, technician)
+
+    def test_expired_active_workday_is_not_eligible(self):
+        technician = self.technicians[0]
+        now = timezone.now()
+        TechnicianWorkday.objects.create(
+            technician=technician,
+            date=timezone.localdate(),
+            shift=self.shift,
+            started_at=now - timedelta(hours=9),
+            scheduled_end_at=now - timedelta(hours=1),
+        )
+        pending = Ticket.objects.create(
+            title="Fuera de horario",
+            description="No debe asignarse.",
+            requester=self.requester,
+            department=self.department,
+        )
+
+        self.assertIsNone(auto_assign_ticket(pending, technician=technician))
+
+    def test_waiting_reactivation_is_deferred_when_capacity_is_occupied(self):
+        technician = self.technicians[0]
+        self.start_workday(technician)
+        effective = self.create_auto_ticket(technician, 0)
+        waiting = Ticket.objects.create(
+            title="Debe reactivarse",
+            description="Ya estaba siendo atendido.",
+            requester=self.requester,
+            department=self.department,
+            assigned_to=technician,
+            assignment_origin=Ticket.AssignmentOrigin.AUTO,
+            status=Ticket.Status.WAITING,
+        )
+        manager = User.objects.create_user(
+            username="waiting-manager",
+            email="waiting-manager@example.com",
+            password="test-password",
+            role=User.Role.SUPERVISOR,
+            department=self.department,
+        )
+        self.client.force_login(manager)
+
+        response = self.client.post(
+            reverse("tickets:ticket_detail", args=[waiting.pk]),
+            {
+                "form_type": "assign",
+                "assigned_to": str(technician.pk),
+                "status": Ticket.Status.IN_PROGRESS,
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        waiting.refresh_from_db()
+        self.assertEqual(waiting.status, Ticket.Status.WAITING)
+        self.assertIsNotNone(waiting.reactivation_requested_at)
+        self.assertContains(response, "pendiente de reactivación")
+        self.assertEqual(effective.assigned_to, technician)
+
+    def test_waiting_reactivation_succeeds_and_clears_request_when_free(self):
+        technician = self.technicians[0]
+        self.start_workday(technician)
+        waiting = Ticket.objects.create(
+            title="Reactivación disponible",
+            description="El técnico tiene capacidad.",
+            requester=self.requester,
+            department=self.department,
+            assigned_to=technician,
+            status=Ticket.Status.WAITING,
+            reactivation_requested_at=timezone.now(),
+        )
+        manager = User.objects.create_user(
+            username="free-waiting-manager",
+            email="free-waiting-manager@example.com",
+            password="test-password",
+            role=User.Role.SUPERVISOR,
+            department=self.department,
+        )
+        self.client.force_login(manager)
+
+        response = self.client.post(
+            reverse("tickets:ticket_detail", args=[waiting.pk]),
+            {
+                "form_type": "assign",
+                "assigned_to": str(technician.pk),
+                "status": Ticket.Status.OPEN,
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        waiting.refresh_from_db()
+        self.assertEqual(waiting.status, Ticket.Status.OPEN)
+        self.assertIsNone(waiting.reactivation_requested_at)
+
+    def test_requested_waiting_has_priority_when_capacity_is_released(self):
+        technician = self.technicians[0]
+        self.start_workday(technician)
+        effective = self.create_auto_ticket(technician, 0)
+        requested_at = timezone.now() - timedelta(minutes=5)
+        waiting = Ticket.objects.create(
+            title="Esperando reactivación",
+            description="Debe tener prioridad.",
+            requester=self.requester,
+            department=self.department,
+            assigned_to=technician,
+            assignment_origin=Ticket.AssignmentOrigin.AUTO,
+            status=Ticket.Status.WAITING,
+            reactivation_requested_at=requested_at,
+        )
+        later_waiting = Ticket.objects.create(
+            title="Reactivación posterior",
+            description="Debe conservar la segunda prioridad.",
+            requester=self.requester,
+            department=self.department,
+            assigned_to=technician,
+            status=Ticket.Status.WAITING,
+            reactivation_requested_at=timezone.now(),
+        )
+        queued = Ticket.objects.create(
+            title="Ticket nuevo en cola",
+            description="Debe esperar al WAITING.",
+            requester=self.requester,
+            department=self.department,
+        )
+        manager = User.objects.create_user(
+            username="priority-manager",
+            email="priority-manager@example.com",
+            password="test-password",
+            role=User.Role.SUPERVISOR,
+            department=self.department,
+        )
+        self.client.force_login(manager)
+
+        response = self.client.post(
+            reverse("tickets:ticket_detail", args=[effective.pk]),
+            {
+                "form_type": "assign",
+                "assigned_to": str(technician.pk),
+                "status": Ticket.Status.WAITING,
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        waiting.refresh_from_db()
+        later_waiting.refresh_from_db()
+        queued.refresh_from_db()
+        effective.refresh_from_db()
+        self.assertEqual(effective.status, Ticket.Status.WAITING)
+        self.assertEqual(waiting.status, Ticket.Status.OPEN)
+        self.assertIsNone(waiting.reactivation_requested_at)
+        self.assertEqual(later_waiting.status, Ticket.Status.WAITING)
+        self.assertIsNotNone(later_waiting.reactivation_requested_at)
+        self.assertIsNone(queued.assigned_to)
+
+    def test_waiting_without_request_is_not_reactivated_before_queue(self):
+        technician = self.technicians[0]
+        self.start_workday(technician)
+        effective = self.create_auto_ticket(technician, 0)
+        waiting = Ticket.objects.create(
+            title="Espera sin solicitud",
+            description="Debe seguir esperando.",
+            requester=self.requester,
+            department=self.department,
+            assigned_to=technician,
+            status=Ticket.Status.WAITING,
+        )
+        queued = Ticket.objects.create(
+            title="Cola válida",
+            description="Debe ocupar el cupo.",
+            requester=self.requester,
+            department=self.department,
+        )
+        manager = User.objects.create_user(
+            username="queue-manager",
+            email="queue-manager@example.com",
+            password="test-password",
+            role=User.Role.SUPERVISOR,
+            department=self.department,
+        )
+        self.client.force_login(manager)
+
+        self.client.post(
+            reverse("tickets:ticket_detail", args=[effective.pk]),
+            {
+                "form_type": "assign",
+                "assigned_to": str(technician.pk),
+                "status": Ticket.Status.RESOLVED,
+            },
+        )
+
+        waiting.refresh_from_db()
+        queued.refresh_from_db()
+        self.assertEqual(waiting.status, Ticket.Status.WAITING)
+        self.assertEqual(queued.assigned_to, technician)
+
+    def test_in_progress_to_waiting_releases_capacity_to_oldest_queue(self):
+        technician = self.technicians[0]
+        self.start_workday(technician)
+        effective = self.create_auto_ticket(technician, 0)
+        effective.status = Ticket.Status.IN_PROGRESS
+        effective.save(update_fields=["status"])
+        oldest = Ticket.objects.create(
+            title="Más antiguo",
+            description="Primero en cola.",
+            requester=self.requester,
+            department=self.department,
+        )
+        newer = Ticket.objects.create(
+            title="Más nuevo",
+            description="Segundo en cola.",
+            requester=self.requester,
+            department=self.department,
+        )
+        manager = User.objects.create_user(
+            username="release-manager",
+            email="release-manager@example.com",
+            password="test-password",
+            role=User.Role.SUPERVISOR,
+            department=self.department,
+        )
+        self.client.force_login(manager)
+
+        self.client.post(
+            reverse("tickets:ticket_detail", args=[effective.pk]),
+            {
+                "form_type": "assign",
+                "assigned_to": str(technician.pk),
+                "status": Ticket.Status.WAITING,
+            },
+        )
+
+        oldest.refresh_from_db()
+        newer.refresh_from_db()
+        self.assertEqual(oldest.assigned_to, technician)
+        self.assertIsNone(newer.assigned_to)
+
+    def test_non_eligible_technician_does_not_receive_after_release(self):
+        technician = self.technicians[0]
+        self.start_workday(technician)
+        effective = self.create_auto_ticket(technician, 0)
+        queued = Ticket.objects.create(
+            title="Sigue en cola",
+            description="El técnico está no disponible.",
+            requester=self.requester,
+            department=self.department,
+        )
+        technician.availability_status = User.AvailabilityStatus.UNAVAILABLE
+        technician.save(update_fields=["availability_status"])
+        manager = User.objects.create_user(
+            username="unavailable-manager",
+            email="unavailable-manager@example.com",
+            password="test-password",
+            role=User.Role.SUPERVISOR,
+            department=self.department,
+        )
+        self.client.force_login(manager)
+
+        self.client.post(
+            reverse("tickets:ticket_detail", args=[effective.pk]),
+            {
+                "form_type": "assign",
+                "assigned_to": str(technician.pk),
+                "status": Ticket.Status.CLOSED,
+            },
+        )
+
+        queued.refresh_from_db()
+        self.assertIsNone(queued.assigned_to)
+
+    def test_resolved_and_closed_release_capacity(self):
+        technician = self.technicians[0]
+        self.start_workday(technician)
+        manager = User.objects.create_user(
+            username="terminal-manager",
+            email="terminal-manager@example.com",
+            password="test-password",
+            role=User.Role.SUPERVISOR,
+            department=self.department,
+        )
+        self.client.force_login(manager)
+
+        for status in [Ticket.Status.RESOLVED, Ticket.Status.CLOSED]:
+            with self.subTest(status=status):
+                Ticket.objects.all().delete()
+                effective = self.create_auto_ticket(technician, status)
+                queued = Ticket.objects.create(
+                    title=f"Cola después de {status}",
+                    description="Debe ocupar el cupo liberado.",
+                    requester=self.requester,
+                    department=self.department,
+                )
+
+                response = self.client.post(
+                    reverse("tickets:ticket_detail", args=[effective.pk]),
+                    {
+                        "form_type": "assign",
+                        "assigned_to": str(technician.pk),
+                        "status": status,
+                    },
+                )
+
+                self.assertEqual(response.status_code, 302)
+                queued.refresh_from_db()
+                self.assertEqual(queued.assigned_to, technician)
 
 
 @override_settings(

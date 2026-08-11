@@ -90,6 +90,12 @@ class Ticket(models.Model):
         verbose_name="Bloqueo de redistribución automática",
     )
 
+    reactivation_requested_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Solicitud de reactivación",
+    )
+
     asset = models.ForeignKey(
         "inventory.Asset",
         on_delete=models.SET_NULL,

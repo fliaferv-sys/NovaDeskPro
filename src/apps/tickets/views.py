@@ -26,10 +26,13 @@ from apps.notifications.services import create_or_update_notification
 
 from apps.core.models import Department, TicketCategory
 from apps.tickets.services import (
-    assign_pending_tickets_for_department,
+    ACTIVE_TICKET_STATUSES,
+    assign_next_ticket_for_technician,
     auto_assign_ticket,
     lock_ticket_from_auto_rebalancing,
     rebalance_unworked_auto_assigned_tickets,
+    request_waiting_reactivation,
+    technician_has_effective_ticket,
 )
 
 from apps.accounts.models import (
@@ -881,6 +884,35 @@ def ticket_detail_view(request, pk):
             )
 
             if assign_form.is_valid():
+                requested_technician = assign_form.cleaned_data["assigned_to"]
+                requested_status = assign_form.cleaned_data["status"]
+
+                if (
+                    old_status_code == Ticket.Status.WAITING
+                    and requested_status in ACTIVE_TICKET_STATUSES
+                    and old_technician == requested_technician
+                    and old_technician is not None
+                    and technician_has_effective_ticket(
+                        old_technician,
+                        exclude_ticket=ticket,
+                    )
+                ):
+                    ticket.refresh_from_db()
+                    request_waiting_reactivation(ticket)
+                    messages.warning(
+                        request,
+                        (
+                            "El técnico ya tiene otro ticket en atención. "
+                            "Este ticket permanecerá en espera y quedó "
+                            "pendiente de reactivación hasta que se libere "
+                            "capacidad."
+                        ),
+                    )
+                    return redirect(
+                        "tickets:ticket_detail",
+                        pk=ticket.pk,
+                    )
+
                 ticket = assign_form.save()
 
                 if old_technician != ticket.assigned_to:
@@ -889,7 +921,17 @@ def ticket_detail_view(request, pk):
                         if ticket.assigned_to_id
                         else Ticket.AssignmentOrigin.UNKNOWN
                     )
-                    ticket.save(update_fields=["assignment_origin"])
+                    ticket.reactivation_requested_at = None
+                    ticket.save(
+                        update_fields=[
+                            "assignment_origin",
+                            "reactivation_requested_at",
+                        ]
+                    )
+
+                elif old_status_code != ticket.status:
+                    ticket.reactivation_requested_at = None
+                    ticket.save(update_fields=["reactivation_requested_at"])
 
                 if (
                     old_technician
@@ -982,18 +1024,17 @@ def ticket_detail_view(request, pk):
                     # ==================================================
 
                 if (
-                    old_status_code in [
-                        Ticket.Status.OPEN,
-                        Ticket.Status.IN_PROGRESS,
-                        Ticket.Status.WAITING,
-                    ]
+                    old_status_code in ACTIVE_TICKET_STATUSES
                     and ticket.status in [
+                        Ticket.Status.WAITING,
                         Ticket.Status.RESOLVED,
                         Ticket.Status.CLOSED,
                     ]
+                    and old_technician is not None
                 ):
-                    assign_pending_tickets_for_department(
-                        ticket.department
+                    assign_next_ticket_for_technician(
+                        ticket.department,
+                        old_technician,
                     )
 
                 return redirect("tickets:ticket_detail", pk=ticket.pk)
@@ -1024,6 +1065,7 @@ def ticket_detail_view(request, pk):
                 ticket.department = destination
                 ticket.assigned_to = None
                 ticket.assignment_origin = Ticket.AssignmentOrigin.UNKNOWN
+                ticket.reactivation_requested_at = None
                 ticket.status = Ticket.Status.OPEN
                 ticket.due_date = None
                 ticket.sla_status = None
@@ -1347,21 +1389,6 @@ def ticket_update_view(request, pk):
             # LIBERAR CUPO Y ATENDER COLA PENDIENTE
             # ==================================================
 
-            if (
-                old_status_code in [
-                    Ticket.Status.OPEN,
-                    Ticket.Status.IN_PROGRESS,
-                    Ticket.Status.WAITING,
-                ]
-                and ticket.status in [
-                    Ticket.Status.RESOLVED,
-                    Ticket.Status.CLOSED,
-                ]
-            ):
-                assign_pending_tickets_for_department(
-                    ticket.department
-                )
-
             register_activity(
                 request=request,
                 action=ActivityLog.ACTION_UPDATE,
@@ -1488,9 +1515,9 @@ def dashboard_view(request):
             workday, created = start_technician_workday(user)
 
             if created:
-                assign_pending_tickets_for_department(
+                assign_next_ticket_for_technician(
                     user.department,
-                    technician=user,
+                    user,
                 )
                 rebalance_unworked_auto_assigned_tickets(
                     user.department
@@ -1581,9 +1608,9 @@ def dashboard_view(request):
             user.save(update_fields=["availability_status"])
 
             if new_status == User.AvailabilityStatus.AVAILABLE:
-                assign_pending_tickets_for_department(
+                assign_next_ticket_for_technician(
                     user.department,
-                    technician=user,
+                    user,
                 )
                 rebalance_unworked_auto_assigned_tickets(
                     user.department
