@@ -1,15 +1,246 @@
+import json
+from types import SimpleNamespace
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
-from django.test import RequestFactory, TestCase
+from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
+from pywebpush import WebPushException
 
 from apps.notifications.context_processors import notification_context
-from apps.notifications.models import Notification
-from apps.notifications.services import create_or_update_notification
+from apps.notifications.models import Notification, PushSubscription
+from apps.notifications.services import (
+    create_or_update_notification,
+    send_web_push_to_user,
+)
 
 
 User = get_user_model()
+
+
+class PushSubscriptionViewTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="push-user",
+            email="push-user@example.test",
+            password="ClaveSegura123",
+        )
+        self.other_user = User.objects.create_user(
+            username="other-push-user",
+            email="other-push-user@example.test",
+            password="ClaveSegura123",
+        )
+        self.url = reverse("notifications:push_subscribe")
+        self.payload = {
+            "endpoint": "https://push.example.test/subscription-1",
+            "keys": {
+                "p256dh": "public-key",
+                "auth": "auth-secret",
+            },
+        }
+
+    def post_payload(self, payload):
+        return self.client.post(
+            self.url,
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+    def test_requires_authentication(self):
+        response = self.post_payload(self.payload)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(PushSubscription.objects.count(), 0)
+
+    def test_valid_post_creates_subscription_for_authenticated_user(self):
+        self.client.force_login(self.user)
+
+        response = self.post_payload(self.payload)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["ok"])
+        subscription = PushSubscription.objects.get()
+        self.assertEqual(subscription.user, self.user)
+        self.assertEqual(subscription.endpoint, self.payload["endpoint"])
+        self.assertEqual(subscription.p256dh, "public-key")
+        self.assertEqual(subscription.auth, "auth-secret")
+        self.assertTrue(subscription.is_active)
+
+    def test_endpoint_is_required(self):
+        self.client.force_login(self.user)
+        payload = {**self.payload, "endpoint": ""}
+
+        response = self.post_payload(payload)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(PushSubscription.objects.count(), 0)
+
+    def test_p256dh_is_required(self):
+        self.client.force_login(self.user)
+        payload = {
+            **self.payload,
+            "keys": {"p256dh": "", "auth": "auth-secret"},
+        }
+
+        response = self.post_payload(payload)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(PushSubscription.objects.count(), 0)
+
+    def test_auth_key_is_required(self):
+        self.client.force_login(self.user)
+        payload = {
+            **self.payload,
+            "keys": {"p256dh": "public-key", "auth": ""},
+        }
+
+        response = self.post_payload(payload)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(PushSubscription.objects.count(), 0)
+
+    def test_existing_subscription_is_updated_and_associated_to_current_user(self):
+        subscription = PushSubscription.objects.create(
+            user=self.other_user,
+            endpoint=self.payload["endpoint"],
+            p256dh="old-public-key",
+            auth="old-auth-secret",
+            is_active=False,
+        )
+        self.client.force_login(self.user)
+
+        response = self.post_payload(self.payload)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["created"])
+        subscription.refresh_from_db()
+        self.assertEqual(subscription.user, self.user)
+        self.assertEqual(subscription.p256dh, "public-key")
+        self.assertEqual(subscription.auth, "auth-secret")
+        self.assertTrue(subscription.is_active)
+
+
+@override_settings(
+    WEBPUSH_VAPID_PUBLIC_KEY="test-public-key",
+    WEBPUSH_VAPID_PRIVATE_KEY="test-private-key",
+    WEBPUSH_VAPID_SUBJECT="mailto:push-test@example.test",
+)
+class WebPushServiceTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="webpush-user",
+            email="webpush-user@example.test",
+            password="ClaveSegura123",
+        )
+
+    def create_subscription(self, suffix="1"):
+        return PushSubscription.objects.create(
+            user=self.user,
+            endpoint=f"https://push.example.test/{suffix}",
+            p256dh=f"public-key-{suffix}",
+            auth=f"auth-secret-{suffix}",
+        )
+
+    @patch("apps.notifications.services.webpush")
+    def test_successful_send(self, mocked_webpush):
+        self.create_subscription()
+
+        result = send_web_push_to_user(
+            user=self.user,
+            title="Título",
+            body="Contenido",
+            url="/notificaciones/",
+            tag="test-tag",
+        )
+
+        self.assertEqual(result, {"sent": 1, "failed": 0, "deactivated": 0})
+        mocked_webpush.assert_called_once()
+        payload = json.loads(mocked_webpush.call_args.kwargs["data"])
+        self.assertEqual(
+            payload,
+            {
+                "title": "Título",
+                "body": "Contenido",
+                "url": "/notificaciones/",
+                "tag": "test-tag",
+            },
+        )
+
+    @patch("apps.notifications.services.webpush")
+    def test_sends_to_multiple_active_devices(self, mocked_webpush):
+        self.create_subscription("1")
+        self.create_subscription("2")
+        PushSubscription.objects.create(
+            user=self.user,
+            endpoint="https://push.example.test/inactive",
+            p256dh="inactive-public-key",
+            auth="inactive-auth",
+            is_active=False,
+        )
+
+        result = send_web_push_to_user(
+            user=self.user,
+            title="Título",
+            body="Contenido",
+        )
+
+        self.assertEqual(result["sent"], 2)
+        self.assertEqual(mocked_webpush.call_count, 2)
+
+    @patch("apps.notifications.services.webpush")
+    def test_http_404_and_410_deactivate_subscriptions(self, mocked_webpush):
+        first = self.create_subscription("404")
+        second = self.create_subscription("410")
+        mocked_webpush.side_effect = [
+            WebPushException(
+                "Not found",
+                response=SimpleNamespace(status_code=404),
+            ),
+            WebPushException(
+                "Gone",
+                response=SimpleNamespace(status_code=410),
+            ),
+        ]
+
+        result = send_web_push_to_user(
+            user=self.user,
+            title="Título",
+            body="Contenido",
+        )
+
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertFalse(first.is_active)
+        self.assertFalse(second.is_active)
+        self.assertEqual(result, {"sent": 0, "failed": 2, "deactivated": 2})
+
+    @patch("apps.notifications.services.webpush")
+    def test_one_device_error_does_not_stop_the_others(self, mocked_webpush):
+        self.create_subscription("first")
+        self.create_subscription("second")
+        mocked_webpush.side_effect = [RuntimeError("transport error"), None]
+
+        result = send_web_push_to_user(
+            user=self.user,
+            title="Título",
+            body="Contenido",
+        )
+
+        self.assertEqual(mocked_webpush.call_count, 2)
+        self.assertEqual(result, {"sent": 1, "failed": 1, "deactivated": 0})
+
+    @patch("apps.notifications.services.webpush")
+    def test_user_without_subscriptions_is_a_noop(self, mocked_webpush):
+        result = send_web_push_to_user(
+            user=self.user,
+            title="Título",
+            body="Contenido",
+        )
+
+        self.assertEqual(result, {"sent": 0, "failed": 0, "deactivated": 0})
+        mocked_webpush.assert_not_called()
 
 
 class NotificationModelTests(TestCase):

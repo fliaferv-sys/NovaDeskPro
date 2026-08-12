@@ -23,7 +23,7 @@ from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-load_dotenv(BASE_DIR / ".env")
+load_dotenv(BASE_DIR.parent / ".env")
 
 
 # ==========================================================
@@ -299,3 +299,11 @@ if not DEBUG:
     SECURE_HSTS_PRELOAD = True
 
 WEBPUSH_VAPID_PUBLIC_KEY = "BDUjIk6pyHXB1qndwIXG1apm3MZugTbZgR0JqlNbeGUJsdPwhS9a8UG1Qw8NMLxbp8QjXGnS6PabcShpXQYolXc"
+WEBPUSH_VAPID_PRIVATE_KEY = os.environ.get(
+    "WEBPUSH_VAPID_PRIVATE_KEY",
+    "",
+)
+WEBPUSH_VAPID_SUBJECT = os.environ.get(
+    "WEBPUSH_VAPID_SUBJECT",
+    "",
+)
