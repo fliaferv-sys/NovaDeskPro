@@ -71,6 +71,27 @@
     <!-- ========================================================== -->
 
     <div class="table-container">
+        <nav class="mobile-ticket-filters" aria-label="Filtrar tickets">
+            <a href="{% url 'tickets:ticket_list' %}?view=all"
+               class="mobile-ticket-filter{% if selected_view == 'all' %} is-active{% endif %}"
+               {% if selected_view == 'all' %}aria-current="page"{% endif %}>
+                Todos
+                <span>{{ total_tickets }}</span>
+            </a>
+            <a href="{% url 'tickets:ticket_list' %}?view=active"
+               class="mobile-ticket-filter{% if selected_view == 'active' %} is-active{% endif %}"
+               {% if selected_view == 'active' %}aria-current="page"{% endif %}>
+                Activos
+                <span>{{ pending_tickets }}</span>
+            </a>
+            <a href="{% url 'tickets:ticket_list' %}?view=resolved"
+               class="mobile-ticket-filter{% if selected_view == 'resolved' %} is-active{% endif %}"
+               {% if selected_view == 'resolved' %}aria-current="page"{% endif %}>
+                Resueltos
+                <span>{{ resolved_tickets }}</span>
+            </a>
+        </nav>
+
         <table class="table">
             <thead>
                 <tr>
@@ -89,16 +110,16 @@
                 {% for ticket in tickets %}
                 <tr class="ticket-row" data-url="{% url 'tickets:ticket_detail' ticket.pk %}" tabindex="0" role="link"
                     aria-label="Abrir ticket {{ ticket.ticket_number }}">
-                    <td data-label="Número">
+                    <td data-label="Número" class="ticket-cell-number">
                         <strong>{{ ticket.ticket_number }}</strong>
                     </td>
 
-                    <td data-label="Título">{{ ticket.title }}</td>
+                    <td data-label="Título" class="ticket-cell-title">{{ ticket.title }}</td>
 
-                    <td data-label="Solicitante">{{ ticket.requester.get_full_name|default:ticket.requester.username }}
+                    <td data-label="Solicitante" class="ticket-cell-requester">{{ ticket.requester.get_full_name|default:ticket.requester.username }}
                     </td>
 
-                    <td data-label="Departamento">
+                    <td data-label="Departamento" class="ticket-cell-department">
                         {% if ticket.department %}
                         <span class="badge-dept"
                             style="background: {{ ticket.department.primary_color|default:'#123a63' }};">
@@ -112,7 +133,7 @@
                     </td>
 
                     <!-- 🔥 NUEVO: TÉCNICO -->
-                    <td data-label="Técnico">
+                    <td data-label="Técnico" class="ticket-cell-technician">
                         {% if ticket.assigned_to %}
                         {{ ticket.assigned_to.get_full_name|default:ticket.assigned_to.username }}
                         {% else %}
@@ -120,42 +141,42 @@
                         {% endif %}
                     </td>
 
-                    <td data-label="Estado">
+                    <td data-label="Estado" class="ticket-cell-status">
                         <span class="badge badge-status-{{ ticket.status|lower }}">
                             {{ ticket.get_status_display }}
                         </span>
                     </td>
 
-                    <td data-label="Prioridad">
+                    <td data-label="Prioridad" class="ticket-cell-priority">
                         <span class="badge badge-priority-{{ ticket.priority|lower }}">
                             {{ ticket.get_priority_display }}
                         </span>
                     </td>
 
-                    <td data-label="SLA">
+                    <td data-label="SLA" class="ticket-cell-sla">
                         {% if ticket.sla_visual.status == "OK" %}
-                        <span style="color: #15803d; font-weight: 600;">
+                        <span class="ticket-sla ticket-sla-ok" style="color: #15803d; font-weight: 600;">
                             🟢 {{ ticket.sla_visual.text }}
                         </span>
 
                         {% elif ticket.sla_visual.status == "WARNING" %}
-                        <span style="color: #b45309; font-weight: 600;">
+                        <span class="ticket-sla ticket-sla-warning" style="color: #b45309; font-weight: 600;">
                             🟡 {{ ticket.sla_visual.text }}
                         </span>
 
                         {% elif ticket.sla_visual.status == "EXPIRED" %}
-                        <span style="color: #b91c1c; font-weight: 600;">
+                        <span class="ticket-sla ticket-sla-expired" style="color: #b91c1c; font-weight: 600;">
                             🔴 {{ ticket.sla_visual.text }}
                         </span>
 
                         {% else %}
-                        <span style="color: #64748b;">
+                        <span class="ticket-sla ticket-sla-none" style="color: #64748b;">
                             — Sin SLA
                         </span>
                         {% endif %}
                     </td>
 
-                    <td data-label="Fecha">{{ ticket.created_at|date:"d/m/Y H:i" }}</td>
+                    <td data-label="Fecha" class="ticket-cell-date">{{ ticket.created_at|date:"d/m/Y H:i" }}</td>
 
                 </tr>
 
@@ -451,6 +472,11 @@
         color: #842029;
     }
 
+    .badge-priority-critical {
+        background: #dc2626;
+        color: white;
+    }
+
     .badge-priority-urgent {
         background: #dc3545;
         color: white;
@@ -490,6 +516,10 @@
         color: #667085;
     }
 
+    .mobile-ticket-filters {
+        display: none;
+    }
+
     @media (max-width: 768px) {
         .ticket-list-page {
             padding: 12px;
@@ -515,6 +545,82 @@
 
         .stats-grid {
             grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .stat-card {
+            min-width: 0;
+            padding: 13px 14px;
+        }
+
+        .stat-card strong {
+            font-size: 24px;
+        }
+
+        .stat-card .stat-label {
+            display: none;
+        }
+
+        .stats-grid .stat-card:last-child:nth-child(odd) {
+            grid-column: 1 / -1;
+        }
+
+        .mobile-ticket-filters {
+            display: flex;
+            width: 100%;
+            gap: 8px;
+            margin: 0 0 14px;
+            padding: 2px 1px 4px;
+            overflow-x: auto;
+            overscroll-behavior-x: contain;
+            scrollbar-width: none;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .mobile-ticket-filters::-webkit-scrollbar {
+            display: none;
+        }
+
+        .mobile-ticket-filter {
+            display: inline-flex;
+            min-width: max-content;
+            min-height: 44px;
+            align-items: center;
+            justify-content: center;
+            gap: 7px;
+            padding: 9px 15px;
+            border: 1px solid #dfe5ec;
+            border-radius: 999px;
+            background: #fff;
+            color: #475467 !important;
+            font-size: 13px;
+            font-weight: 700;
+            text-decoration: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .mobile-ticket-filter > span {
+            display: grid;
+            min-width: 21px;
+            height: 21px;
+            place-items: center;
+            padding: 0 5px;
+            border-radius: 999px;
+            background: #f2f4f7;
+            color: #667085;
+            font-size: 10px;
+        }
+
+        .mobile-ticket-filter.is-active {
+            border-color: var(--primary-color, #123a63);
+            background: var(--primary-color, #123a63);
+            color: #fff !important;
+            box-shadow: 0 4px 12px rgba(18, 58, 99, 0.18);
+        }
+
+        .mobile-ticket-filter.is-active > span {
+            background: rgba(255, 255, 255, 0.2);
+            color: #fff;
         }
 
         .badge-dept {
@@ -547,14 +653,19 @@
 
         .table tbody tr {
             display: grid;
-            grid-template-columns: 1fr;
-            gap: 9px;
-            margin-bottom: 19px;
-            padding: 15px;
-            border: 1px solid #dfe5ec;
-            border-radius: 12px;
+            grid-template-areas:
+                "number priority"
+                "title title"
+                "status department"
+                "technician sla";
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 10px 12px;
+            margin-bottom: 12px;
+            padding: 15px 14px 14px;
+            border: 1px solid #e1e7ef;
+            border-radius: 15px;
             background: #fff;
-            box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+            box-shadow: 0 3px 12px rgba(15, 23, 42, 0.055);
             min-width: 0;
             max-width: 100%;
             overflow: hidden;
@@ -565,12 +676,11 @@
         }
 
         .table tbody td[data-label] {
-            display: grid;
-            grid-template-columns: minmax(82px, 34%) minmax(0, 1fr);
+            display: flex;
             align-items: center;
-            gap: 10px;
-            width: 100%;
-            padding: 3px 0;
+            gap: 6px;
+            width: auto;
+            padding: 0;
             border: 0;
             text-align: left;
             white-space: normal;
@@ -580,11 +690,7 @@
         }
 
         .table tbody td[data-label]::before {
-            content: attr(data-label);
-            color: #667085;
-            font-size: 11px;
-            font-weight: 700;
-            text-transform: uppercase;
+            display: none;
         }
 
         .table tbody td[data-label]>* {
@@ -599,11 +705,132 @@
             white-space: normal;
             overflow-wrap: anywhere;
         }
+
+        .table tbody .ticket-cell-number {
+            grid-area: number;
+            color: var(--primary-color, #123a63);
+            font-size: 13px;
+            letter-spacing: 0.01em;
+        }
+
+        .table tbody .ticket-cell-number strong::before {
+            content: "#";
+        }
+
+        .table tbody .ticket-cell-title {
+            grid-area: title;
+            align-items: flex-start;
+            color: #101828;
+            font-size: 15px;
+            font-weight: 700;
+            line-height: 1.35;
+            overflow-wrap: anywhere;
+        }
+
+        .table tbody .ticket-cell-priority {
+            grid-area: priority;
+            justify-self: end;
+        }
+
+        .table tbody .ticket-cell-status {
+            grid-area: status;
+            min-width: 0;
+        }
+
+        .table tbody .ticket-cell-department {
+            grid-area: department;
+            min-width: 0;
+            justify-self: end;
+        }
+
+        .table tbody .ticket-cell-technician {
+            grid-area: technician;
+            min-width: 0;
+            padding-top: 10px;
+            border-top: 1px solid #eef2f6;
+            color: #475467;
+            font-size: 12px;
+            overflow-wrap: anywhere;
+        }
+
+        .table tbody .ticket-cell-technician::before {
+            display: inline;
+            flex: 0 0 auto;
+            content: "\1F464";
+            font-size: 14px;
+        }
+
+        .table tbody .ticket-cell-sla {
+            grid-area: sla;
+            justify-self: end;
+            padding-top: 10px;
+            border-top: 1px solid #eef2f6;
+            font-size: 12px;
+            text-align: right;
+        }
+
+        .table tbody .ticket-cell-sla::before {
+            display: inline;
+            flex: 0 0 auto;
+            color: #667085;
+            content: "\23F1";
+            font-size: 14px;
+        }
+
+        .table tbody .ticket-cell-requester,
+        .table tbody .ticket-cell-date {
+            display: none;
+        }
+
+        .table tbody .badge {
+            padding: 4px 9px;
+            font-size: 10px;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+        }
+
+        .table tbody .badge-dept {
+            padding: 4px 9px;
+            font-size: 10px;
+            line-height: 1.2;
+            text-align: center;
+        }
+
+        .table tbody .ticket-sla {
+            line-height: 1.25;
+            overflow-wrap: anywhere;
+        }
     }
 
     @media (max-width: 480px) {
         .stats-grid {
+            grid-template-columns: 1fr 1fr;
+        }
+    }
+
+    @media (max-width: 340px) {
+        .stats-grid {
             grid-template-columns: 1fr;
+        }
+
+        .stats-grid .stat-card:last-child:nth-child(odd) {
+            grid-column: auto;
+        }
+
+        .table tbody tr {
+            grid-template-areas:
+                "number priority"
+                "title title"
+                "status status"
+                "department department"
+                "technician technician"
+                "sla sla";
+        }
+
+        .table tbody .ticket-cell-department,
+        .table tbody .ticket-cell-sla {
+            justify-self: start;
+            text-align: left;
         }
     }
 </style>
