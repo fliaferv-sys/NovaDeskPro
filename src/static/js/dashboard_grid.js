@@ -137,6 +137,12 @@
         "csrftoken"
     );
 
+    const mobileDashboardQuery = window.matchMedia(
+        "(max-width: 768px)"
+    );
+
+    const isMobileDashboard = mobileDashboardQuery.matches;
+
 
     /* ======================================================
        INICIALIZAR GRIDSTACK
@@ -144,13 +150,15 @@
 
     const grid = GridStack.init(
         {
-            column: 12,
+            column: isMobileDashboard ? 1 : 12,
             cellHeight: 82,
             // GridStack aplica este margen a ambos widgets contiguos.
             // 9.5 px por lado producen una separación visible de 19 px (5 mm).
             margin: 9.5,
             float: false,
-            animate: true,
+            animate: !isMobileDashboard,
+
+            staticGrid: isMobileDashboard,
 
             handle: ".dashboard-widget-handle",
 
@@ -254,6 +262,10 @@
 
 const setEditingMode = function (enabled) {
 
+    if (isMobileDashboard) {
+        enabled = false;
+    }
+
     grid.enableMove(enabled);
     grid.enableResize(enabled);
 
@@ -263,7 +275,7 @@ const setEditingMode = function (enabled) {
     );
 
     if (editButton) {
-        editButton.hidden = enabled;
+        editButton.hidden = isMobileDashboard || enabled;
     }
 
     if (saveButton) {
@@ -393,6 +405,10 @@ const setEditingMode = function (enabled) {
        ====================================================== */
 
     const loadSavedLayout = function () {
+        if (isMobileDashboard) {
+            return;
+        }
+
         if (
             !Array.isArray(
                 savedDashboardLayout

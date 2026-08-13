@@ -95,20 +95,20 @@
                 <tbody>
                     {% for ticket in recent_tickets %}
                         <tr>
-                            <td><strong>{{ ticket.ticket_number }}</strong></td>
-                            <td>{{ ticket.title|truncatechars:40 }}</td>
-                            <td>{{ ticket.requester.get_full_name|default:ticket.requester.username }}</td>
-                            <td>
+                            <td data-label="Ticket" class="dept-ticket-number"><strong>{{ ticket.ticket_number }}</strong></td>
+                            <td data-label="Título" class="dept-ticket-title">{{ ticket.title|truncatechars:40 }}</td>
+                            <td data-label="Solicitante" class="dept-ticket-requester">{{ ticket.requester.get_full_name|default:ticket.requester.username }}</td>
+                            <td data-label="Estado" class="dept-ticket-status">
                                 <span class="badge badge-status-{{ ticket.status|lower }}">
                                     {{ ticket.get_status_display }}
                                 </span>
                             </td>
-                            <td>
+                            <td data-label="Prioridad" class="dept-ticket-priority">
                                 <span class="badge badge-priority-{{ ticket.priority|lower }}">
                                     {{ ticket.get_priority_display }}
                                 </span>
                             </td>
-                            <td>
+                            <td data-label="SLA" class="dept-ticket-sla">
                                 {% if ticket.due_date %}
                                     {% if ticket.due_date < now %}
                                         <span class="badge badge-sla-danger">🔴 Vencido</span>
@@ -121,8 +121,8 @@
                                     <span class="badge badge-secondary">Sin SLA</span>
                                 {% endif %}
                             </td>
-                            <td>{{ ticket.created_at|date:"d/m/Y H:i" }}</td>
-                            <td>
+                            <td data-label="Fecha" class="dept-ticket-date">{{ ticket.created_at|date:"d/m/Y H:i" }}</td>
+                            <td data-label="Acciones" class="dept-ticket-actions">
                                 <a href="{% url 'tickets:ticket_detail' ticket.pk %}" class="btn btn-sm btn-outline">
                                     <i class="bi bi-eye"></i>
                                 </a>
@@ -311,6 +311,7 @@
     .badge-priority-low { background: #d1e7dd; color: #0f5132; }
     .badge-priority-medium { background: #fff3cd; color: #664d03; }
     .badge-priority-high { background: #f8d7da; color: #842029; }
+    .badge-priority-critical { background: #dc2626; color: white; }
     .badge-priority-urgent { background: #dc3545; color: white; }
 
     /* ========================================================== */
@@ -398,7 +399,162 @@
 
     @media (max-width: 480px) {
         .dept-stats-grid {
+            grid-template-columns: 1fr 1fr;
+        }
+    }
+
+    /* ==========================================================
+       MOBILE DASHBOARD — ETAPA 5 (DEPARTAMENTAL)
+       ========================================================== */
+
+    @media (max-width: 768px) {
+        .department-dashboard {
+            width: 100%;
+            max-width: 100%;
+            min-height: auto;
+            padding: 10px 10px calc(
+                var(--mobile-bottom-nav-height, 64px)
+                + env(safe-area-inset-bottom)
+                + 22px
+            );
+            overflow-x: hidden;
+        }
+
+        .dept-header {
+            gap: 12px;
+            margin-bottom: 14px;
+            padding: 14px;
+            border-radius: 14px;
+        }
+
+        .dept-header h1 {
+            min-width: 0;
+            align-items: flex-start;
+            font-size: 19px;
+            line-height: 1.3;
+            overflow-wrap: anywhere;
+        }
+
+        .dept-header .page-subtitle {
+            font-size: 13px;
+            line-height: 1.4;
+        }
+
+        .dept-header-actions .btn {
+            min-height: 46px;
+        }
+
+        .dept-stats-grid {
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+
+        .dept-stats-grid .stat-card {
+            min-width: 0;
+            padding: 12px;
+        }
+
+        .dept-stats-grid .stat-card strong {
+            font-size: 24px;
+        }
+
+        .dept-stats-grid .stat-label {
+            display: none;
+        }
+
+        .dept-stats-grid .stat-card:last-child:nth-child(odd) {
+            grid-column: 1 / -1;
+        }
+
+        .table-card {
+            min-width: 0;
+            padding: 13px;
+            border-radius: 14px;
+        }
+
+        .table-header {
+            align-items: flex-start;
+        }
+
+        .table-header .btn {
+            min-height: 44px;
+        }
+
+        .table-container {
+            overflow: visible;
+        }
+
+        .table,
+        .table tbody {
+            display: block;
+            width: 100%;
+            min-width: 0;
+        }
+
+        .table thead {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            overflow: hidden;
+            clip: rect(0 0 0 0);
+        }
+
+        .table tbody tr {
+            display: grid;
+            grid-template-areas:
+                "number priority"
+                "title title"
+                "status sla"
+                "requester date"
+                "actions actions";
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 9px 12px;
+            margin-bottom: 11px;
+            padding: 14px;
+            border: 1px solid #e1e7ef;
+            border-radius: 14px;
+            background: #fff;
+            box-shadow: 0 3px 10px rgba(15, 23, 42, 0.05);
+        }
+
+        .table tbody td[data-label] {
+            display: flex;
+            min-width: 0;
+            align-items: center;
+            padding: 0;
+            border: 0;
+            overflow-wrap: anywhere;
+        }
+
+        .dept-ticket-number { grid-area: number; color: #123a63; }
+        .dept-ticket-title { grid-area: title; color: #101828; font-size: 14px; font-weight: 700; line-height: 1.35; }
+        .dept-ticket-requester { grid-area: requester; color: #667085; font-size: 11px; }
+        .dept-ticket-status { grid-area: status; }
+        .dept-ticket-priority { grid-area: priority; justify-self: end; }
+        .dept-ticket-sla { grid-area: sla; justify-self: end; font-size: 11px; }
+        .dept-ticket-date { grid-area: date; justify-self: end; color: #667085; font-size: 11px; }
+        .dept-ticket-actions { grid-area: actions; }
+
+        .dept-ticket-actions .btn {
+            width: 100%;
+            min-height: 44px;
+            justify-content: center;
+        }
+
+        .table tbody .empty-table {
+            display: block;
+            text-align: center;
+        }
+    }
+
+    @media (max-width: 340px) {
+        .dept-stats-grid {
             grid-template-columns: 1fr;
+        }
+
+        .dept-stats-grid .stat-card:last-child:nth-child(odd) {
+            grid-column: auto;
         }
     }
 </style>
