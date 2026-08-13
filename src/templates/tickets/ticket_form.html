@@ -583,6 +583,288 @@
         .ticket-form-card { padding: 10px 12px; }
         .btn { padding: 8px 16px; font-size: 13px; min-width: 80px; }
     }
+
+    /* ============================================================
+       MOBILE TICKET FORM — ETAPA 4
+       ============================================================ */
+
+    .ticket-mobile-back {
+        display: none;
+    }
+
+    @media (max-width: 768px) {
+        .ticket-page {
+            width: 100%;
+            max-width: 100%;
+            min-height: auto;
+            padding: 10px 10px calc(
+                var(--mobile-bottom-nav-height, 64px)
+                + env(safe-area-inset-bottom)
+                + 24px
+            );
+            overflow-x: hidden;
+        }
+
+        .ticket-header {
+            margin-bottom: 12px;
+            padding: 13px 14px;
+            border-radius: 14px;
+        }
+
+        .ticket-mobile-back {
+            display: inline-flex;
+            min-height: 44px;
+            align-items: center;
+            gap: 7px;
+            margin: -5px 0 3px -7px;
+            padding: 7px;
+            border-radius: 9px;
+            color: var(--primary-color, #123a63) !important;
+            font-size: 13px;
+            font-weight: 700;
+            text-decoration: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .ticket-mobile-back:focus-visible {
+            outline: 2px solid var(--secondary-color, #f68b1e);
+            outline-offset: 1px;
+        }
+
+        .ticket-header h1 {
+            gap: 8px;
+            font-size: 20px;
+            line-height: 1.25;
+        }
+
+        .ticket-header .subtitle {
+            margin-top: 7px;
+            font-size: 13px;
+            line-height: 1.45;
+        }
+
+        .area-section,
+        .card,
+        .ticket-form-card,
+        .quick-actions-section {
+            min-width: 0;
+            padding: 14px;
+            border-radius: 14px;
+        }
+
+        .ticket-layout,
+        .ticket-sidebar,
+        .ticket-form-card,
+        .ticket-form-card form,
+        .authorization-section,
+        .authorization-fields,
+        .form-row,
+        .form-group {
+            width: 100%;
+            max-width: 100%;
+            min-width: 0;
+        }
+
+        .ticket-sidebar {
+            gap: 12px;
+        }
+
+        .area-buttons {
+            flex-direction: row;
+            flex-wrap: nowrap;
+            gap: 8px;
+            padding: 1px 1px 5px;
+            overflow-x: auto;
+            overscroll-behavior-x: contain;
+            scrollbar-width: none;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .area-buttons::-webkit-scrollbar {
+            display: none;
+        }
+
+        .area-btn {
+            min-width: max-content;
+            min-height: 44px;
+            justify-content: center;
+            padding: 9px 13px;
+            font-size: 13px;
+        }
+
+        .area-indicator {
+            min-width: 0;
+            line-height: 1.4;
+            overflow-wrap: anywhere;
+        }
+
+        .quick-actions-grid {
+            grid-template-columns: 1fr;
+            gap: 7px;
+        }
+
+        .quick-action-btn {
+            min-width: 0;
+            min-height: 52px;
+            padding: 10px;
+        }
+
+        .qa-content,
+        .qa-title,
+        .qa-label {
+            min-width: 0;
+            overflow-wrap: anywhere;
+        }
+
+        .form-title {
+            font-size: 17px;
+            line-height: 1.3;
+        }
+
+        .form-subtitle {
+            margin-bottom: 18px;
+            font-size: 13px;
+            line-height: 1.45;
+        }
+
+        .form-group {
+            margin-bottom: 17px;
+        }
+
+        .form-group label,
+        .authorization-section label {
+            margin-bottom: 7px;
+            font-size: 14px;
+            line-height: 1.35;
+        }
+
+        .form-group input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]),
+        .form-group select,
+        .form-group textarea,
+        .authorization-section input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]),
+        .authorization-section select,
+        .authorization-section textarea {
+            width: 100%;
+            max-width: 100%;
+            min-height: 48px;
+            padding: 11px 12px;
+            border-radius: 9px;
+            font-size: 16px !important;
+            line-height: 1.35;
+        }
+
+        .form-group textarea,
+        .authorization-section textarea,
+        textarea[name="description"] {
+            min-height: 132px;
+            overflow-x: hidden;
+            overflow-wrap: anywhere;
+            resize: vertical;
+        }
+
+        .form-group input[type="file"],
+        .authorization-section input[type="file"] {
+            height: auto;
+            min-height: 48px;
+            padding: 8px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: normal;
+        }
+
+        .form-group small,
+        .authorization-section small {
+            margin-top: 6px !important;
+            font-size: 12px !important;
+            line-height: 1.4;
+            overflow-wrap: anywhere;
+        }
+
+        .form-group .errorlist,
+        .authorization-section .errorlist {
+            margin: 7px 0 0;
+            padding: 9px 11px 9px 28px;
+            border: 1px solid #fecaca;
+            border-radius: 8px;
+            background: #fef2f2;
+            color: #b42318;
+            font-size: 13px;
+            font-weight: 600;
+            line-height: 1.4;
+        }
+
+        .form-group:has(.errorlist) input,
+        .form-group:has(.errorlist) select,
+        .form-group:has(.errorlist) textarea {
+            border-color: #dc2626;
+        }
+
+        .authorization-section {
+            padding: 13px;
+        }
+
+        .authorization-warning {
+            min-width: 0;
+            align-items: flex-start;
+            padding: 12px;
+        }
+
+        .authorization-warning > div,
+        .authorization-warning span,
+        #userCreationUploadSection,
+        #userCreationUploadSection > div {
+            min-width: 0;
+            max-width: 100%;
+            overflow-wrap: anywhere;
+        }
+
+        .request-type-options {
+            grid-template-columns: 1fr;
+            gap: 9px;
+        }
+
+        .request-type-option {
+            min-height: 64px;
+            padding: 12px;
+        }
+
+        .form-actions {
+            margin-top: 22px;
+            padding-top: 18px;
+        }
+
+        .form-actions .btn {
+            min-height: 48px;
+            padding: 12px 16px;
+            font-size: 15px;
+        }
+
+        .form-actions .btn-primary {
+            width: 100%;
+        }
+
+        .ticket-page a.btn-primary,
+        .ticket-page .btn,
+        .ticket-page button:not(.area-btn):not(.quick-action-btn) {
+            min-height: 44px;
+        }
+    }
+
+    @media (max-width: 360px) {
+        .ticket-page {
+            padding-right: 7px;
+            padding-left: 7px;
+        }
+
+        .ticket-header,
+        .area-section,
+        .card,
+        .ticket-form-card,
+        .quick-actions-section {
+            padding-right: 11px;
+            padding-left: 11px;
+        }
+    }
 </style>
 {% endblock %}
 
@@ -592,6 +874,10 @@
 
     <!-- ENCABEZADO -->
     <div class="ticket-header">
+        <a href="{% url 'tickets:ticket_list' %}" class="ticket-mobile-back">
+            <i class="bi bi-arrow-left" aria-hidden="true"></i>
+            {% if editing %}Editar ticket{% else %}Crear ticket{% endif %}
+        </a>
         <h1>
             <i class="bi bi-ticket-perforated"></i>
             {% if editing %}Editar Ticket{% else %}Nuevo Ticket{% endif %}
