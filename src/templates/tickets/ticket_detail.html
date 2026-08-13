@@ -868,6 +868,7 @@ Detalle del Ticket #{{ ticket.ticket_number }}
     .badge-priority-low { background: #d1e7dd; color: #0f5132; }
     .badge-priority-medium { background: #fff3cd; color: #664d03; }
     .badge-priority-high { background: #f8d7da; color: #842029; }
+    .badge-priority-critical { background: #dc2626; color: white; }
     .badge-priority-urgent { background: #dc3545; color: white; }
 
     /* ============================================================ */
@@ -1104,6 +1105,327 @@ Detalle del Ticket #{{ ticket.ticket_number }}
             font-size: 12px;
         }
     }
+
+    /* ============================================================
+       MOBILE TICKET DETAIL — ETAPA 3
+       ============================================================ */
+
+    .ticket-mobile-overview {
+        display: none;
+    }
+
+    @media (max-width: 768px) {
+        .ticket-detail-header {
+            gap: 14px;
+            margin-bottom: 14px;
+            border: 1px solid #e1e7ef;
+            border-radius: 16px;
+            background: #ffffff;
+            box-shadow: 0 3px 12px rgba(15, 23, 42, 0.055);
+        }
+
+        .ticket-header-primary {
+            width: 100%;
+            min-width: 0;
+        }
+
+        .ticket-detail-header .page-title {
+            font-size: 19px;
+            line-height: 1.2;
+            overflow-wrap: anywhere;
+        }
+
+        .ticket-detail-header .page-subtitle {
+            margin: 7px 0 0;
+            color: #101828;
+            font-size: 16px;
+            font-weight: 700;
+            line-height: 1.35;
+            overflow-wrap: anywhere;
+        }
+
+        .ticket-mobile-overview {
+            display: flex;
+            min-width: 0;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .ticket-mobile-overview .badge {
+            display: inline-flex;
+            min-height: 28px;
+            align-items: center;
+            padding: 5px 10px;
+            font-size: 10px;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+        }
+
+        .ticket-mobile-sla,
+        .ticket-mobile-assignment {
+            display: inline-flex;
+            min-width: 0;
+            min-height: 32px;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            border: 1px solid #e1e7ef;
+            border-radius: 999px;
+            background: #f8fafc;
+            color: #475467;
+            font-size: 11px;
+            font-weight: 700;
+            line-height: 1.25;
+            overflow-wrap: anywhere;
+        }
+
+        .ticket-mobile-sla {
+            width: 100%;
+            border-radius: 10px;
+        }
+
+        .ticket-mobile-sla-ok { color: #15803d; background: #f0fdf4; border-color: #bbf7d0; }
+        .ticket-mobile-sla-warning { color: #b45309; background: #fffbeb; border-color: #fde68a; }
+        .ticket-mobile-sla-expired { color: #b91c1c; background: #fef2f2; border-color: #fecaca; }
+
+        .ticket-header-actions {
+            display: grid;
+            width: 100%;
+            grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+            gap: 8px;
+        }
+
+        .ticket-header-actions a {
+            min-height: 44px;
+            padding: 10px 12px;
+        }
+
+        .ticket-detail-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .ticket-main-column,
+        .ticket-side-column {
+            display: contents;
+        }
+
+        .ticket-assignment-card { order: 10; }
+        .ticket-description-card { order: 20; }
+        .ticket-conversation-card { order: 30; }
+        .ticket-asset-card { order: 50; }
+        .ticket-access-card { order: 55; }
+        .ticket-requester-card { order: 60; }
+        .ticket-summary-card { order: 70; }
+        .ticket-transfer-card { order: 80; }
+        .ticket-history-card { order: 100; }
+
+        .ticket-detail-grid .table-card {
+            width: 100%;
+            min-width: 0;
+            margin: 0 !important;
+            border-radius: 14px;
+        }
+
+        .ticket-description-box {
+            max-height: none;
+            padding: 12px;
+            font-size: 14px;
+            line-height: 1.55;
+            overflow-wrap: anywhere;
+        }
+
+        .ticket-conversation-card {
+            padding-right: 10px;
+            padding-left: 10px;
+        }
+
+        .chat-header-modern {
+            align-items: flex-start;
+        }
+
+        .chat-header-left,
+        .chat-header-right {
+            min-width: 0;
+        }
+
+        .chat-header-right {
+            width: 100%;
+        }
+
+        .tech-online,
+        .tech-offline {
+            white-space: normal;
+            overflow-wrap: anywhere;
+        }
+
+        .chat-box-modern {
+            max-height: min(420px, 52dvh);
+            gap: 11px;
+            padding: 6px 2px 10px;
+        }
+
+        .chat-message-modern {
+            width: 100%;
+            min-width: 0;
+            gap: 7px;
+        }
+
+        .chat-content-modern {
+            min-width: 0;
+            max-width: calc(100% - 35px);
+        }
+
+        .chat-bubble-modern,
+        .system-content,
+        .system-text {
+            min-width: 0;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+        }
+
+        .chat-system-message {
+            width: 100%;
+            max-width: 100%;
+            align-items: flex-start;
+            border-radius: 10px;
+        }
+
+        .attachment-bubble,
+        .attachment-in-chat,
+        .attachment-info-chat {
+            min-width: 0;
+            max-width: 100%;
+        }
+
+        .attachment-info-chat {
+            overflow: hidden;
+        }
+
+        .attachment-link {
+            display: block;
+            max-width: 100%;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+        }
+
+        .comment-form-modern {
+            padding-top: 12px;
+        }
+
+        .comment-input-wrapper {
+            gap: 8px;
+        }
+
+        .comment-input-wrapper textarea {
+            min-height: 48px;
+            max-height: 132px;
+            padding: 11px 12px;
+            font-size: 16px !important;
+            resize: vertical;
+        }
+
+        .btn-attach-file,
+        .btn-send-message {
+            width: 46px;
+            height: 46px;
+            min-width: 46px;
+            min-height: 46px;
+            padding: 0;
+        }
+
+        .btn-send-message {
+            font-size: 18px;
+        }
+
+        .file-preview {
+            min-height: 40px;
+            padding: 8px 10px;
+        }
+
+        .file-preview #fileName {
+            min-width: 0;
+            max-width: calc(100% - 36px);
+            overflow-wrap: anywhere;
+            white-space: normal;
+        }
+
+        .remove-file {
+            min-width: 36px;
+            min-height: 36px;
+        }
+
+        .comment-actions {
+            align-items: flex-start;
+            gap: 8px;
+        }
+
+        .comment-hint {
+            line-height: 1.35;
+        }
+
+        .ticket-detail-grid select,
+        .ticket-detail-grid input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]),
+        .ticket-detail-grid textarea {
+            width: 100%;
+            max-width: 100%;
+            min-height: 44px;
+            font-size: 16px;
+        }
+
+        .ticket-detail-grid button[type="submit"],
+        .ticket-detail-grid .btn-primary,
+        .ticket-detail-grid .btn-secondary,
+        .ticket-detail-grid .btn-success,
+        .ticket-detail-grid .btn-danger {
+            min-height: 44px;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .assignment-form .form-group {
+            margin-bottom: 14px !important;
+        }
+
+        .summary-grid .summary-item {
+            min-width: 0;
+            gap: 12px;
+            padding: 8px 0;
+        }
+
+        .summary-grid .summary-item .value {
+            min-width: 0;
+            text-align: right;
+            overflow-wrap: anywhere;
+        }
+
+        .ticket-history-card {
+            background: #f8fafc;
+        }
+
+        .ticket-history-card > div {
+            padding: 10px !important;
+        }
+
+        .ticket-history-card [style*="justify-content:space-between"] {
+            align-items: flex-start !important;
+            flex-direction: column;
+        }
+
+        #notificationContainer {
+            right: 12px !important;
+            bottom: calc(
+                var(--mobile-bottom-nav-height, 64px)
+                + env(safe-area-inset-bottom)
+                + 14px
+            ) !important;
+            left: 12px !important;
+            width: auto !important;
+            max-width: none !important;
+        }
+    }
 </style>
 {% endblock %}
 
@@ -1112,12 +1434,56 @@ Detalle del Ticket #{{ ticket.ticket_number }}
 <div id="notificationContainer" style="position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; max-width: 380px; width: 100%;"></div>
 
 <div class="ticket-detail-header">
-    <div>
+    <div class="ticket-header-primary">
         <h1 class="page-title">
             <i class="bi bi-ticket-perforated" style="color:#123a63;"></i>
             #{{ ticket.ticket_number }}
         </h1>
         <p class="page-subtitle">{{ ticket.title }}</p>
+
+        <div class="ticket-mobile-overview" aria-label="Resumen del ticket">
+            <span class="badge badge-status-{{ ticket.status|lower }}">
+                {{ ticket.get_status_display }}
+            </span>
+            <span class="badge badge-priority-{{ ticket.priority|lower }}">
+                {{ ticket.get_priority_display }}
+            </span>
+
+            {% if ticket.sla_visual.status == "OK" %}
+                <span class="ticket-mobile-sla ticket-mobile-sla-ok">
+                    <i class="bi bi-stopwatch" aria-hidden="true"></i>
+                    SLA: {{ ticket.sla_visual.text }}
+                </span>
+            {% elif ticket.sla_visual.status == "WARNING" %}
+                <span class="ticket-mobile-sla ticket-mobile-sla-warning">
+                    <i class="bi bi-stopwatch" aria-hidden="true"></i>
+                    SLA: {{ ticket.sla_visual.text }}
+                </span>
+            {% elif ticket.sla_visual.status == "EXPIRED" %}
+                <span class="ticket-mobile-sla ticket-mobile-sla-expired">
+                    <i class="bi bi-stopwatch" aria-hidden="true"></i>
+                    SLA: {{ ticket.sla_visual.text }}
+                </span>
+            {% else %}
+                <span class="ticket-mobile-sla">
+                    <i class="bi bi-stopwatch" aria-hidden="true"></i>
+                    Sin SLA
+                </span>
+            {% endif %}
+
+            <span class="ticket-mobile-assignment">
+                <i class="bi bi-person-gear" aria-hidden="true"></i>
+                {% if ticket.assigned_to %}
+                    {{ ticket.assigned_to.get_full_name|default:ticket.assigned_to.username }}
+                {% else %}
+                    Sin técnico asignado
+                {% endif %}
+            </span>
+            <span class="ticket-mobile-assignment">
+                <i class="bi bi-building" aria-hidden="true"></i>
+                {{ ticket.department.name|default:"Sin departamento" }}
+            </span>
+        </div>
     </div>
 
     <div class="ticket-header-actions">
@@ -1142,7 +1508,7 @@ Detalle del Ticket #{{ ticket.ticket_number }}
     <div class="ticket-main-column">
 
         <!-- ===== DESCRIPCIÓN ===== -->
-        <div class="table-card">
+        <div class="table-card ticket-description-card">
             <h3><i class="bi bi-file-text"></i> Descripción</h3>
             <div class="ticket-description-box">
                 {{ ticket.description|linebreaks }}
@@ -1150,7 +1516,7 @@ Detalle del Ticket #{{ ticket.ticket_number }}
         </div>
 
         <!-- ===== CHAT ===== -->
-        <div class="table-card">
+        <div class="table-card ticket-conversation-card">
             <div class="chat-header-modern">
                 <div class="chat-header-left">
                     <span class="chat-icon">💬</span>
@@ -1328,7 +1694,7 @@ Detalle del Ticket #{{ ticket.ticket_number }}
         </div>
 
         <!-- ===== HISTORIAL DE ACTIVIDAD ===== -->
-        <div class="table-card" style="margin-top:20px;">
+        <div class="table-card ticket-history-card" style="margin-top:20px;">
             <div style="padding:15px; border-bottom:1px solid #eee;">
                 <h3>📜 Historial de actividad</h3>
                 <small>Registro completo para auditoría</small>
@@ -1369,7 +1735,7 @@ Detalle del Ticket #{{ ticket.ticket_number }}
     <aside class="ticket-side-column">
 
         <!-- ===== SOLICITANTE ===== -->
-        <div class="table-card">
+        <div class="table-card ticket-requester-card">
             <h3><i class="bi bi-person"></i> Solicitante</h3>
             <div class="requester-box compact">
                 <div>
@@ -1390,7 +1756,7 @@ Detalle del Ticket #{{ ticket.ticket_number }}
         </div>
 
         <!-- ===== ASIGNACIÓN - TERMINADO ===== -->
-        <div class="table-card">
+        <div class="table-card ticket-assignment-card">
             <h3 style="margin: 0 0 16px 0; font-size: 15px; display: flex; align-items: center; gap: 8px;">
                 <i class="bi bi-person-check" style="color: #123a63; font-size: 18px;"></i> 
                 Asignación
@@ -1470,7 +1836,7 @@ Detalle del Ticket #{{ ticket.ticket_number }}
 
         <!-- ===== EQUIPO RELACIONADO ===== -->
         {% if asset %}
-        <div class="table-card asset-related-card">
+        <div class="table-card asset-related-card ticket-asset-card">
             <h3><i class="bi bi-pc-display"></i> Equipo relacionado</h3>
             <div class="asset-item">
                 <div class="asset-icon"><i class="bi bi-laptop"></i></div>
@@ -1495,7 +1861,7 @@ Detalle del Ticket #{{ ticket.ticket_number }}
 
 {% if system_access_request %}
 
-<div class="table-card">
+<div class="table-card ticket-access-card">
 
     <h3>
         <i class="bi bi-shield-lock"></i>
@@ -1791,7 +2157,7 @@ Detalle del Ticket #{{ ticket.ticket_number }}
 {% endif %}
 
         <!-- ===== RESUMEN ===== -->
-        <div class="table-card">
+        <div class="table-card ticket-summary-card">
             <h3><i class="bi bi-grid"></i> Resumen</h3>
             <div class="summary-grid">
                 <div class="summary-item">
@@ -1836,7 +2202,7 @@ Detalle del Ticket #{{ ticket.ticket_number }}
         </div>
 
         {% if can_manage_ticket %}
-        <div class="table-card">
+        <div class="table-card ticket-transfer-card">
             <h3><i class="bi bi-arrow-left-right"></i> Derivar ticket</h3>
             <p style="font-size: 12px; color: #667085; margin: 0 0 12px;">
                 El área destino recibirá la gestión y deberá asignar su técnico responsable.
