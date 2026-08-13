@@ -4812,6 +4812,100 @@ body.sidebar-collapsed .sidebar-menu {
     display: none;
 }
 
+/* ==========================================================
+   MOBILE HEADER SIMPLIFICADO
+   Navegación superior exclusiva para pantallas móviles
+   ========================================================== */
+@media (max-width: 768px) {
+    :root {
+        --navbar-height: 52px;
+    }
+
+    .navbar {
+        min-height: var(--navbar-height);
+        padding: 5px 10px;
+    }
+
+    .navbar-brand {
+        min-width: 0;
+        gap: 0;
+    }
+
+    .navbar-brand-logo,
+    .navbar-brand-logo img,
+    .navbar-brand-fallback {
+        width: 34px;
+        height: 34px;
+    }
+
+    .navbar-brand-text,
+    .navbar > .navbar-action-button,
+    .navbar-actions > .navbar-action-button:not(.navbar-notification-button),
+    .mobile-sidebar-button {
+        display: none !important;
+    }
+
+    .navbar-actions {
+        margin-left: auto;
+        gap: 6px;
+    }
+
+    .navbar-notification-button,
+    .navbar-user-button {
+        min-width: 42px;
+        min-height: 42px;
+    }
+
+    .navbar-notification-button {
+        width: 42px;
+        height: 42px;
+        border-radius: 12px;
+        font-size: 20px;
+    }
+
+    .navbar-notification-count {
+        top: 1px;
+        right: 0;
+        min-width: 18px;
+        height: 18px;
+        padding-inline: 4px;
+        font-size: 9px;
+        line-height: 1;
+    }
+
+    .navbar-user-button {
+        padding: 3px;
+        border-radius: 12px;
+    }
+
+    .navbar-user-avatar {
+        width: 36px;
+        height: 36px;
+        flex-basis: 36px;
+    }
+
+    .navbar-user-information,
+    .navbar-user-chevron {
+        display: none;
+    }
+
+    .navbar-user-dropdown {
+        position: fixed;
+        top: calc(var(--navbar-height) + 6px);
+        right: 10px;
+        width: min(250px, calc(100vw - 20px));
+    }
+
+    .sidebar {
+        top: var(--navbar-height);
+        height: calc(100vh - var(--navbar-height));
+    }
+
+    .app-main {
+        padding-top: var(--navbar-height);
+    }
+}
+
 @media (max-width: 768px) {
     :root {
         --mobile-bottom-nav-height: 64px;

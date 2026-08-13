@@ -783,5 +783,281 @@
             width: 100%;
         }
     }
+
+    /* ==================================================
+       MOBILE NOTIFICATIONS — ETAPA 6
+       ================================================== */
+    @media (max-width: 768px) {
+        .notifications-page {
+            min-width: 0;
+            padding: 16px 14px calc(
+                var(--mobile-bottom-nav-height, 64px)
+                + env(safe-area-inset-bottom)
+                + 24px
+            );
+            overflow-x: hidden;
+        }
+
+        .notifications-header {
+            gap: 14px;
+            margin-bottom: 16px;
+        }
+
+        .notifications-header h1 {
+            font-size: 24px;
+            line-height: 1.2;
+        }
+
+        .notifications-header p {
+            font-size: 14px;
+            line-height: 1.45;
+        }
+
+        .notifications-actions {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            width: 100%;
+        }
+
+        .notifications-actions .inline-form,
+        .notifications-actions .mark-all-button,
+        .notifications-actions .refresh-button {
+            width: 100%;
+        }
+
+        .mark-all-button,
+        .refresh-button,
+        .filter-submit-button,
+        .filter-clear-button {
+            min-height: 44px;
+            padding-inline: 12px;
+        }
+
+        .notifications-summary {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+
+        .notifications-kpi-grid {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .summary-card,
+        .kpi-box,
+        .analytics-card {
+            min-width: 0;
+            padding: 13px;
+            border-radius: 11px;
+        }
+
+        .summary-card span,
+        .kpi-box span {
+            min-height: 2.5em;
+            margin-bottom: 4px;
+            font-size: 12px;
+            line-height: 1.25;
+        }
+
+        .summary-card strong,
+        .kpi-box strong {
+            font-size: 23px;
+            line-height: 1;
+        }
+
+        .notifications-analytics-grid {
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
+        .analytics-card h3 {
+            margin-bottom: 10px;
+            font-size: 15px;
+        }
+
+        .analytics-list {
+            gap: 6px;
+        }
+
+        .analytics-row {
+            padding: 8px 10px;
+            font-size: 13px;
+        }
+
+        .notifications-filters {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 9px;
+            margin-bottom: 18px;
+        }
+
+        .notifications-filters .filter-search {
+            grid-column: 1 / -1;
+        }
+
+        .filter-group {
+            min-width: 0;
+        }
+
+        .filter-group input,
+        .filter-group select {
+            min-width: 0;
+            min-height: 44px;
+            padding: 9px 10px;
+            font-size: 16px;
+        }
+
+        .notifications-list {
+            gap: 10px;
+        }
+
+        .notification-card {
+            position: relative;
+            grid-template-columns: 36px minmax(0, 1fr);
+            gap: 10px;
+            align-items: start;
+            min-width: 0;
+            padding: 13px;
+            border-left-width: 4px;
+            border-radius: 11px;
+        }
+
+        .notification-unread {
+            background: #f5f9ff;
+            border-color: #c9d9ed;
+            box-shadow: 0 4px 12px rgba(18, 58, 99, 0.09);
+        }
+
+        .notification-unread::after {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #1570ef;
+            content: "";
+        }
+
+        .notification-icon {
+            width: 36px;
+            height: 36px;
+            font-size: 17px;
+        }
+
+        .notification-content {
+            min-width: 0;
+        }
+
+        .notification-title-row {
+            gap: 6px;
+            padding-right: 10px;
+        }
+
+        .notification-title-row h2 {
+            flex-basis: 100%;
+            padding-right: 6px;
+            font-size: 16px;
+            line-height: 1.3;
+            overflow-wrap: anywhere;
+        }
+
+        .notification-unread .notification-title-row h2 {
+            font-weight: 750;
+        }
+
+        .channel-badge,
+        .unread-badge,
+        .resolved-badge {
+            padding: 3px 7px;
+            font-size: 10px;
+        }
+
+        .notification-message {
+            margin: 7px 0 8px;
+            font-size: 14px;
+            line-height: 1.42;
+            overflow-wrap: anywhere;
+        }
+
+        .notification-meta {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, auto));
+            justify-content: start;
+            gap: 4px 10px;
+            font-size: 11px;
+        }
+
+        .notification-meta span:last-child {
+            grid-column: 1 / -1;
+        }
+
+        .notification-audit {
+            padding: 8px 10px;
+            overflow-wrap: anywhere;
+        }
+
+        .notification-card-actions {
+            grid-column: 1 / -1;
+            margin-top: 2px;
+        }
+
+        .notification-action-group {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+            width: 100%;
+        }
+
+        .notification-action-group .inline-form {
+            display: block;
+            min-width: 0;
+        }
+
+        .notification-open-button,
+        .notification-resolve-button,
+        .notification-reopen-button {
+            width: 100%;
+            min-height: 44px;
+            padding: 9px 10px;
+        }
+
+        .notification-action-group .inline-form:only-child {
+            grid-column: 1 / -1;
+        }
+
+        .mark-all-button:focus-visible,
+        .refresh-button:focus-visible,
+        .filter-submit-button:focus-visible,
+        .filter-clear-button:focus-visible,
+        .notification-open-button:focus-visible,
+        .notification-resolve-button:focus-visible,
+        .notification-reopen-button:focus-visible {
+            outline: 3px solid rgba(21, 112, 239, 0.3);
+            outline-offset: 2px;
+        }
+
+        .notifications-empty {
+            padding: 34px 18px;
+            border-radius: 11px;
+        }
+
+        .empty-icon {
+            width: 48px;
+            height: 48px;
+            margin-bottom: 12px;
+            font-size: 22px;
+        }
+
+        .notifications-empty h2 {
+            font-size: 19px;
+        }
+
+        .notifications-empty p {
+            font-size: 14px;
+            line-height: 1.45;
+        }
+    }
 </style>
 {% endblock %}
