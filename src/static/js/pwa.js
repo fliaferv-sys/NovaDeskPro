@@ -110,19 +110,48 @@
 
         console.log("[PWA] service worker listo");
 
+        const expectedServerKey =
+            urlBase64ToUint8Array(vapidPublicKey);
+
         let subscription =
             await registration.pushManager.getSubscription();
+
+        if (subscription) {
+            const currentServerKey =
+                subscription.options?.applicationServerKey
+                    ? new Uint8Array(
+                        subscription.options.applicationServerKey
+                    )
+                    : null;
+
+            const sameServerKey =
+                currentServerKey &&
+                currentServerKey.length === expectedServerKey.length &&
+                currentServerKey.every(
+                    (value, index) =>
+                        value === expectedServerKey[index]
+                );
+
+            if (!sameServerKey) {
+                console.log(
+                    "[PWA] clave VAPID diferente; renovando suscripción"
+                );
+
+                await subscription.unsubscribe();
+                subscription = null;
+            }
+        }
 
         if (!subscription) {
             subscription =
                 await registration.pushManager.subscribe({
                     userVisibleOnly: true,
-                    applicationServerKey:
-                        urlBase64ToUint8Array(vapidPublicKey),
+                    applicationServerKey: expectedServerKey,
                 });
+
             console.log("[PWA] suscripción creada");
         } else {
-            console.log("[PWA] suscripción encontrada");
+            console.log("[PWA] suscripción encontrada y válida");
         }
 
         await savePushSubscription(subscription);

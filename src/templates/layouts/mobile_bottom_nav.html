@@ -1,0 +1,52 @@
+{% if request.user.is_authenticated %}
+<nav class="mobile-bottom-nav" aria-label="Navegación principal móvil">
+    <a
+        href="{% url 'home' %}"
+        class="mobile-bottom-nav-item{% if request.resolver_match.url_name == 'home' or request.resolver_match.url_name == 'dashboard' %} is-active{% endif %}"
+        {% if request.resolver_match.url_name == 'home' or request.resolver_match.url_name == 'dashboard' %}aria-current="page"{% endif %}>
+        <i class="bi bi-house-door" aria-hidden="true"></i>
+        <span>Inicio</span>
+    </a>
+
+    <a
+        href="{% url 'tickets:ticket_list' %}"
+        class="mobile-bottom-nav-item{% if request.resolver_match.namespace == 'tickets' and request.resolver_match.url_name == 'ticket_list' %} is-active{% endif %}"
+        {% if request.resolver_match.namespace == 'tickets' and request.resolver_match.url_name == 'ticket_list' %}aria-current="page"{% endif %}>
+        <i class="bi bi-ticket-perforated" aria-hidden="true"></i>
+        <span>Tickets</span>
+    </a>
+
+    <a
+        href="{% url 'tickets:ticket_create' %}"
+        class="mobile-bottom-nav-item mobile-bottom-nav-create{% if request.resolver_match.namespace == 'tickets' and request.resolver_match.url_name == 'ticket_create' %} is-active{% endif %}"
+        {% if request.resolver_match.namespace == 'tickets' and request.resolver_match.url_name == 'ticket_create' %}aria-current="page"{% endif %}>
+        <span class="mobile-bottom-nav-create-icon">
+            <i class="bi bi-plus-lg" aria-hidden="true"></i>
+        </span>
+        <span>Crear</span>
+    </a>
+
+    <a
+        href="{% url 'notifications:notification_list' %}"
+        class="mobile-bottom-nav-item{% if request.resolver_match.namespace == 'notifications' %} is-active{% endif %}"
+        {% if request.resolver_match.namespace == 'notifications' %}aria-current="page"{% endif %}>
+        <span class="mobile-bottom-nav-icon-with-badge">
+            <i class="bi bi-bell" aria-hidden="true"></i>
+            {% if navbar_unread_notifications %}
+                <span class="mobile-bottom-nav-badge" aria-label="{{ navbar_unread_notifications }} notificaciones no leídas">
+                    {% if navbar_unread_notifications > 99 %}99+{% else %}{{ navbar_unread_notifications }}{% endif %}
+                </span>
+            {% endif %}
+        </span>
+        <span>Notificaciones</span>
+    </a>
+
+    <span
+        class="mobile-bottom-nav-item mobile-bottom-nav-item-disabled"
+        aria-disabled="true"
+        title="Perfil próximamente">
+        <i class="bi bi-person" aria-hidden="true"></i>
+        <span>Perfil</span>
+    </span>
+</nav>
+{% endif %}

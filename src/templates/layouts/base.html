@@ -9,7 +9,7 @@
 
     <meta
         name="viewport"
-        content="width=device-width, initial-scale=1.0">
+        content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 
     <meta name="theme-color" content="#0a1a3a">
     <meta name="mobile-web-app-capable" content="yes">
@@ -167,7 +167,7 @@
 
     <link
          rel="stylesheet"
-         href="{% static 'css/novadesk.css' %}?v=21.6.4">
+         href="{% static 'css/novadesk.css' %}?v=21.6.5">
 
     <!-- =====================================================
          BOOTSTRAP ICONS
@@ -251,6 +251,8 @@
 
     </div>
 
+    {% include "layouts/mobile_bottom_nav.html" %}
+
     <!-- =====================================================
          CHART.JS
          GRÁFICOS DEL DASHBOARD EJECUTIVO
@@ -294,7 +296,7 @@
         };
     </script>
     <script
-        src="{% static 'js/pwa.js' %}?v=1.1.0"
+        src="{% static 'js/pwa.js' %}?v=1.1.1"
         defer>
     </script>
 
