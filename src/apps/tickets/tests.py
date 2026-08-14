@@ -1,4 +1,5 @@
-from datetime import timedelta
+from datetime import time, timedelta
+from html.parser import HTMLParser
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
@@ -28,6 +29,209 @@ from .services import (
     rebalance_unworked_auto_assigned_tickets,
     release_safe_tickets_for_inactive_technician,
 )
+
+
+class DashboardHierarchyParser(HTMLParser):
+    """Collect dashboard sections and detect accidental form nesting."""
+
+    target_cards = {
+        "technician-dashboard",
+        "welcome-card",
+        "technician-workday-card",
+        "technician-availability-card",
+        "queue-card",
+        "active-ticket-card",
+        "technician-queue-status-card",
+        "technician-operational-card",
+        "technician-recent-card",
+    }
+    void_elements = {
+        "area", "base", "br", "col", "embed", "hr", "img", "input",
+        "link", "meta", "param", "source", "track", "wbr",
+    }
+
+    def __init__(self):
+        super().__init__()
+        self.stack = []
+        self.seen_classes = set()
+        self.card_form_ancestors = {}
+
+    def handle_starttag(self, tag, attrs):
+        attributes = dict(attrs)
+        classes = set(attributes.get("class", "").split())
+        self.seen_classes.update(classes)
+        matched_cards = classes & self.target_cards
+        for card_class in matched_cards:
+            self.card_form_ancestors[card_class] = any(
+                ancestor_tag == "form" for ancestor_tag, _ in self.stack
+            )
+        if tag not in self.void_elements:
+            self.stack.append((tag, classes))
+
+    def handle_startendtag(self, tag, attrs):
+        return
+
+    def handle_endtag(self, tag):
+        for index in range(len(self.stack) - 1, -1, -1):
+            if self.stack[index][0] == tag:
+                del self.stack[index:]
+                return
+
+
+class DashboardRoleTests(TestCase):
+    def setUp(self):
+        self.support = Department.objects.create(code="DASH-SUP", name="Soporte")
+        self.systems = Department.objects.create(code="DASH-SYS", name="Sistemas")
+        self.client_user = User.objects.create_user(
+            username="dashboard-client",
+            email="dashboard-client@example.test",
+            password="test-password",
+            role=User.Role.CLIENT,
+        )
+        self.other_client = User.objects.create_user(
+            username="dashboard-other-client",
+            email="dashboard-other-client@example.test",
+            password="test-password",
+            role=User.Role.CLIENT,
+        )
+        self.technician = User.objects.create_user(
+            username="dashboard-technician",
+            email="dashboard-technician@example.test",
+            password="test-password",
+            role=User.Role.TECHNICIAN,
+            department=self.support,
+        )
+        self.other_technician = User.objects.create_user(
+            username="dashboard-other-technician",
+            email="dashboard-other-technician@example.test",
+            password="test-password",
+            role=User.Role.TECHNICIAN,
+            department=self.systems,
+        )
+
+    def create_ticket(self, title, requester=None, **extra):
+        return Ticket.objects.create(
+            title=title,
+            description="Detalle de prueba",
+            requester=requester or self.client_user,
+            department=extra.pop("department", self.support),
+            **extra,
+        )
+
+    def test_client_dashboard_only_uses_own_tickets(self):
+        own = self.create_ticket("Ticket propio")
+        foreign = self.create_ticket("Ticket ajeno", requester=self.other_client)
+        self.client.force_login(self.client_user)
+
+        response = self.client.get(reverse("tickets:dashboard"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["stats"]["total_tickets"], 1)
+        self.assertIn(own, response.context["recent_tickets"])
+        self.assertNotIn(foreign, response.context["recent_tickets"])
+
+    def test_technician_dashboard_uses_assignments_not_created_tickets(self):
+        assigned = self.create_ticket("Asignado a t├®cnico", assigned_to=self.technician)
+        self.create_ticket(
+            "Creado por t├®cnico",
+            requester=self.technician,
+            assigned_to=self.other_technician,
+            department=self.systems,
+        )
+        self.client.force_login(self.technician)
+
+        response = self.client.get(reverse("tickets:dashboard"))
+
+        self.assertEqual(response.context["stats"]["assigned_tickets"], 1)
+        self.assertIn(assigned, response.context["recent_tickets"])
+        self.assertNotContains(response, "Creado por t├®cnico")
+
+    def test_technician_operational_tickets_exclude_waiting_and_history(self):
+        active = self.create_ticket("Trabajo activo", assigned_to=self.technician)
+        waiting = self.create_ticket(
+            "Trabajo en espera",
+            assigned_to=self.technician,
+            status=Ticket.Status.WAITING,
+        )
+        closed = self.create_ticket(
+            "Trabajo cerrado",
+            assigned_to=self.technician,
+            status=Ticket.Status.CLOSED,
+        )
+        self.client.force_login(self.technician)
+
+        response = self.client.get(reverse("tickets:dashboard"))
+
+        self.assertEqual(response.context["stats"]["assigned_tickets"], 1)
+        self.assertIn(active, response.context["primary_tickets"])
+        self.assertNotIn(waiting, response.context["primary_tickets"])
+        self.assertNotIn(closed, response.context["primary_tickets"])
+        self.assertIn(closed, response.context["recent_tickets"])
+
+    def test_technician_queue_is_limited_to_unassigned_department_tickets(self):
+        self.create_ticket("Cola propia")
+        self.create_ticket("Cola ajena", department=self.systems)
+        self.create_ticket("Ya asignado", assigned_to=self.technician)
+        self.client.force_login(self.technician)
+
+        response = self.client.get(reverse("tickets:dashboard"))
+
+        self.assertEqual(response.context["stats"]["queue_tickets"], 1)
+        self.assertEqual(response.context["queue_stats"]["total_active"], 1)
+
+    def test_empty_technician_dashboard_has_operational_message_without_client_cta(self):
+        self.client.force_login(self.technician)
+
+        response = self.client.get(reverse("tickets:dashboard"))
+
+        self.assertContains(response, "No tienes tickets asignados actualmente.")
+        self.assertContains(response, "No hay tickets pendientes para atender.")
+        self.assertNotContains(response, "Crear mi primer ticket")
+
+    def test_technician_dashboard_sections_render_for_every_workday_state(self):
+        shift = WorkShift.objects.create(
+            name="Dashboard structural shift",
+            start_time=time(8, 0),
+            end_time=time(16, 0),
+        )
+        self.create_ticket("Ticket operativo", assigned_to=self.technician)
+        self.client.force_login(self.technician)
+        expected_sections = {
+            "technician-dashboard",
+            "welcome-card",
+            "technician-workday-card",
+            "technician-availability-card",
+            "queue-card",
+            "active-ticket-card",
+            "technician-queue-status-card",
+            "technician-operational-card",
+            "technician-recent-card",
+        }
+
+        for status in (None, TechnicianWorkday.Status.ACTIVE, TechnicianWorkday.Status.FINISHED):
+            with self.subTest(workday_status=status or "NONE"):
+                TechnicianWorkday.objects.all().delete()
+                if status:
+                    now = timezone.now()
+                    TechnicianWorkday.objects.create(
+                        technician=self.technician,
+                        date=timezone.localdate(),
+                        shift=shift,
+                        started_at=now,
+                        scheduled_end_at=now + timedelta(hours=8),
+                        ended_at=now if status == TechnicianWorkday.Status.FINISHED else None,
+                        status=status,
+                    )
+
+                response = self.client.get(reverse("tickets:dashboard"))
+                self.assertEqual(response.status_code, 200)
+                parser = DashboardHierarchyParser()
+                parser.feed(response.content.decode(response.charset))
+
+                self.assertTrue(expected_sections.issubset(parser.seen_classes))
+                self.assertNotIn("technician-main-column", parser.seen_classes)
+                self.assertNotIn("technician-sidebar-column", parser.seen_classes)
+                self.assertFalse(any(parser.card_form_ancestors.values()))
 
 
 class TicketAuthorizationTests(TestCase):

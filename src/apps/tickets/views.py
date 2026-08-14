@@ -27,6 +27,7 @@ from apps.notifications.services import create_or_update_notification
 from apps.core.models import Department, TicketCategory
 from apps.tickets.services import (
     ACTIVE_TICKET_STATUSES,
+    MAX_ACTIVE_TICKETS_PER_TECHNICIAN,
     assign_next_ticket_for_technician,
     auto_assign_ticket,
     lock_ticket_from_auto_rebalancing,
@@ -75,6 +76,7 @@ from .selectors import (
     get_user_active_ticket,
     get_user_recent_tickets,
     get_queue_stats,
+    get_technician_dashboard_data,
 )
 from django.urls import reverse
 from django.views.decorators.cache import never_cache
@@ -1645,18 +1647,36 @@ def dashboard_view(request):
         return redirect("tickets:dashboard")
     
 
-    queue_data = get_user_position_in_queue(user)
-    stats = get_user_dashboard_stats(user)
-    active_ticket = get_user_active_ticket(user)
-    recent_tickets = get_user_recent_tickets(user)
-    queue_stats = get_queue_stats()
-
-    is_technician = False
+    is_technician = user.role == User.Role.TECHNICIAN
     is_admin = False
 
     if hasattr(user, 'role'):
-        is_technician = user.role in TICKET_DEPARTMENT_ROLES
         is_admin = user.role == 'ADMIN'
+
+    if is_technician:
+        technician_data = get_technician_dashboard_data(user)
+        stats = technician_data["stats"]
+        active_ticket = technician_data["active_ticket"]
+        primary_tickets = technician_data["operational_tickets"]
+        recent_tickets = technician_data["recent_tickets"]
+        department_queue = technician_data["department_queue"]
+        queue_stats = get_queue_stats(department_queue)
+        queue_data = None
+        technician_capacity = {
+            "current": Ticket.objects.filter(
+                assigned_to=user,
+                status__in=ACTIVE_TICKET_STATUSES,
+            ).count(),
+            "maximum": MAX_ACTIVE_TICKETS_PER_TECHNICIAN,
+        }
+    else:
+        queue_data = get_user_position_in_queue(user)
+        stats = get_user_dashboard_stats(user)
+        active_ticket = get_user_active_ticket(user)
+        recent_tickets = get_user_recent_tickets(user)
+        primary_tickets = recent_tickets
+        queue_stats = get_queue_stats()
+        technician_capacity = None
 
     department = get_user_department(request.user)
 
@@ -1694,11 +1714,13 @@ def dashboard_view(request):
         'stats': stats,
         'active_ticket': active_ticket,
         'recent_tickets': recent_tickets,
+        'primary_tickets': primary_tickets,
         'queue_stats': queue_stats,
         'is_technician': is_technician,
         'is_admin': is_admin,
         'department': department,
         'today_workday': today_workday,
+        'technician_capacity': technician_capacity,
     }
 
     return render(

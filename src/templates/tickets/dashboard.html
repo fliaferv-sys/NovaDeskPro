@@ -697,6 +697,36 @@ Dashboard - Sistema de Tickets
             text-align: center;
         }
 
+        .welcome-card .btn-welcome-outline {
+            border-color: rgba(255, 255, 255, 0.75);
+            background: rgba(255, 255, 255, 0.12);
+            color: #fff !important;
+        }
+
+        .welcome-card .btn-welcome-outline i {
+            color: currentColor;
+        }
+
+        .technician-dashboard .dashboard-left,
+        .technician-dashboard .dashboard-right {
+            display: contents;
+        }
+
+        .technician-dashboard .welcome-card { order: 10; }
+        .technician-dashboard .technician-workday-card { order: 20; }
+        .technician-dashboard .technician-availability-card { order: 30; }
+        .technician-dashboard .queue-card { order: 40; }
+        .technician-dashboard .active-ticket-card { order: 45; }
+        .technician-dashboard .stats-grid { order: 50; }
+        .technician-dashboard .technician-queue-status-card { order: 60; }
+        .technician-dashboard .technician-operational-card { order: 70; }
+        .technician-dashboard .technician-recent-card { order: 80; }
+
+        .technician-dashboard .stats-grid .stat-card:nth-child(4) { order: 1; }
+        .technician-dashboard .stats-grid .stat-card:nth-child(1) { order: 2; }
+        .technician-dashboard .stats-grid .stat-card:nth-child(2) { order: 3; }
+        .technician-dashboard .stats-grid .stat-card:nth-child(3) { order: 4; }
+
         .queue-card,
         .active-ticket-card,
         .recent-tickets-card,
@@ -733,6 +763,17 @@ Dashboard - Sistema de Tickets
         .history-item {
             min-height: 72px;
             padding: 12px;
+        }
+
+        .history-empty,
+        .no-tickets-message {
+            padding: 14px 8px;
+        }
+
+        .history-empty .icon,
+        .no-tickets-message .icon {
+            margin-bottom: 5px;
+            font-size: 26px;
         }
 
         .dashboard-right form button,
@@ -797,90 +838,16 @@ Dashboard - Sistema de Tickets
 </style>
 
 <!-- ===== DASHBOARD ===== -->
-<div class="dashboard-grid">
+<div class="dashboard-grid{% if is_technician %} technician-dashboard{% endif %}">
 
     <!-- COLUMNA IZQUIERDA -->
     <div class="dashboard-left">
 
-        <!-- POSICIÓN EN COLA -->
-        <div class="queue-card">
-            <div class="queue-number">
-                {% if queue_data.position %}
-                    #{{ queue_data.position }}
-                    <small>en cola</small>
-                {% else %}
-                    <small>Sin tickets activos</small>
-                {% endif %}
-            </div>
-            <div class="queue-label">
-                {% if queue_data.has_active_ticket %}
-                    Eres el siguiente en ser atendido
-                {% else %}
-                    No tienes tickets en espera
-                {% endif %}
-            </div>
-            {% if queue_data.has_active_ticket %}
-                <div class="queue-progress">
-                    <div class="fill" style="width: {% if queue_data.total_ahead > 0 %}75{% else %}100{% endif %}%;"></div>
-                </div>
-                <div class="queue-time">
-                    <span class="icon">⏱️</span>
-                    Tiempo estimado: <strong>{{ queue_data.estimated_time }}</strong>
-                </div>
-            {% else %}
-                <div class="queue-empty">
-                    <span>✅ No hay tickets pendientes</span>
-                </div>
-            {% endif %}
-        </div>
-
-        <!-- TICKET ACTIVO -->
-        {% if active_ticket %}
-            <div class="active-ticket-card">
-                <div class="active-ticket-header">
-                    <span class="active-ticket-id">{{ active_ticket.ticket_number }}</span>
-                    <span class="active-ticket-status status-{{ active_ticket.status|lower }}">
-                        {{ active_ticket.get_status_display }}
-                    </span>
-                </div>
-                <div class="active-ticket-title">{{ active_ticket.title }}</div>
-                <div class="active-ticket-tech">
-                    <div class="tech-avatar">
-                        {% if active_ticket.assigned_to %}
-                            {{ active_ticket.assigned_to.first_name|first }}{{ active_ticket.assigned_to.last_name|first }}
-                        {% else %}
-                            ?
-                        {% endif %}
-                    </div>
-                    <div class="tech-info">
-                        <div class="tech-name">
-                            {% if active_ticket.assigned_to %}
-                                {{ active_ticket.assigned_to.first_name }} {{ active_ticket.assigned_to.last_name }}
-                            {% else %}
-                                Sin asignar
-                            {% endif %}
-                        </div>
-                        <div class="tech-contact">
-                            {% if active_ticket.assigned_to %}
-                                <span>📞 {{ active_ticket.assigned_to.phone|default:"Sin teléfono" }}</span>
-                                <span>✉️ {{ active_ticket.assigned_to.email }}</span>
-                            {% else %}
-                                <span>⏳ Esperando asignación</span>
-                            {% endif %}
-                        </div>
-                    </div>
-                </div>
-                <a href="{% url 'tickets:ticket_detail' active_ticket.pk %}" class="btn-detail">
-                    Ver detalle →
-                </a>
-            </div>
-        {% endif %}
-
         <!-- ESTADÍSTICAS RÁPIDAS -->
         <div class="stats-grid">
             <div class="stat-card orange">
-                <div class="stat-number">{{ stats.pending_tickets }}</div>
-                <div class="stat-label">Pendientes</div>
+                <div class="stat-number">{% if is_technician %}{{ stats.assigned_tickets }}{% else %}{{ stats.pending_tickets }}{% endif %}</div>
+                <div class="stat-label">{% if is_technician %}Asignados a mí{% else %}Pendientes{% endif %}</div>
             </div>
             <div class="stat-card blue">
                 <div class="stat-number">{{ stats.in_progress_tickets }}</div>
@@ -888,44 +855,56 @@ Dashboard - Sistema de Tickets
             </div>
             <div class="stat-card green">
                 <div class="stat-number">{{ stats.resolved_tickets }}</div>
-                <div class="stat-label">Resueltos</div>
+                <div class="stat-label">{% if is_technician %}Resueltos por mí{% else %}Resueltos{% endif %}</div>
             </div>
             <div class="stat-card purple">
-                <div class="stat-number">{{ stats.total_tickets }}</div>
-                <div class="stat-label">Total</div>
+                <div class="stat-number">{% if is_technician %}{{ stats.queue_tickets }}{% else %}{{ stats.total_tickets }}{% endif %}</div>
+                <div class="stat-label">{% if is_technician %}Pendientes en área{% else %}Total{% endif %}</div>
             </div>
         </div>
 
-        <!-- HISTORIAL RECIENTE -->
-        <div style="background: white; border-radius: 16px; padding: 16px 20px; border: 1px solid #e9edf4;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                <h4 style="margin: 0; font-size: 15px; color: #0a1a3a;">📋 Últimos tickets</h4>
-                <a href="{% url 'tickets:ticket_list' %}" class="link-all" style="margin: 0;">Ver todos →</a>
+        <!-- TICKETS RECIENTES (versión tabla) -->
+        <div class="recent-tickets-card technician-recent-card">
+            <div class="card-header">
+                <h3>📌 Tickets recientes</h3>
+                <a href="{% url 'tickets:ticket_list' %}">Ver todos</a>
             </div>
-            <div class="history-list">
-                {% for ticket in recent_tickets %}
-                    <div class="history-item" onclick="window.location.href='{% url 'tickets:ticket_detail' ticket.pk %}'">
-                        <div class="history-item-left">
-                            <span class="history-id">{{ ticket.ticket_number }}</span>
-                            <span class="history-title">{{ ticket.title }}</span>
-                            <span class="history-date">{{ ticket.created_at|date:"d/m/Y H:i" }}</span>
-                        </div>
-                        <div>
-                            <span class="history-status-badge badge-{{ ticket.status|lower }}">
-                                {{ ticket.get_status_display }}
-                            </span>
-                        </div>
-                    </div>
-                {% empty %}
-                    <div class="history-empty">
-                        <span class="icon">🎫</span>
-                        <p>No tienes tickets registrados aún.</p>
-                        <a href="{% url 'tickets:ticket_create' %}" class="btn-welcome" style="display: inline-block; margin-top: 10px; padding: 8px 20px; font-size: 13px;">
-                            Crear mi primer ticket
-                        </a>
-                    </div>
-                {% endfor %}
-            </div>
+            {% if recent_tickets %}
+                <table class="mini-table">
+                    <thead>
+                        <tr>
+                            <th>Ticket</th>
+                            <th>Título</th>
+                            <th>Estado</th>
+                            <th>Fecha</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for ticket in recent_tickets|slice:":5" %}
+                            <tr onclick="window.location.href='{% url 'tickets:ticket_detail' ticket.pk %}'">
+                                <td><strong>{{ ticket.ticket_number }}</strong></td>
+                                <td>{{ ticket.title|truncatechars:30 }}</td>
+                                <td>
+                                    <span class="badge-small status-{{ ticket.status|lower }}">
+                                        {{ ticket.get_status_display }}
+                                    </span>
+                                </td>
+                                <td>{{ ticket.created_at|date:"d/m/Y" }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <div class="no-tickets-message">
+                    <span class="icon"><i class="bi bi-ticket-perforated" aria-hidden="true"></i></span>
+                    <p>{% if is_technician %}No tienes tickets asignados actualmente.{% else %}No tienes tickets registrados aún.{% endif %}</p>
+                    {% if not is_technician %}
+                    <a href="{% url 'tickets:ticket_create' %}" class="btn-welcome" style="display: inline-block; margin-top: 10px; padding: 8px 20px; font-size: 13px;">
+                        Crear mi primer ticket
+                    </a>
+                    {% endif %}
+                </div>
+            {% endif %}
         </div>
 
     </div>
@@ -937,14 +916,16 @@ Dashboard - Sistema de Tickets
         <div class="welcome-card">
             <div class="welcome-text">
                 <h2>👋 Hola, {{ request.user.first_name }} {{ request.user.last_name }}</h2>
-                <p>Bienvenido al Service Desk de Petropar</p>
+                <p>{% if is_technician %}Panel operativo de atención de tickets{% else %}Bienvenido al Service Desk de Petropar{% endif %}</p>
             </div>
             <div class="welcome-actions">
+                {% if not is_technician %}
                 <a href="{% url 'tickets:ticket_create' %}" class="btn-welcome">
                     ✚ Nuevo Ticket
                 </a>
+                {% endif %}
                 <a href="{% url 'tickets:ticket_list' %}" class="btn-welcome-outline">
-                    📋 Mis Tickets
+                    📋 {% if is_technician %}Bandeja de tickets{% else %}Mis Tickets{% endif %}
                 </a>
             </div>
         </div>
@@ -952,7 +933,7 @@ Dashboard - Sistema de Tickets
         
         {% if request.user.role == "TECHNICIAN" %}
 
-            <div style="
+            <div class="technician-workday-card" style="
                 background: white;
                 border-radius: 16px;
                 padding: 20px 24px;
@@ -1259,7 +1240,7 @@ Dashboard - Sistema de Tickets
 
         {% endif %}
         {% if request.user.role == "TECHNICIAN" %}
-            <div style="
+            <div class="technician-availability-card" style="
                 background: white;
                 border-radius: 16px;
                 padding: 20px 24px;
@@ -1351,9 +1332,102 @@ Dashboard - Sistema de Tickets
             </div>
         {% endif %}
 
+        <!-- POSICIÓN / ESTADO DE COLA -->
+        {% if is_technician %}
+        <div class="queue-card">
+            <div class="queue-number">
+                {{ stats.queue_tickets }}
+                <small>en cola</small>
+            </div>
+            <div class="queue-label">
+                Tickets abiertos sin asignar en {{ department|default:"tu área" }}
+            </div>
+            <div class="queue-empty">
+                {% if stats.queue_tickets %}
+                    <span><i class="bi bi-inbox" aria-hidden="true"></i> Pendientes para atender</span>
+                {% else %}
+                    <span><i class="bi bi-check-circle" aria-hidden="true"></i> No hay tickets pendientes para atender.</span>
+                {% endif %}
+            </div>
+        </div>
+        {% else %}
+        <div class="queue-card">
+            <div class="queue-number">
+                {% if queue_data.position %}
+                    #{{ queue_data.position }}
+                    <small>en cola</small>
+                {% else %}
+                    <small>Sin tickets activos</small>
+                {% endif %}
+            </div>
+            <div class="queue-label">
+                {% if queue_data.has_active_ticket %}
+                    Eres el siguiente en ser atendido
+                {% else %}
+                    No tienes tickets en espera
+                {% endif %}
+            </div>
+            {% if queue_data.has_active_ticket %}
+                <div class="queue-progress">
+                    <div class="fill" style="width: {% if queue_data.total_ahead > 0 %}75{% else %}100{% endif %}%;"></div>
+                </div>
+                <div class="queue-time">
+                    <span class="icon">⏱️</span>
+                    Tiempo estimado: <strong>{{ queue_data.estimated_time }}</strong>
+                </div>
+            {% else %}
+                <div class="queue-empty">
+                    <span>✅ No hay tickets pendientes</span>
+                </div>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <!-- TICKET ACTIVO -->
+        {% if active_ticket %}
+            <div class="active-ticket-card">
+                <div class="active-ticket-header">
+                    <span class="active-ticket-id">{{ active_ticket.ticket_number }}</span>
+                    <span class="active-ticket-status status-{{ active_ticket.status|lower }}">
+                        {{ active_ticket.get_status_display }}
+                    </span>
+                </div>
+                <div class="active-ticket-title">{{ active_ticket.title }}</div>
+                <div class="active-ticket-tech">
+                    <div class="tech-avatar">
+                        {% if active_ticket.assigned_to %}
+                            {{ active_ticket.assigned_to.first_name|first }}{{ active_ticket.assigned_to.last_name|first }}
+                        {% else %}
+                            ?
+                        {% endif %}
+                    </div>
+                    <div class="tech-info">
+                        <div class="tech-name">
+                            {% if active_ticket.assigned_to %}
+                                {{ active_ticket.assigned_to.first_name }} {{ active_ticket.assigned_to.last_name }}
+                            {% else %}
+                                Sin asignar
+                            {% endif %}
+                        </div>
+                        <div class="tech-contact">
+                            {% if active_ticket.assigned_to %}
+                                <span>📞 {{ active_ticket.assigned_to.phone|default:"Sin teléfono" }}</span>
+                                <span>✉️ {{ active_ticket.assigned_to.email }}</span>
+                            {% else %}
+                                <span>⏳ Esperando asignación</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                <a href="{% url 'tickets:ticket_detail' active_ticket.pk %}" class="btn-detail">
+                    Ver detalle →
+                </a>
+            </div>
+        {% endif %}
+
         <!-- ESTADÍSTICAS DE LA COLA (para técnicos) -->
         {% if is_technician %}
-            <div style="background: white; border-radius: 16px; padding: 20px 24px; border: 1px solid #e9edf4;">
+            <div class="technician-queue-status-card" style="background: white; border-radius: 16px; padding: 20px 24px; border: 1px solid #e9edf4;">
                 <h3 style="margin: 0 0 16px 0; font-size: 16px; color: #0a1a3a;">📊 Estado de la cola</h3>
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 12px;">
                     <div style="text-align: center; padding: 12px; background: #f8fafc; border-radius: 10px;">
@@ -1375,50 +1449,45 @@ Dashboard - Sistema de Tickets
                 </div>
                 <div style="margin-top: 12px; text-align: center; font-size: 13px; color: #7a8ba3;">
                     Total activos: <strong>{{ queue_stats.total_active }}</strong> | Tiempo promedio: <strong>{{ queue_stats.avg_wait_time }}</strong>
+                    {% if technician_capacity %}
+                        | Capacidad: <strong>{{ technician_capacity.current }} / {{ technician_capacity.maximum }}</strong>
+                    {% endif %}
                 </div>
             </div>
         {% endif %}
 
-        <!-- TICKETS RECIENTES (versión tabla) -->
-        <div class="recent-tickets-card">
-            <div class="card-header">
-                <h3>📌 Tickets recientes</h3>
-                <a href="{% url 'tickets:ticket_list' %}">Ver todos</a>
+        <!-- HISTORIAL RECIENTE -->
+        <div class="technician-operational-card" style="background: white; border-radius: 16px; padding: 16px 20px; border: 1px solid #e9edf4;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <h4 style="margin: 0; font-size: 15px; color: #0a1a3a;">📋 {% if is_technician %}Mis tickets operativos{% else %}Últimos tickets{% endif %}</h4>
+                <a href="{% url 'tickets:ticket_list' %}" class="link-all" style="margin: 0;">Ver todos →</a>
             </div>
-            {% if recent_tickets %}
-                <table class="mini-table">
-                    <thead>
-                        <tr>
-                            <th>Ticket</th>
-                            <th>Título</th>
-                            <th>Estado</th>
-                            <th>Fecha</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for ticket in recent_tickets|slice:":5" %}
-                            <tr onclick="window.location.href='{% url 'tickets:ticket_detail' ticket.pk %}'">
-                                <td><strong>{{ ticket.ticket_number }}</strong></td>
-                                <td>{{ ticket.title|truncatechars:30 }}</td>
-                                <td>
-                                    <span class="badge-small status-{{ ticket.status|lower }}">
-                                        {{ ticket.get_status_display }}
-                                    </span>
-                                </td>
-                                <td>{{ ticket.created_at|date:"d/m/Y" }}</td>
-                            </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            {% else %}
-                <div class="no-tickets-message">
-                    <span class="icon">🎫</span>
-                    <p>No tienes tickets registrados aún.</p>
-                    <a href="{% url 'tickets:ticket_create' %}" class="btn-welcome" style="display: inline-block; margin-top: 10px; padding: 8px 20px; font-size: 13px;">
-                        Crear mi primer ticket
-                    </a>
-                </div>
-            {% endif %}
+            <div class="history-list">
+                {% for ticket in primary_tickets %}
+                    <div class="history-item" onclick="window.location.href='{% url 'tickets:ticket_detail' ticket.pk %}'">
+                        <div class="history-item-left">
+                            <span class="history-id">{{ ticket.ticket_number }}</span>
+                            <span class="history-title">{{ ticket.title }}</span>
+                            <span class="history-date">{{ ticket.created_at|date:"d/m/Y H:i" }}</span>
+                        </div>
+                        <div>
+                            <span class="history-status-badge badge-{{ ticket.status|lower }}">
+                                {{ ticket.get_status_display }}
+                            </span>
+                        </div>
+                    </div>
+                {% empty %}
+                    <div class="history-empty">
+                        <span class="icon"><i class="bi bi-ticket-perforated" aria-hidden="true"></i></span>
+                        <p>{% if is_technician %}No tienes tickets asignados actualmente.{% else %}No tienes tickets registrados aún.{% endif %}</p>
+                        {% if not is_technician %}
+                        <a href="{% url 'tickets:ticket_create' %}" class="btn-welcome" style="display: inline-block; margin-top: 10px; padding: 8px 20px; font-size: 13px;">
+                            Crear mi primer ticket
+                        </a>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            </div>
         </div>
 
     </div>

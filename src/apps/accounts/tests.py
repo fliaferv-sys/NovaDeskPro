@@ -11,6 +11,7 @@ from .access import (
 )
 
 from .models import User
+from apps.tickets.models import Ticket
 
 
 class AccountAccessTests(TestCase):
@@ -73,6 +74,21 @@ class AccountAccessTests(TestCase):
         self.assertContains(response, 'class="mobile-bottom-nav-item is-active"')
         self.assertContains(response, 'aria-current="page"')
 
+    def test_admin_home_keeps_global_ticket_metrics(self):
+        admin = self.create_user("global-admin@example.test", role=User.Role.ADMIN)
+        requester = self.create_user("global-requester@example.test")
+        Ticket.objects.create(
+            title="Ticket global",
+            description="Visible en el dashboard ejecutivo",
+            requester=requester,
+        )
+        self.client.force_login(admin)
+
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["total_tickets"], 1)
+
     def test_client_cannot_open_global_user_list(self):
         user = self.create_user("client@example.test", role=User.Role.CLIENT)
         self.client.force_login(user)
@@ -83,6 +99,18 @@ class AccountAccessTests(TestCase):
         self.client.force_login(user)
         response = self.client.get(reverse("dashboard:executive_dashboard"))
         self.assertEqual(response.status_code, 403)
+
+    def test_client_home_opens_ticket_creation(self):
+        user = self.create_user("client-home@example.test", role=User.Role.CLIENT)
+        self.client.force_login(user)
+
+        response = self.client.get(reverse("home"))
+
+        self.assertRedirects(
+            response,
+            reverse("tickets:ticket_create"),
+            fetch_redirect_response=False,
+        )
 
     def test_suspended_existing_session_is_ended(self):
         user = self.create_user("session@example.test")

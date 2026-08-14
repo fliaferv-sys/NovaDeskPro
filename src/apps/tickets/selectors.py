@@ -3,6 +3,7 @@ from django.utils import timezone
 from datetime import timedelta
 
 from .models import Ticket
+from .services import ACTIVE_TICKET_STATUSES
 
 
 def get_user_position_in_queue(user):
@@ -121,6 +122,42 @@ def get_user_recent_tickets(user, limit=5):
     ).order_by('-created_at')[:limit]
 
 
+def get_technician_dashboard_data(user, limit=5):
+    """Return operational dashboard data scoped to one technician."""
+    assigned_tickets = Ticket.objects.filter(assigned_to=user)
+    active_assigned = assigned_tickets.filter(
+        status__in=ACTIVE_TICKET_STATUSES
+    )
+
+    if user.department_id:
+        department_queue = Ticket.objects.filter(
+            department_id=user.department_id,
+            assigned_to__isnull=True,
+            status=Ticket.Status.OPEN,
+        )
+    else:
+        department_queue = Ticket.objects.none()
+
+    stats = {
+        "assigned_tickets": active_assigned.count(),
+        "in_progress_tickets": assigned_tickets.filter(
+            status=Ticket.Status.IN_PROGRESS
+        ).count(),
+        "queue_tickets": department_queue.count(),
+        "resolved_tickets": assigned_tickets.filter(
+            status__in=[Ticket.Status.RESOLVED, Ticket.Status.CLOSED]
+        ).count(),
+    }
+
+    return {
+        "stats": stats,
+        "active_ticket": active_assigned.order_by("priority", "created_at").first(),
+        "operational_tickets": active_assigned.order_by("priority", "created_at")[:limit],
+        "recent_tickets": assigned_tickets.order_by("-updated_at")[:limit],
+        "department_queue": department_queue,
+    }
+
+
 def get_user_ticket_history(user, status_filter=None):
     """
     Obtiene el historial de tickets del usuario con filtro opcional.
@@ -140,7 +177,7 @@ def get_user_ticket_history(user, status_filter=None):
     return tickets.order_by('-created_at')
 
 
-def get_queue_stats():
+def get_queue_stats(tickets=None):
     """
     Obtiene estadísticas generales de la cola.
     
@@ -154,9 +191,11 @@ def get_queue_stats():
             'avg_wait_time': str,
         }
     """
-    active_tickets = Ticket.objects.filter(
-        ~Q(status__in=[Ticket.Status.RESOLVED, Ticket.Status.CLOSED])
-    )
+    active_tickets = tickets
+    if active_tickets is None:
+        active_tickets = Ticket.objects.filter(
+            ~Q(status__in=[Ticket.Status.RESOLVED, Ticket.Status.CLOSED])
+        )
     
     # Calcular tiempo promedio de espera (simulado)
     # En un sistema real, se calcularía desde la base de datos
