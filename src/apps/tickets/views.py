@@ -242,6 +242,12 @@ def ticket_list_view(request):
         selected_view = "active"
         tickets = allowed_tickets.filter(status__in=active_statuses)
 
+    selected_status = request.GET.get("status", "").strip().upper()
+    if selected_status in Ticket.Status.values:
+        tickets = tickets.filter(status=selected_status)
+    else:
+        selected_status = ""
+
     tickets = tickets.order_by("-created_at")
 
     department = get_user_department(request.user)
@@ -256,6 +262,7 @@ def ticket_list_view(request):
             "resolved_tickets": resolved_tickets,
             "pending_tickets": pending_tickets,
             "selected_view": selected_view,
+            "selected_status": selected_status,
             "department": department,
         },
     )

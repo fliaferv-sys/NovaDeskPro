@@ -172,6 +172,19 @@ class TicketAuthorizationTests(TestCase):
         all_response = self.client.get(list_url, {"view": "all"})
         self.assertEqual(all_response.context["tickets"].count(), 5)
 
+        open_response = self.client.get(
+            list_url,
+            {"view": "all", "status": Ticket.Status.OPEN},
+        )
+        self.assertQuerySetEqual(
+            open_response.context["tickets"],
+            [tickets_by_status[Ticket.Status.OPEN]],
+        )
+        self.assertEqual(
+            open_response.context["selected_status"],
+            Ticket.Status.OPEN,
+        )
+
         for response in [active_response, resolved_response, all_response]:
             self.assertEqual(response.context["total_tickets"], 5)
             self.assertEqual(response.context["pending_tickets"], 3)
