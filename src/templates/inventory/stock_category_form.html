@@ -1,0 +1,1 @@
+{% extends "inventory/stock_base.html" %}{% block stock_heading %}{% if editing %}Editar categoría{% else %}Nueva categoría{% endif %}{% endblock %}{% block stock_content %}<form method="post" class="stock-card stock-form">{% csrf_token %}{{ form.as_p }}<button class="stock-button">Guardar</button></form>{% endblock %}

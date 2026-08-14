@@ -1,6 +1,8 @@
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import PermissionDenied
-from django.db.models import Q
+from django.core.exceptions import PermissionDenied, ValidationError
+from django.db.models import Count, F, Q, Sum
+from django.db.models.functions import Coalesce
 from django.shortcuts import (
     get_object_or_404,
     redirect,
@@ -8,6 +10,7 @@ from django.shortcuts import (
 )
 
 from apps.deliveries.models import AssetCustodyMovement
+from apps.accounts.models import User
 from apps.accounts.access import (
     can_manage_deliveries,
     can_manage_inventory,
@@ -19,8 +22,24 @@ from apps.accounts.access import (
 from .forms import (
     AssetForm,
     AssetTechnicalHistoryForm,
+    StockCategoryForm,
+    StockEntryForm,
+    StockExitForm,
+    StockProductForm,
+    StockTransferForm,
 )
-from .models import Asset
+from .models import (
+    Asset,
+    StockBalance,
+    StockCategory,
+    StockMovement,
+    StockProduct,
+)
+from .services.stock import (
+    register_stock_entry,
+    register_stock_exit,
+    transfer_stock,
+)
 
 
 # ==========================================================
@@ -473,3 +492,291 @@ def my_asset_list(request):
     }
 
     return render(request, 'inventory/my_asset_list.html', context)
+
+
+def _add_service_errors(form, error):
+    if hasattr(error, "message_dict"):
+        for field, errors in error.message_dict.items():
+            target = field if field in form.fields else None
+            for message in errors:
+                form.add_error(target, message)
+    else:
+        form.add_error(None, error)
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def stock_product_list_view(request):
+    products = StockProduct.objects.select_related("category").annotate(
+        stock_total=Coalesce(Sum("balances__quantity"), 0)
+    )
+    search = request.GET.get("q", "").strip()
+    category = request.GET.get("category", "").strip()
+    active = request.GET.get("active", "").strip()
+    branch = request.GET.get("branch", "").strip()
+    availability = request.GET.get("availability", "").strip()
+
+    if search:
+        products = products.filter(
+            Q(name__icontains=search)
+            | Q(reference_code__icontains=search)
+            | Q(brand__icontains=search)
+            | Q(model__icontains=search)
+        )
+    if category:
+        products = products.filter(category_id=category)
+    if active in {"true", "false"}:
+        products = products.filter(is_active=(active == "true"))
+    if branch:
+        products = products.filter(balances__branch_id=branch).distinct()
+    if availability == "out":
+        products = products.filter(stock_total=0)
+    elif availability == "low":
+        products = products.filter(
+            stock_total__gt=0,
+            stock_total__lte=F("minimum_stock"),
+        )
+    elif availability == "available":
+        products = products.filter(stock_total__gt=F("minimum_stock"))
+
+    return render(
+        request,
+        "inventory/stock_product_list.html",
+        {
+            "products": products,
+            "categories": StockCategory.objects.order_by("name"),
+            "branches": Asset._meta.get_field("branch").remote_field.model.objects.filter(
+                is_active=True
+            ),
+            "filters": request.GET,
+        },
+    )
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def stock_product_detail_view(request, pk):
+    product = get_object_or_404(
+        StockProduct.objects.select_related("category", "default_location"), pk=pk
+    )
+    balances = product.balances.select_related(
+        "branch", "organizational_location"
+    ).order_by("branch__name", "organizational_location__name")
+    movements = product.stock_movements.select_related(
+        "balance__branch",
+        "balance__organizational_location",
+        "performed_by",
+    ).order_by("-movement_date", "-created_at")[:50]
+    total_stock = balances.aggregate(total=Coalesce(Sum("quantity"), 0))["total"]
+    return render(
+        request,
+        "inventory/stock_product_detail.html",
+        {
+            "product": product,
+            "balances": balances,
+            "movements": movements,
+            "total_stock": total_stock,
+        },
+    )
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def stock_product_create_view(request):
+    form = StockProductForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        product = form.save()
+        messages.success(request, "Producto de stock registrado.")
+        return redirect("inventory:stock_product_detail", pk=product.pk)
+    return render(
+        request,
+        "inventory/stock_product_form.html",
+        {"form": form, "editing": False},
+    )
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def stock_product_update_view(request, pk):
+    product = get_object_or_404(StockProduct, pk=pk)
+    form = StockProductForm(request.POST or None, instance=product)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Producto actualizado.")
+        return redirect("inventory:stock_product_detail", pk=product.pk)
+    return render(
+        request,
+        "inventory/stock_product_form.html",
+        {"form": form, "editing": True, "product": product},
+    )
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def stock_category_list_view(request):
+    return render(
+        request,
+        "inventory/stock_category_list.html",
+        {"categories": StockCategory.objects.annotate(product_count=Count("products"))},
+    )
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def stock_category_create_view(request):
+    form = StockCategoryForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Categoría registrada.")
+        return redirect("inventory:stock_category_list")
+    return render(
+        request,
+        "inventory/stock_category_form.html",
+        {"form": form, "editing": False},
+    )
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def stock_category_update_view(request, pk):
+    category = get_object_or_404(StockCategory, pk=pk)
+    form = StockCategoryForm(request.POST or None, instance=category)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Categoría actualizada.")
+        return redirect("inventory:stock_category_list")
+    return render(
+        request,
+        "inventory/stock_category_form.html",
+        {"form": form, "editing": True, "category": category},
+    )
+
+
+def _stock_operation_view(request, *, form_class, service, title):
+    form = form_class(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        data = form.cleaned_data
+        try:
+            service(
+                product=data["product"],
+                branch=data["branch"],
+                organizational_location=data["organizational_location"],
+                quantity=data["quantity"],
+                reason=data["reason"],
+                performed_by=request.user,
+                observation=data["observation"],
+                document_reference=data["document_reference"],
+            )
+        except ValidationError as error:
+            _add_service_errors(form, error)
+        else:
+            messages.success(request, f"{title} registrada correctamente.")
+            return redirect("inventory:stock_product_detail", pk=data["product"].pk)
+    return render(
+        request,
+        "inventory/stock_operation_form.html",
+        {"form": form, "title": title},
+    )
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def stock_entry_view(request):
+    return _stock_operation_view(
+        request,
+        form_class=StockEntryForm,
+        service=register_stock_entry,
+        title="Entrada de stock",
+    )
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def stock_exit_view(request):
+    return _stock_operation_view(
+        request,
+        form_class=StockExitForm,
+        service=register_stock_exit,
+        title="Salida de stock",
+    )
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def stock_transfer_view(request):
+    form = StockTransferForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        data = form.cleaned_data
+        try:
+            transfer_stock(
+                product=data["product"],
+                source_branch=data["source_branch"],
+                source_location=data["source_location"],
+                destination_branch=data["destination_branch"],
+                destination_location=data["destination_location"],
+                quantity=data["quantity"],
+                performed_by=request.user,
+                observation=data["observation"],
+                document_reference=data["document_reference"],
+            )
+        except ValidationError as error:
+            _add_service_errors(form, error)
+        else:
+            messages.success(request, "Transferencia registrada correctamente.")
+            return redirect("inventory:stock_product_detail", pk=data["product"].pk)
+    return render(
+        request,
+        "inventory/stock_transfer_form.html",
+        {"form": form},
+    )
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def stock_movement_list_view(request):
+    movements = StockMovement.objects.select_related(
+        "product__category",
+        "balance__branch",
+        "balance__organizational_location",
+        "performed_by",
+    )
+    search = request.GET.get("q", "").strip()
+    filters = {
+        "product_id": request.GET.get("product", "").strip(),
+        "product__category_id": request.GET.get("category", "").strip(),
+        "direction": request.GET.get("direction", "").strip(),
+        "reason": request.GET.get("reason", "").strip(),
+        "balance__branch_id": request.GET.get("branch", "").strip(),
+        "balance__organizational_location_id": request.GET.get("location", "").strip(),
+        "performed_by_id": request.GET.get("user", "").strip(),
+        "movement_date__date__gte": request.GET.get("date_from", "").strip(),
+        "movement_date__date__lte": request.GET.get("date_to", "").strip(),
+    }
+    if search:
+        movements = movements.filter(
+            Q(product__reference_code__icontains=search)
+            | Q(product__name__icontains=search)
+            | Q(product__brand__icontains=search)
+            | Q(product__model__icontains=search)
+        )
+    for lookup, value in filters.items():
+        if value:
+            movements = movements.filter(**{lookup: value})
+
+    return render(
+        request,
+        "inventory/stock_movement_list.html",
+        {
+            "movements": movements.order_by("-movement_date", "-created_at"),
+            "products": StockProduct.objects.order_by("name"),
+            "categories": StockCategory.objects.order_by("name"),
+            "branches": Asset._meta.get_field("branch").remote_field.model.objects.filter(is_active=True),
+            "locations": StockBalance.objects.values_list(
+                "organizational_location_id", "organizational_location__name"
+            ).distinct().order_by("organizational_location__name"),
+            "users": User.objects.filter(is_active=True).order_by("first_name", "last_name"),
+            "direction_choices": StockMovement.Direction.choices,
+            "reason_choices": StockMovement.Reason.choices,
+            "filters": request.GET,
+        },
+    )

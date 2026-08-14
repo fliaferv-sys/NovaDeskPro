@@ -11,6 +11,17 @@ from .views import (
     asset_update_view,
     technical_history_create_view,
     my_asset_list,  # ✅ YA ESTÁ IMPORTADO
+    stock_category_create_view,
+    stock_category_list_view,
+    stock_category_update_view,
+    stock_entry_view,
+    stock_exit_view,
+    stock_movement_list_view,
+    stock_product_create_view,
+    stock_product_detail_view,
+    stock_product_list_view,
+    stock_product_update_view,
+    stock_transfer_view,
 )
 
 
@@ -18,6 +29,17 @@ app_name = "inventory"
 
 
 urlpatterns = [
+    path("stock/", stock_product_list_view, name="stock_product_list"),
+    path("stock/productos/nuevo/", stock_product_create_view, name="stock_product_create"),
+    path("stock/productos/<uuid:pk>/", stock_product_detail_view, name="stock_product_detail"),
+    path("stock/productos/<uuid:pk>/editar/", stock_product_update_view, name="stock_product_update"),
+    path("stock/categorias/", stock_category_list_view, name="stock_category_list"),
+    path("stock/categorias/nueva/", stock_category_create_view, name="stock_category_create"),
+    path("stock/categorias/<uuid:pk>/editar/", stock_category_update_view, name="stock_category_update"),
+    path("stock/entrada/", stock_entry_view, name="stock_entry"),
+    path("stock/salida/", stock_exit_view, name="stock_exit"),
+    path("stock/transferencia/", stock_transfer_view, name="stock_transfer"),
+    path("stock/movimientos/", stock_movement_list_view, name="stock_movement_list"),
     path(
         "",
         asset_list_view,

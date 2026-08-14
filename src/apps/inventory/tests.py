@@ -715,3 +715,295 @@ class GenericStockTests(TestCase):
             movement.delete()
 
         self.assertEqual(StockMovement.objects.count(), 1)
+
+
+class StockAdministrationTests(TestCase):
+    def setUp(self):
+        self.admin_user = User.objects.create_user(
+            username="stock_admin_ui",
+            email="stock_admin_ui@example.com",
+            password="test-password-123",
+            role="ADMIN",
+        )
+        self.supervisor_user = User.objects.create_user(
+            username="stock_supervisor_ui",
+            email="stock_supervisor_ui@example.com",
+            password="test-password-123",
+            role="SUPERVISOR",
+        )
+        self.branch = Branch.objects.create(code="UI-HQ", name="Sede UI")
+        self.location = OrganizationalLocation.objects.create(
+            branch=self.branch,
+            code="UI-WH",
+            name="Depósito UI",
+            location_type=OrganizationalLocation.LocationType.WAREHOUSE,
+        )
+        self.other_branch = Branch.objects.create(code="UI-B2", name="Sede UI 2")
+        self.other_location = OrganizationalLocation.objects.create(
+            branch=self.other_branch,
+            code="UI-WH-2",
+            name="Depósito UI 2",
+            location_type=OrganizationalLocation.LocationType.WAREHOUSE,
+        )
+        self.category = StockCategory.objects.create(
+            name="Accesorios UI", code="accesorios-ui"
+        )
+        self.product = StockProduct.objects.create(
+            name="Mouse UI",
+            reference_code="UI-MOUSE-001",
+            category=self.category,
+            brand="Logitech",
+            model="M90",
+            minimum_stock=2,
+        )
+
+    def login_admin(self):
+        self.client.force_login(self.admin_user)
+
+    def product_data(self, **overrides):
+        data = {
+            "name": "Teclado UI",
+            "reference_code": "UI-KEYBOARD-001",
+            "category": self.category.pk,
+            "brand": "Logitech",
+            "model": "K120",
+            "description": "Teclado de prueba",
+            "unit_of_measure": StockProduct.UnitOfMeasure.UNIT,
+            "minimum_stock": 3,
+            "is_active": True,
+            "default_location": self.location.pk,
+        }
+        data.update(overrides)
+        return data
+
+    def operation_data(self, **overrides):
+        data = {
+            "product": self.product.pk,
+            "branch": self.branch.pk,
+            "organizational_location": self.location.pk,
+            "quantity": 5,
+            "reason": StockMovement.Reason.PURCHASE,
+            "observation": "Operación web",
+            "document_reference": "DOC-UI-1",
+        }
+        data.update(overrides)
+        return data
+
+    def test_product_list_search_and_filters(self):
+        self.login_admin()
+        response = self.client.get(
+            reverse("inventory:stock_product_list"),
+            {"q": "M90", "category": self.category.pk, "active": "true"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.product.reference_code)
+
+    def test_product_create_duplicate_validation_edit_and_deactivation(self):
+        self.login_admin()
+        create_response = self.client.post(
+            reverse("inventory:stock_product_create"), self.product_data()
+        )
+        created = StockProduct.objects.get(reference_code="UI-KEYBOARD-001")
+        self.assertRedirects(
+            create_response,
+            reverse("inventory:stock_product_detail", args=[created.pk]),
+        )
+
+        duplicate_response = self.client.post(
+            reverse("inventory:stock_product_create"),
+            self.product_data(name="Duplicado"),
+        )
+        self.assertEqual(duplicate_response.status_code, 200)
+        self.assertFormError(
+            duplicate_response.context["form"],
+            "reference_code",
+            "Ya existe Producto de stock con este Código de referencia.",
+        )
+
+        update_response = self.client.post(
+            reverse("inventory:stock_product_update", args=[created.pk]),
+            self.product_data(name="Teclado actualizado", is_active=False),
+        )
+        created.refresh_from_db()
+        self.assertEqual(update_response.status_code, 302)
+        self.assertEqual(created.name, "Teclado actualizado")
+        self.assertFalse(created.is_active)
+
+    def test_category_create_edit_and_deactivate(self):
+        self.login_admin()
+        response = self.client.post(
+            reverse("inventory:stock_category_create"),
+            {"name": "Cables", "code": "cables", "description": "", "is_active": True},
+        )
+        category = StockCategory.objects.get(code="cables")
+        self.assertRedirects(response, reverse("inventory:stock_category_list"))
+
+        response = self.client.post(
+            reverse("inventory:stock_category_update", args=[category.pk]),
+            {"name": "Cables varios", "code": "cables", "description": "", "is_active": False},
+        )
+        category.refresh_from_db()
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(category.name, "Cables varios")
+        self.assertFalse(category.is_active)
+
+    def test_stock_views_permissions(self):
+        urls = [
+            reverse("inventory:stock_product_list"),
+            reverse("inventory:stock_product_create"),
+            reverse("inventory:stock_entry"),
+            reverse("inventory:stock_exit"),
+            reverse("inventory:stock_transfer"),
+            reverse("inventory:stock_movement_list"),
+        ]
+        for role in ("CLIENT", "TECHNICIAN", "AUDITOR"):
+            user = User.objects.create_user(
+                username=f"stock_forbidden_{role.lower()}",
+                email=f"stock_forbidden_{role.lower()}@example.com",
+                role=role,
+            )
+            self.client.force_login(user)
+            for url in urls:
+                with self.subTest(role=role, url=url):
+                    self.assertEqual(self.client.get(url).status_code, 403)
+        for user in (self.admin_user, self.supervisor_user):
+            self.client.force_login(user)
+            self.assertEqual(
+                self.client.get(reverse("inventory:stock_product_list")).status_code,
+                200,
+            )
+
+    def test_entry_creates_balance_and_second_entry_accumulates(self):
+        self.login_admin()
+        for quantity in (5, 2):
+            response = self.client.post(
+                reverse("inventory:stock_entry"),
+                self.operation_data(quantity=quantity),
+            )
+            self.assertEqual(response.status_code, 302)
+        balance = StockBalance.objects.get(product=self.product)
+        self.assertEqual(balance.quantity, 7)
+        self.assertEqual(balance.movements.count(), 2)
+
+    def test_entry_rejects_invalid_quantity_and_location(self):
+        self.login_admin()
+        response = self.client.post(
+            reverse("inventory:stock_entry"), self.operation_data(quantity=0)
+        )
+        self.assertEqual(response.status_code, 200)
+        response = self.client.post(
+            reverse("inventory:stock_entry"),
+            self.operation_data(organizational_location=self.other_location.pk),
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(StockMovement.objects.exists())
+
+    def test_exit_valid_exact_zero_and_insufficient_rollback(self):
+        register_stock_entry(
+            product=self.product,
+            branch=self.branch,
+            organizational_location=self.location,
+            quantity=5,
+            reason=StockMovement.Reason.PURCHASE,
+            performed_by=self.admin_user,
+        )
+        self.login_admin()
+        response = self.client.post(
+            reverse("inventory:stock_exit"),
+            self.operation_data(quantity=5, reason=StockMovement.Reason.DELIVERY),
+        )
+        self.assertEqual(response.status_code, 302)
+        balance = StockBalance.objects.get(product=self.product)
+        self.assertEqual(balance.quantity, 0)
+        movement_count = StockMovement.objects.count()
+
+        response = self.client.post(
+            reverse("inventory:stock_exit"),
+            self.operation_data(quantity=1, reason=StockMovement.Reason.DELIVERY),
+        )
+        balance.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(balance.quantity, 0)
+        self.assertEqual(StockMovement.objects.count(), movement_count)
+
+    def test_transfer_valid_new_destination_and_invalid_operations(self):
+        register_stock_entry(
+            product=self.product,
+            branch=self.branch,
+            organizational_location=self.location,
+            quantity=5,
+            reason=StockMovement.Reason.PURCHASE,
+            performed_by=self.admin_user,
+        )
+        self.login_admin()
+        data = {
+            "product": self.product.pk,
+            "source_branch": self.branch.pk,
+            "source_location": self.location.pk,
+            "destination_branch": self.other_branch.pk,
+            "destination_location": self.other_location.pk,
+            "quantity": 2,
+            "observation": "Transferencia UI",
+            "document_reference": "TR-UI",
+        }
+        response = self.client.post(reverse("inventory:stock_transfer"), data)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            StockBalance.objects.get(
+                product=self.product, organizational_location=self.other_location
+            ).quantity,
+            2,
+        )
+
+        movement_count = StockMovement.objects.count()
+        response = self.client.post(
+            reverse("inventory:stock_transfer"), {**data, "quantity": 99}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(StockMovement.objects.count(), movement_count)
+        response = self.client.post(
+            reverse("inventory:stock_transfer"),
+            {
+                **data,
+                "destination_branch": self.branch.pk,
+                "destination_location": self.location.pk,
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(StockMovement.objects.count(), movement_count)
+
+    def test_product_detail_and_movement_history_are_read_only_and_ordered(self):
+        first = register_stock_entry(
+            product=self.product,
+            branch=self.branch,
+            organizational_location=self.location,
+            quantity=3,
+            reason=StockMovement.Reason.PURCHASE,
+            performed_by=self.admin_user,
+            observation="Primero",
+        )
+        second = register_stock_exit(
+            product=self.product,
+            branch=self.branch,
+            organizational_location=self.location,
+            quantity=1,
+            reason=StockMovement.Reason.CONSUMPTION,
+            performed_by=self.admin_user,
+            observation="Segundo",
+        )
+        self.login_admin()
+        detail = self.client.get(
+            reverse("inventory:stock_product_detail", args=[self.product.pk])
+        )
+        self.assertContains(detail, "Primero")
+        self.assertContains(detail, "Segundo")
+        self.assertEqual(detail.context["total_stock"], 2)
+
+        history = self.client.get(
+            reverse("inventory:stock_movement_list"),
+            {"direction": StockMovement.Direction.EXIT, "q": "M90"},
+        )
+        movements = list(history.context["movements"])
+        self.assertEqual(movements, [second])
+        self.assertNotContains(history, "Editar movimiento")
+        self.assertTrue(first.movement_date <= second.movement_date)

@@ -7,15 +7,20 @@
 from pathlib import Path
 
 from django import forms
+from django.db import models
 from django.utils import timezone
 
 from apps.accounts.models import User
+from apps.accounts.models import Branch
 
 from .models import (
     Asset,
     AssetTechnicalHistory,
     AcquisitionBatch,
     OrganizationalLocation,
+    StockCategory,
+    StockMovement,
+    StockProduct,
 )
 
 
@@ -254,6 +259,173 @@ class AssetForm(forms.ModelForm):
         self.fields["acquisition_batch"].queryset = AcquisitionBatch.objects.order_by(
             "-date", "code"
         )
+
+
+class StockCategoryForm(forms.ModelForm):
+    class Meta:
+        model = StockCategory
+        fields = ["name", "code", "description", "is_active"]
+
+
+class StockProductForm(forms.ModelForm):
+    class Meta:
+        model = StockProduct
+        fields = [
+            "name",
+            "reference_code",
+            "category",
+            "brand",
+            "model",
+            "description",
+            "unit_of_measure",
+            "minimum_stock",
+            "is_active",
+            "default_location",
+        ]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["category"].queryset = StockCategory.objects.filter(
+            is_active=True
+        )
+        if self.instance.pk and self.instance.category_id:
+            self.fields["category"].queryset = StockCategory.objects.filter(
+                models.Q(is_active=True) | models.Q(pk=self.instance.category_id)
+            )
+        self.fields["default_location"].queryset = (
+            OrganizationalLocation.objects.filter(is_active=True).select_related(
+                "branch"
+            )
+        )
+
+
+class StockOperationForm(forms.Form):
+    product = forms.ModelChoiceField(
+        queryset=StockProduct.objects.filter(is_active=True),
+        label="Producto",
+    )
+    branch = forms.ModelChoiceField(
+        queryset=Branch.objects.filter(is_active=True),
+        label="Sede",
+    )
+    organizational_location = OrganizationalLocationChoiceField(
+        queryset=OrganizationalLocation.objects.filter(is_active=True).select_related(
+            "branch"
+        ),
+        label="Ubicación",
+    )
+    quantity = forms.IntegerField(label="Cantidad", min_value=1)
+    reason = forms.ChoiceField(label="Motivo")
+    observation = forms.CharField(
+        label="Observación", required=False, widget=forms.Textarea(attrs={"rows": 3})
+    )
+    document_reference = forms.CharField(
+        label="Referencia documental", max_length=100, required=False
+    )
+
+    allowed_reasons = frozenset()
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        labels = dict(StockMovement.Reason.choices)
+        self.fields["reason"].choices = [
+            (value, labels[value]) for value in self.allowed_reasons
+        ]
+
+    def clean(self):
+        cleaned_data = super().clean()
+        branch = cleaned_data.get("branch")
+        location = cleaned_data.get("organizational_location")
+        if branch and location and location.branch_id != branch.pk:
+            self.add_error(
+                "organizational_location",
+                "La ubicación no pertenece a la sede seleccionada.",
+            )
+        return cleaned_data
+
+
+class StockEntryForm(StockOperationForm):
+    allowed_reasons = (
+        StockMovement.Reason.PURCHASE,
+        StockMovement.Reason.RETURN,
+        StockMovement.Reason.POSITIVE_ADJUSTMENT,
+        StockMovement.Reason.INITIAL_ENTRY,
+        StockMovement.Reason.OTHER,
+    )
+
+
+class StockExitForm(StockOperationForm):
+    allowed_reasons = (
+        StockMovement.Reason.DELIVERY,
+        StockMovement.Reason.CONSUMPTION,
+        StockMovement.Reason.REPAIR,
+        StockMovement.Reason.WRITE_OFF,
+        StockMovement.Reason.NEGATIVE_ADJUSTMENT,
+        StockMovement.Reason.OTHER,
+    )
+
+
+class StockTransferForm(forms.Form):
+    product = forms.ModelChoiceField(
+        queryset=StockProduct.objects.filter(is_active=True), label="Producto"
+    )
+    source_branch = forms.ModelChoiceField(
+        queryset=Branch.objects.filter(is_active=True), label="Sede de origen"
+    )
+    source_location = OrganizationalLocationChoiceField(
+        queryset=OrganizationalLocation.objects.filter(is_active=True).select_related(
+            "branch"
+        ),
+        label="Ubicación de origen",
+    )
+    destination_branch = forms.ModelChoiceField(
+        queryset=Branch.objects.filter(is_active=True), label="Sede de destino"
+    )
+    destination_location = OrganizationalLocationChoiceField(
+        queryset=OrganizationalLocation.objects.filter(is_active=True).select_related(
+            "branch"
+        ),
+        label="Ubicación de destino",
+    )
+    quantity = forms.IntegerField(label="Cantidad", min_value=1)
+    observation = forms.CharField(
+        label="Observación", required=False, widget=forms.Textarea(attrs={"rows": 3})
+    )
+    document_reference = forms.CharField(
+        label="Referencia documental", max_length=100, required=False
+    )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        pairs = (
+            ("source_branch", "source_location"),
+            ("destination_branch", "destination_location"),
+        )
+        for branch_field, location_field in pairs:
+            branch = cleaned_data.get(branch_field)
+            location = cleaned_data.get(location_field)
+            if branch and location and location.branch_id != branch.pk:
+                self.add_error(
+                    location_field,
+                    "La ubicación no pertenece a la sede seleccionada.",
+                )
+        source_branch = cleaned_data.get("source_branch")
+        source_location = cleaned_data.get("source_location")
+        destination_branch = cleaned_data.get("destination_branch")
+        destination_location = cleaned_data.get("destination_location")
+        if (
+            source_branch
+            and source_location
+            and destination_branch
+            and destination_location
+            and source_branch.pk == destination_branch.pk
+            and source_location.pk == destination_location.pk
+        ):
+            self.add_error(
+                "destination_location",
+                "La ubicación de destino debe ser diferente al origen.",
+            )
+        return cleaned_data
         for field_name in (
             "brand",
             "model",
