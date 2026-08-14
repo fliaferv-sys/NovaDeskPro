@@ -4,11 +4,18 @@ from django.urls import path
 from .views import (
     CustomLoginView,
     home_view,
+    profile_view,
     user_list_view,
 )
 
 urlpatterns = [
     path("", home_view, name="home"),
+
+    path(
+        "accounts/profile/",
+        profile_view,
+        name="profile",
+    ),
 
     path(
         "login/",

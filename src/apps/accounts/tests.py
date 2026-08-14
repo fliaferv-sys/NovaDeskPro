@@ -39,6 +39,40 @@ class AccountAccessTests(TestCase):
         user = self.create_user("approved@example.test")
         self.assertTrue(self.client.login(email=user.email, password=self.password))
 
+    def test_profile_requires_authentication(self):
+        response = self.client.get(reverse("profile"))
+        self.assertRedirects(
+            response,
+            f'{reverse("login")}?next={reverse("profile")}',
+            fetch_redirect_response=False,
+        )
+
+    def test_profile_only_shows_authenticated_user(self):
+        current_user = self.create_user(
+            "current@example.test", first_name="Usuario", last_name="Actual"
+        )
+        other_user = self.create_user(
+            "other@example.test", first_name="Usuario", last_name="Ajeno"
+        )
+        self.client.force_login(current_user)
+
+        response = self.client.get(reverse("profile"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["profile_user"], current_user)
+        self.assertContains(response, current_user.email)
+        self.assertNotContains(response, other_user.email)
+
+    def test_profile_marks_mobile_navigation_as_active(self):
+        user = self.create_user("profile-navigation@example.test")
+        self.client.force_login(user)
+
+        response = self.client.get(reverse("profile"))
+
+        self.assertContains(response, 'href="/accounts/profile/"')
+        self.assertContains(response, 'class="mobile-bottom-nav-item is-active"')
+        self.assertContains(response, 'aria-current="page"')
+
     def test_client_cannot_open_global_user_list(self):
         user = self.create_user("client@example.test", role=User.Role.CLIENT)
         self.client.force_login(user)

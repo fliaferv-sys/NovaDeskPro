@@ -167,6 +167,21 @@ def home_view(request):
 
 
 @login_required
+def profile_view(request):
+    user = (
+        User.objects
+        .select_related("branch", "department")
+        .get(pk=request.user.pk)
+    )
+
+    return render(
+        request,
+        "accounts/profile.html",
+        {"profile_user": user},
+    )
+
+
+@login_required
 @roles_required("ADMIN", "SUPERVISOR", "AUDITOR")
 def user_list_view(request):
 	users = (

@@ -1,0 +1,189 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}Mi perfil | NovaDesk Pro{% endblock %}
+
+{% block extra_css %}
+<style>
+    .profile-page { max-width: 760px; margin: 0 auto; }
+
+    .profile-hero,
+    .profile-card {
+        border: 1px solid #e1e7ef;
+        border-radius: 16px;
+        background: #fff;
+        box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+    }
+
+    .profile-hero {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        padding: 24px;
+        border-top: 4px solid #123a63;
+    }
+
+    .profile-avatar,
+    .profile-avatar-placeholder {
+        width: 88px;
+        height: 88px;
+        flex: 0 0 88px;
+        border-radius: 50%;
+        object-fit: cover;
+    }
+
+    .profile-avatar-placeholder {
+        display: grid;
+        place-items: center;
+        background: #123a63;
+        color: #fff;
+        font-size: 28px;
+        font-weight: 700;
+    }
+
+    .profile-heading { min-width: 0; }
+
+    .profile-heading h1 {
+        margin: 0;
+        color: #101828;
+        font-size: 26px;
+        overflow-wrap: anywhere;
+    }
+
+    .profile-heading p {
+        margin: 5px 0 0;
+        color: #667085;
+        overflow-wrap: anywhere;
+    }
+
+    .profile-card { margin-top: 16px; padding: 20px 24px; }
+
+    .profile-card h2 {
+        margin: 0 0 12px;
+        color: #123a63;
+        font-size: 17px;
+    }
+
+    .profile-details { margin: 0; }
+
+    .profile-detail {
+        display: grid;
+        grid-template-columns: minmax(140px, 0.7fr) minmax(0, 1.3fr);
+        gap: 16px;
+        padding: 11px 0;
+        border-bottom: 1px solid #eef2f6;
+    }
+
+    .profile-detail:last-child { border-bottom: 0; }
+
+    .profile-detail dt {
+        color: #667085;
+        font-size: 13px;
+        font-weight: 600;
+    }
+
+    .profile-detail dd {
+        min-width: 0;
+        margin: 0;
+        color: #101828;
+        font-weight: 600;
+        text-align: right;
+        overflow-wrap: anywhere;
+    }
+
+    .profile-status {
+        display: inline-flex;
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: #eaf2fb;
+        color: #123a63;
+        font-size: 12px;
+    }
+
+    @media (max-width: 768px) {
+        .profile-page { max-width: none; }
+
+        .profile-hero {
+            flex-direction: column;
+            gap: 10px;
+            padding: 18px 14px;
+            text-align: center;
+        }
+
+        .profile-avatar,
+        .profile-avatar-placeholder {
+            width: 76px;
+            height: 76px;
+            flex-basis: 76px;
+        }
+
+        .profile-avatar-placeholder { font-size: 24px; }
+        .profile-heading h1 { font-size: 21px; }
+        .profile-heading p { font-size: 13px; }
+
+        .profile-card {
+            margin-top: 10px;
+            padding: 14px;
+            border-radius: 14px;
+        }
+
+        .profile-card h2 { margin-bottom: 7px; font-size: 15px; }
+
+        .profile-detail {
+            grid-template-columns: minmax(105px, 0.8fr) minmax(0, 1.2fr);
+            gap: 10px;
+            padding: 9px 0;
+        }
+
+        .profile-detail dt,
+        .profile-detail dd { font-size: 12px; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="profile-page" aria-labelledby="profile-title">
+    <header class="profile-hero">
+        {% if profile_user.profile_image %}
+            <img src="{{ profile_user.profile_image.url }}"
+                 alt="Avatar de {{ profile_user.get_full_name|default:profile_user.email }}"
+                 class="profile-avatar">
+        {% else %}
+            <div class="profile-avatar-placeholder" aria-hidden="true">
+                {{ profile_user.first_name|first|default:"U" }}{{ profile_user.last_name|first }}
+            </div>
+        {% endif %}
+
+        <div class="profile-heading">
+            <h1 id="profile-title">{{ profile_user.get_full_name|default:profile_user.email }}</h1>
+            <p>
+                {{ profile_user.get_role_display }}
+                {% if profile_user.department %} · {{ profile_user.department }}{% endif %}
+            </p>
+        </div>
+    </header>
+
+    <div class="profile-card">
+        <h2><i class="bi bi-person-vcard" aria-hidden="true"></i> Datos personales</h2>
+        <dl class="profile-details">
+            <div class="profile-detail"><dt>Correo</dt><dd>{{ profile_user.email|default:"No registrado" }}</dd></div>
+            <div class="profile-detail"><dt>Teléfono</dt><dd>{{ profile_user.phone|default:"No registrado" }}</dd></div>
+            <div class="profile-detail"><dt>Departamento</dt><dd>{{ profile_user.department|default:"No registrado" }}</dd></div>
+            <div class="profile-detail"><dt>Cargo</dt><dd>{{ profile_user.position|default:"No registrado" }}</dd></div>
+            <div class="profile-detail"><dt>Sede</dt><dd>{{ profile_user.branch|default:"No registrado" }}</dd></div>
+            <div class="profile-detail"><dt>Tipo de vínculo</dt><dd>{{ profile_user.get_employment_type_display }}</dd></div>
+        </dl>
+    </div>
+
+    {% if profile_user.role == "TECHNICIAN" %}
+        <div class="profile-card">
+            <h2><i class="bi bi-headset" aria-hidden="true"></i> Estado técnico</h2>
+            <dl class="profile-details">
+                <div class="profile-detail">
+                    <dt>Disponibilidad</dt>
+                    <dd><span class="profile-status">{{ profile_user.get_availability_status_display }}</span></dd>
+                </div>
+            </dl>
+        </div>
+    {% endif %}
+</section>
+{% endblock %}
