@@ -22,6 +22,16 @@ from .views import (
     stock_product_list_view,
     stock_product_update_view,
     stock_transfer_view,
+    documented_stock_entry_list_view,
+    documented_stock_entry_create_view,
+    documented_stock_entry_detail_view,
+    documented_stock_entry_update_view,
+    documented_stock_entry_add_line_view,
+    documented_stock_entry_delete_line_view,
+    documented_stock_entry_add_document_view,
+    documented_stock_entry_document_download_view,
+    documented_stock_entry_confirm_view,
+    documented_stock_entry_cancel_view,
 )
 
 
@@ -29,6 +39,16 @@ app_name = "inventory"
 
 
 urlpatterns = [
+    path("stock/entradas-documentadas/", documented_stock_entry_list_view, name="documented_stock_entry_list"),
+    path("stock/entradas-documentadas/nueva/", documented_stock_entry_create_view, name="documented_stock_entry_create"),
+    path("stock/entradas-documentadas/<uuid:pk>/", documented_stock_entry_detail_view, name="documented_stock_entry_detail"),
+    path("stock/entradas-documentadas/<uuid:pk>/editar/", documented_stock_entry_update_view, name="documented_stock_entry_update"),
+    path("stock/entradas-documentadas/<uuid:pk>/lineas/agregar/", documented_stock_entry_add_line_view, name="documented_stock_entry_add_line"),
+    path("stock/entradas-documentadas/<uuid:pk>/lineas/<uuid:line_pk>/eliminar/", documented_stock_entry_delete_line_view, name="documented_stock_entry_delete_line"),
+    path("stock/entradas-documentadas/<uuid:pk>/documentos/agregar/", documented_stock_entry_add_document_view, name="documented_stock_entry_add_document"),
+    path("stock/entradas-documentadas/<uuid:pk>/documentos/<uuid:document_pk>/descargar/", documented_stock_entry_document_download_view, name="documented_stock_entry_document_download"),
+    path("stock/entradas-documentadas/<uuid:pk>/confirmar/", documented_stock_entry_confirm_view, name="documented_stock_entry_confirm"),
+    path("stock/entradas-documentadas/<uuid:pk>/cancelar/", documented_stock_entry_cancel_view, name="documented_stock_entry_cancel"),
     path("stock/", stock_product_list_view, name="stock_product_list"),
     path("stock/productos/nuevo/", stock_product_create_view, name="stock_product_create"),
     path("stock/productos/<uuid:pk>/", stock_product_detail_view, name="stock_product_detail"),

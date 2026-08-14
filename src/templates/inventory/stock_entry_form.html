@@ -1,0 +1,3 @@
+{% extends "inventory/stock_base.html" %}
+{% block stock_heading %}{% if editing %}Editar entrada documentada{% else %}Nueva entrada documentada{% endif %}{% endblock %}
+{% block stock_content %}<form method="post" class="stock-card stock-form">{% csrf_token %}{{ form.as_p }}<button class="stock-button">Guardar borrador</button></form>{% endblock %}

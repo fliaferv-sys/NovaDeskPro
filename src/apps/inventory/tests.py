@@ -16,12 +16,16 @@ from .models import (
     StockCategory,
     StockMovement,
     StockProduct,
+    StockEntryDocument,
+    StockEntryLine,
+    StockEntryOperation,
 )
 from .services.stock import (
     register_stock_entry,
     register_stock_exit,
     register_stock_movement,
     transfer_stock,
+    confirm_stock_entry,
 )
 
 
@@ -1007,3 +1011,118 @@ class StockAdministrationTests(TestCase):
         self.assertEqual(movements, [second])
         self.assertNotContains(history, "Editar movimiento")
         self.assertTrue(first.movement_date <= second.movement_date)
+
+
+class DocumentedStockEntryTests(TestCase):
+    def setUp(self):
+        self.admin = User.objects.create_user(username="entry_admin", email="entry_admin@example.com", password="pass", role="ADMIN")
+        self.supervisor = User.objects.create_user(username="entry_super", email="entry_super@example.com", password="pass", role="SUPERVISOR")
+        self.branch = Branch.objects.create(code="ENTRY-HQ", name="Sede entradas")
+        self.location = OrganizationalLocation.objects.create(branch=self.branch, code="ENTRY-WH", name="Depósito entradas", location_type=OrganizationalLocation.LocationType.WAREHOUSE)
+        self.category = StockCategory.objects.create(name="Entradas", code="entradas-doc")
+        self.product = StockProduct.objects.create(name="Mouse documentado", reference_code="DOC-MOUSE", category=self.category)
+        self.product_two = StockProduct.objects.create(name="Teclado documentado", reference_code="DOC-KEY", category=self.category)
+
+    def make_entry(self, **kwargs):
+        data = {"reason": StockMovement.Reason.PURCHASE, "created_by": self.admin, "supplier": "Proveedor SA"}
+        data.update(kwargs)
+        return StockEntryOperation.objects.create(**data)
+
+    def add_line(self, entry, product=None, quantity=2):
+        return StockEntryLine.objects.create(entry=entry, product=product or self.product, branch=self.branch, organizational_location=self.location, quantity=quantity)
+
+    def test_draft_number_lines_and_document(self):
+        entry = self.make_entry()
+        self.add_line(entry)
+        self.add_line(entry, self.product_two, 3)
+        document = StockEntryDocument.objects.create(entry=entry, document_type=StockEntryDocument.DocumentType.INVOICE, file="inventory/stock_entries/factura.pdf", uploaded_by=self.admin)
+        self.assertRegex(entry.number, r"^STK-IN-\d{6}$")
+        self.assertEqual(entry.status, StockEntryOperation.Status.DRAFT)
+        self.assertEqual(entry.lines.count(), 2)
+        self.assertEqual(document.uploaded_by, self.admin)
+        self.assertEqual(StockMovement.objects.count(), 0)
+
+    def test_confirm_multiple_lines_updates_balances_and_traceability(self):
+        entry = self.make_entry()
+        self.add_line(entry, self.product, 4)
+        self.add_line(entry, self.product_two, 7)
+        confirmed = confirm_stock_entry(entry=entry, confirmed_by=self.supervisor)
+        self.assertEqual(confirmed.status, StockEntryOperation.Status.CONFIRMED)
+        self.assertEqual(confirmed.confirmed_by, self.supervisor)
+        self.assertIsNotNone(confirmed.confirmed_at)
+        self.assertEqual(StockMovement.objects.filter(document_reference=entry.number).count(), 2)
+        self.assertEqual(StockBalance.objects.get(product=self.product).quantity, 4)
+        self.assertEqual(StockBalance.objects.get(product=self.product_two).quantity, 7)
+        self.assertFalse(confirmed.lines.filter(movement=None).exists())
+
+    def test_confirmation_rejects_empty_and_double_confirmation(self):
+        empty = self.make_entry()
+        with self.assertRaises(ValidationError):
+            confirm_stock_entry(entry=empty, confirmed_by=self.admin)
+        entry = self.make_entry()
+        self.add_line(entry)
+        confirm_stock_entry(entry=entry, confirmed_by=self.admin)
+        with self.assertRaises(ValidationError):
+            confirm_stock_entry(entry=entry, confirmed_by=self.admin)
+
+    def test_confirmed_entry_and_lines_are_immutable(self):
+        entry = self.make_entry()
+        line = self.add_line(entry)
+        confirm_stock_entry(entry=entry, confirmed_by=self.admin)
+        entry.refresh_from_db()
+        entry.supplier = "Cambio"
+        with self.assertRaises(ValidationError):
+            entry.save()
+        line.refresh_from_db()
+        line.quantity = 99
+        with self.assertRaises(ValidationError):
+            line.save()
+        with self.assertRaises(ValidationError):
+            line.delete()
+
+    def test_invalid_line_quantity_location_and_inactive_product(self):
+        entry = self.make_entry()
+        with self.assertRaises(ValidationError):
+            self.add_line(entry, quantity=0)
+        other = Branch.objects.create(code="ENTRY-B2", name="Otra sede")
+        with self.assertRaises(ValidationError):
+            StockEntryLine.objects.create(entry=entry, product=self.product, branch=other, organizational_location=self.location, quantity=1)
+        self.product.is_active = False
+        self.product.save()
+        with self.assertRaises(ValidationError):
+            self.add_line(entry)
+
+    def test_atomic_rollback_when_intermediate_line_fails(self):
+        entry = self.make_entry()
+        self.add_line(entry, self.product, 2)
+        self.add_line(entry, self.product_two, 3)
+        from .services import stock as stock_service
+        original = stock_service.register_stock_entry
+        calls = {"count": 0}
+        def fail_second(**kwargs):
+            calls["count"] += 1
+            if calls["count"] == 2:
+                raise ValidationError("Fallo simulado")
+            return original(**kwargs)
+        with patch("apps.inventory.services.stock.register_stock_entry", side_effect=fail_second):
+            with self.assertRaises(ValidationError):
+                confirm_stock_entry(entry=entry, confirmed_by=self.admin)
+        entry.refresh_from_db()
+        self.assertEqual(entry.status, StockEntryOperation.Status.DRAFT)
+        self.assertEqual(StockMovement.objects.count(), 0)
+        self.assertEqual(StockBalance.objects.count(), 0)
+
+    def test_views_permissions_and_post_state_actions(self):
+        entry = self.make_entry()
+        urls = [reverse("inventory:documented_stock_entry_list"), reverse("inventory:documented_stock_entry_detail", args=[entry.pk]), reverse("inventory:documented_stock_entry_add_line", args=[entry.pk])]
+        for role in ("CLIENT", "TECHNICIAN"):
+            user = User.objects.create_user(username=f"entry_{role.lower()}", email=f"entry_{role.lower()}@example.com", role=role)
+            self.client.force_login(user)
+            for url in urls:
+                self.assertEqual(self.client.get(url).status_code, 403)
+        for user in (self.admin, self.supervisor):
+            self.client.force_login(user)
+            self.assertEqual(self.client.get(urls[0]).status_code, 200)
+        self.client.force_login(self.admin)
+        self.assertEqual(self.client.get(reverse("inventory:documented_stock_entry_confirm", args=[entry.pk])).status_code, 403)
+        self.assertEqual(self.client.get(reverse("inventory:documented_stock_entry_cancel", args=[entry.pk])).status_code, 403)

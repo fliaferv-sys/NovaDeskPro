@@ -1,5 +1,6 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.http import FileResponse
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Count, F, Q, Sum
 from django.db.models.functions import Coalesce
@@ -24,6 +25,9 @@ from .forms import (
     AssetTechnicalHistoryForm,
     StockCategoryForm,
     StockEntryForm,
+    StockEntryDocumentForm,
+    StockEntryLineForm,
+    StockEntryOperationForm,
     StockExitForm,
     StockProductForm,
     StockTransferForm,
@@ -34,11 +38,15 @@ from .models import (
     StockCategory,
     StockMovement,
     StockProduct,
+    StockEntryDocument,
+    StockEntryLine,
+    StockEntryOperation,
 )
 from .services.stock import (
     register_stock_entry,
     register_stock_exit,
     transfer_stock,
+    confirm_stock_entry,
 )
 
 
@@ -733,12 +741,140 @@ def stock_transfer_view(request):
 
 @login_required
 @roles_required("ADMIN", "SUPERVISOR")
+def documented_stock_entry_list_view(request):
+    entries = StockEntryOperation.objects.select_related("created_by").annotate(line_count=Count("lines"))
+    search = request.GET.get("q", "").strip()
+    if search:
+        entries = entries.filter(Q(number__icontains=search) | Q(invoice_number__icontains=search) | Q(purchase_order_number__icontains=search) | Q(delivery_note_number__icontains=search) | Q(supplier__icontains=search))
+    for field in ("status", "reason"):
+        value = request.GET.get(field, "").strip()
+        if value:
+            entries = entries.filter(**{field: value})
+    supplier = request.GET.get("supplier", "").strip()
+    if supplier:
+        entries = entries.filter(supplier__icontains=supplier)
+    if request.GET.get("date_from"):
+        entries = entries.filter(entry_date__gte=request.GET["date_from"])
+    if request.GET.get("date_to"):
+        entries = entries.filter(entry_date__lte=request.GET["date_to"])
+    return render(request, "inventory/stock_entry_list.html", {"entries": entries, "statuses": StockEntryOperation.Status.choices, "reasons": StockEntryOperationForm().fields["reason"].choices, "filters": request.GET})
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def documented_stock_entry_create_view(request):
+    form = StockEntryOperationForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        entry = form.save(commit=False)
+        entry.created_by = request.user
+        entry.save()
+        messages.success(request, "Entrada documentada creada como borrador.")
+        return redirect("inventory:documented_stock_entry_detail", pk=entry.pk)
+    return render(request, "inventory/stock_entry_form.html", {"form": form, "editing": False})
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def documented_stock_entry_update_view(request, pk):
+    entry = get_object_or_404(StockEntryOperation, pk=pk)
+    if entry.status != StockEntryOperation.Status.DRAFT:
+        raise PermissionDenied("Solo pueden editarse entradas en borrador.")
+    form = StockEntryOperationForm(request.POST or None, instance=entry)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Borrador actualizado.")
+        return redirect("inventory:documented_stock_entry_detail", pk=entry.pk)
+    return render(request, "inventory/stock_entry_form.html", {"form": form, "editing": True, "entry": entry})
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def documented_stock_entry_detail_view(request, pk):
+    entry = get_object_or_404(StockEntryOperation.objects.select_related("created_by", "confirmed_by"), pk=pk)
+    return render(request, "inventory/stock_entry_detail.html", {"entry": entry, "lines": entry.lines.select_related("product", "branch", "organizational_location", "movement"), "documents": entry.documents.select_related("uploaded_by")})
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def documented_stock_entry_add_line_view(request, pk):
+    entry = get_object_or_404(StockEntryOperation, pk=pk, status=StockEntryOperation.Status.DRAFT)
+    form = StockEntryLineForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        line = form.save(commit=False)
+        line.entry = entry
+        line.save()
+        messages.success(request, "Producto agregado.")
+        return redirect("inventory:documented_stock_entry_detail", pk=entry.pk)
+    return render(request, "inventory/stock_entry_line_form.html", {"form": form, "entry": entry})
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def documented_stock_entry_delete_line_view(request, pk, line_pk):
+    entry = get_object_or_404(StockEntryOperation, pk=pk, status=StockEntryOperation.Status.DRAFT)
+    line = get_object_or_404(StockEntryLine, pk=line_pk, entry=entry)
+    if request.method != "POST":
+        raise PermissionDenied("La eliminación requiere POST.")
+    line.delete()
+    messages.success(request, "Línea eliminada.")
+    return redirect("inventory:documented_stock_entry_detail", pk=entry.pk)
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def documented_stock_entry_add_document_view(request, pk):
+    entry = get_object_or_404(StockEntryOperation, pk=pk, status=StockEntryOperation.Status.DRAFT)
+    form = StockEntryDocumentForm(request.POST or None, request.FILES or None)
+    if request.method == "POST" and form.is_valid():
+        document = form.save(commit=False)
+        document.entry = entry
+        document.uploaded_by = request.user
+        document.save()
+        messages.success(request, "Documento adjuntado.")
+        return redirect("inventory:documented_stock_entry_detail", pk=entry.pk)
+    return render(request, "inventory/stock_entry_document_form.html", {"form": form, "entry": entry})
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def documented_stock_entry_document_download_view(request, pk, document_pk):
+    document = get_object_or_404(StockEntryDocument, pk=document_pk, entry_id=pk)
+    return FileResponse(document.file.open("rb"), as_attachment=True, filename=document.file.name.rsplit("/", 1)[-1])
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def documented_stock_entry_confirm_view(request, pk):
+    if request.method != "POST":
+        raise PermissionDenied("La confirmación requiere POST.")
+    entry = get_object_or_404(StockEntryOperation, pk=pk)
+    try:
+        confirm_stock_entry(entry=entry, confirmed_by=request.user)
+    except ValidationError as error:
+        messages.error(request, "; ".join(error.messages))
+    else:
+        messages.success(request, "Entrada confirmada y stock actualizado.")
+    return redirect("inventory:documented_stock_entry_detail", pk=entry.pk)
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def documented_stock_entry_cancel_view(request, pk):
+    if request.method != "POST":
+        raise PermissionDenied("La cancelación requiere POST.")
+    entry = get_object_or_404(StockEntryOperation, pk=pk, status=StockEntryOperation.Status.DRAFT)
+    entry.status = StockEntryOperation.Status.CANCELLED
+    entry.save(update_fields=["status", "updated_at"])
+    messages.success(request, "Borrador cancelado sin afectar el stock.")
+    return redirect("inventory:documented_stock_entry_detail", pk=entry.pk)
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
 def stock_movement_list_view(request):
     movements = StockMovement.objects.select_related(
-        "product__category",
-        "balance__branch",
-        "balance__organizational_location",
-        "performed_by",
+        "product__category", "balance__branch",
+        "balance__organizational_location", "performed_by",
     )
     search = request.GET.get("q", "").strip()
     filters = {
@@ -762,21 +898,14 @@ def stock_movement_list_view(request):
     for lookup, value in filters.items():
         if value:
             movements = movements.filter(**{lookup: value})
-
-    return render(
-        request,
-        "inventory/stock_movement_list.html",
-        {
-            "movements": movements.order_by("-movement_date", "-created_at"),
-            "products": StockProduct.objects.order_by("name"),
-            "categories": StockCategory.objects.order_by("name"),
-            "branches": Asset._meta.get_field("branch").remote_field.model.objects.filter(is_active=True),
-            "locations": StockBalance.objects.values_list(
-                "organizational_location_id", "organizational_location__name"
-            ).distinct().order_by("organizational_location__name"),
-            "users": User.objects.filter(is_active=True).order_by("first_name", "last_name"),
-            "direction_choices": StockMovement.Direction.choices,
-            "reason_choices": StockMovement.Reason.choices,
-            "filters": request.GET,
-        },
-    )
+    return render(request, "inventory/stock_movement_list.html", {
+        "movements": movements.order_by("-movement_date", "-created_at"),
+        "products": StockProduct.objects.order_by("name"),
+        "categories": StockCategory.objects.order_by("name"),
+        "branches": Asset._meta.get_field("branch").remote_field.model.objects.filter(is_active=True),
+        "locations": StockBalance.objects.values_list("organizational_location_id", "organizational_location__name").distinct().order_by("organizational_location__name"),
+        "users": User.objects.filter(is_active=True).order_by("first_name", "last_name"),
+        "direction_choices": StockMovement.Direction.choices,
+        "reason_choices": StockMovement.Reason.choices,
+        "filters": request.GET,
+    })

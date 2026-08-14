@@ -19,6 +19,9 @@ from .models import (
     AcquisitionBatch,
     OrganizationalLocation,
     StockCategory,
+    StockEntryDocument,
+    StockEntryLine,
+    StockEntryOperation,
     StockMovement,
     StockProduct,
 )
@@ -426,6 +429,56 @@ class StockTransferForm(forms.Form):
                 "La ubicación de destino debe ser diferente al origen.",
             )
         return cleaned_data
+
+
+class StockEntryOperationForm(forms.ModelForm):
+    class Meta:
+        model = StockEntryOperation
+        fields = [
+            "reason", "entry_date", "supplier", "invoice_number",
+            "purchase_order_number", "delivery_note_number",
+            "external_reference", "observations",
+        ]
+        widgets = {"entry_date": forms.DateInput(attrs={"type": "date"}), "observations": forms.Textarea(attrs={"rows": 3})}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        labels = dict(StockMovement.Reason.choices)
+        self.fields["reason"].choices = [
+            (value, labels[value]) for value in StockEntryOperation.ENTRY_REASONS
+        ]
+
+
+class StockEntryLineForm(forms.ModelForm):
+    class Meta:
+        model = StockEntryLine
+        fields = ["product", "branch", "organizational_location", "quantity", "observation"]
+        widgets = {"observation": forms.Textarea(attrs={"rows": 2})}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["product"].queryset = StockProduct.objects.filter(is_active=True)
+        self.fields["branch"].queryset = Branch.objects.filter(is_active=True)
+        self.fields["organizational_location"].queryset = OrganizationalLocation.objects.filter(is_active=True, branch__is_active=True).select_related("branch")
+
+
+class StockEntryDocumentForm(forms.ModelForm):
+    ALLOWED_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png", ".doc", ".docx", ".xls", ".xlsx"}
+
+    class Meta:
+        model = StockEntryDocument
+        fields = ["document_type", "file", "description", "observation"]
+        widgets = {"observation": forms.Textarea(attrs={"rows": 2})}
+
+    def clean_file(self):
+        uploaded_file = self.cleaned_data.get("file")
+        if not uploaded_file or uploaded_file.size == 0:
+            raise forms.ValidationError("Debe seleccionar un archivo no vacío.")
+        if Path(uploaded_file.name).suffix.lower() not in self.ALLOWED_EXTENSIONS:
+            raise forms.ValidationError("El tipo de archivo no está permitido.")
+        if uploaded_file.size > 10 * 1024 * 1024:
+            raise forms.ValidationError("El archivo supera el tamaño máximo de 10 MB.")
+        return uploaded_file
         for field_name in (
             "brand",
             "model",

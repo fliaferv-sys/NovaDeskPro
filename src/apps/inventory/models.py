@@ -6,6 +6,7 @@ from django.db import models
 from django.utils import timezone
 
 from apps.accounts.models import Branch
+from apps.core.sequences import next_business_number
 
 
 # ==========================================================
@@ -1139,6 +1140,125 @@ class StockMovement(models.Model):
 
     def delete(self, *args, **kwargs):
         raise ValidationError("Los movimientos confirmados no pueden eliminarse.")
+
+
+class StockEntryOperation(models.Model):
+    class Status(models.TextChoices):
+        DRAFT = "DRAFT", "Borrador"
+        CONFIRMED = "CONFIRMED", "Confirmado"
+        CANCELLED = "CANCELLED", "Cancelado"
+
+    ENTRY_REASONS = (
+        StockMovement.Reason.PURCHASE,
+        StockMovement.Reason.RETURN,
+        StockMovement.Reason.POSITIVE_ADJUSTMENT,
+        StockMovement.Reason.INITIAL_ENTRY,
+        StockMovement.Reason.OTHER,
+    )
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    number = models.CharField("Número", max_length=30, unique=True, editable=False)
+    reason = models.CharField("Motivo", max_length=20, choices=StockMovement.Reason.choices)
+    entry_date = models.DateField("Fecha", default=timezone.localdate)
+    supplier = models.CharField("Proveedor", max_length=150, blank=True)
+    invoice_number = models.CharField("Número de factura", max_length=100, blank=True)
+    purchase_order_number = models.CharField("Orden de compra", max_length=100, blank=True)
+    delivery_note_number = models.CharField("Número de remisión", max_length=100, blank=True)
+    external_reference = models.CharField("Referencia externa", max_length=120, blank=True)
+    observations = models.TextField("Observaciones", blank=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="created_stock_entries")
+    confirmed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="confirmed_stock_entries", blank=True, null=True)
+    confirmed_at = models.DateTimeField(blank=True, null=True)
+    status = models.CharField("Estado", max_length=12, choices=Status.choices, default=Status.DRAFT)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-entry_date", "-created_at"]
+        verbose_name = "Entrada documentada de stock"
+        verbose_name_plural = "Entradas documentadas de stock"
+
+    def save(self, *args, **kwargs):
+        if self.pk and not self._state.adding:
+            previous = type(self).objects.filter(pk=self.pk).values("status").first()
+            if previous and previous["status"] == self.Status.CONFIRMED:
+                raise ValidationError("Una entrada confirmada es inmutable.")
+        if not self.number:
+            self.number = f"STK-IN-{next_business_number('stock-entry'):06d}"
+        if self.reason not in self.ENTRY_REASONS:
+            raise ValidationError({"reason": "El motivo no corresponde a una entrada."})
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if self.status != self.Status.DRAFT:
+            raise ValidationError("Solo puede eliminarse una entrada en borrador.")
+        return super().delete(*args, **kwargs)
+
+    def __str__(self):
+        return self.number
+
+
+class StockEntryLine(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    entry = models.ForeignKey(StockEntryOperation, on_delete=models.PROTECT, related_name="lines")
+    product = models.ForeignKey(StockProduct, on_delete=models.PROTECT, related_name="documented_entry_lines")
+    branch = models.ForeignKey(Branch, on_delete=models.PROTECT, related_name="stock_entry_lines")
+    organizational_location = models.ForeignKey(OrganizationalLocation, on_delete=models.PROTECT, related_name="stock_entry_lines")
+    quantity = models.PositiveIntegerField("Cantidad")
+    observation = models.TextField("Observación", blank=True)
+    movement = models.OneToOneField(StockMovement, on_delete=models.PROTECT, related_name="documented_entry_line", blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+        constraints = [models.CheckConstraint(condition=models.Q(quantity__gt=0), name="stock_entry_line_quantity_positive")]
+
+    def clean(self):
+        super().clean()
+        if self.organizational_location_id and self.branch_id and self.organizational_location.branch_id != self.branch_id:
+            raise ValidationError({"organizational_location": "La ubicación no pertenece a la sede."})
+        if self.product_id and not self.product.is_active:
+            raise ValidationError({"product": "El producto debe estar activo."})
+
+    def save(self, *args, **kwargs):
+        if self.entry_id and self.entry.status != StockEntryOperation.Status.DRAFT:
+            raise ValidationError("Las líneas solo pueden modificarse en borrador.")
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if self.entry.status != StockEntryOperation.Status.DRAFT:
+            raise ValidationError("No puede eliminarse una línea confirmada.")
+        return super().delete(*args, **kwargs)
+
+
+class StockEntryDocument(models.Model):
+    class DocumentType(models.TextChoices):
+        PURCHASE_ORDER = "PURCHASE_ORDER", "Orden de compra"
+        INVOICE = "INVOICE", "Factura"
+        DELIVERY_NOTE = "DELIVERY_NOTE", "Remisión"
+        REPORT = "REPORT", "Acta"
+        RECEIPT = "RECEIPT", "Nota de recepción"
+        VOUCHER = "VOUCHER", "Comprobante"
+        OTHER = "OTHER", "Otro"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    entry = models.ForeignKey(StockEntryOperation, on_delete=models.PROTECT, related_name="documents")
+    document_type = models.CharField("Tipo", max_length=30, choices=DocumentType.choices)
+    file = models.FileField("Archivo", upload_to="inventory/stock_entries/%Y/%m/")
+    description = models.CharField("Nombre o descripción", max_length=180, blank=True)
+    observation = models.TextField("Observación", blank=True)
+    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="uploaded_stock_entry_documents")
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    verified = models.BooleanField("Verificado", default=False)
+
+    class Meta:
+        ordering = ["document_type", "-uploaded_at"]
+
+    def save(self, *args, **kwargs):
+        if self.entry_id and self.entry.status != StockEntryOperation.Status.DRAFT:
+            raise ValidationError("Solo pueden adjuntarse documentos a un borrador.")
+        return super().save(*args, **kwargs)
     
 
     

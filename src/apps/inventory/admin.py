@@ -16,6 +16,9 @@ from .models import (
     StockCategory,
     StockMovement,
     StockProduct,
+    StockEntryOperation,
+    StockEntryLine,
+    StockEntryDocument,
 )
 
 
@@ -560,3 +563,66 @@ class StockMovementAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+class StockEntryLineInline(admin.TabularInline):
+    model = StockEntryLine
+    extra = 0
+    readonly_fields = ("movement", "created_at")
+
+    def has_change_permission(self, request, obj=None):
+        return not obj or obj.status == StockEntryOperation.Status.DRAFT
+
+    def has_add_permission(self, request, obj=None):
+        return not obj or obj.status == StockEntryOperation.Status.DRAFT
+
+    def has_delete_permission(self, request, obj=None):
+        return not obj or obj.status == StockEntryOperation.Status.DRAFT
+
+
+class StockEntryDocumentInline(admin.TabularInline):
+    model = StockEntryDocument
+    extra = 0
+    readonly_fields = ("uploaded_by", "uploaded_at")
+
+    def has_change_permission(self, request, obj=None):
+        return not obj or obj.status == StockEntryOperation.Status.DRAFT
+
+    def has_add_permission(self, request, obj=None):
+        return not obj or obj.status == StockEntryOperation.Status.DRAFT
+
+    def has_delete_permission(self, request, obj=None):
+        return not obj or obj.status == StockEntryOperation.Status.DRAFT
+
+
+@admin.register(StockEntryOperation)
+class StockEntryOperationAdmin(admin.ModelAdmin):
+    list_display = ("number", "entry_date", "reason", "supplier", "status", "created_by", "confirmed_by")
+    list_filter = ("status", "reason", "entry_date")
+    search_fields = ("number", "supplier", "invoice_number", "purchase_order_number", "delivery_note_number")
+    readonly_fields = ("number", "created_by", "confirmed_by", "confirmed_at", "created_at", "updated_at")
+    inlines = (StockEntryLineInline, StockEntryDocumentInline)
+
+    def get_readonly_fields(self, request, obj=None):
+        fields = list(super().get_readonly_fields(request, obj))
+        if obj and obj.status == StockEntryOperation.Status.CONFIRMED:
+            fields.extend(field.name for field in StockEntryOperation._meta.fields)
+        return tuple(dict.fromkeys(fields))
+
+    def has_delete_permission(self, request, obj=None):
+        return bool(obj and obj.status == StockEntryOperation.Status.DRAFT and super().has_delete_permission(request, obj))
+
+    def save_model(self, request, obj, form, change):
+        if not obj.created_by_id:
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
+
+    def save_formset(self, request, form, formset, change):
+        instances = formset.save(commit=False)
+        for instance in instances:
+            if isinstance(instance, StockEntryDocument) and not instance.uploaded_by_id:
+                instance.uploaded_by = request.user
+            instance.save()
+        for instance in formset.deleted_objects:
+            instance.delete()
+        formset.save_m2m()

@@ -1,5 +1,8 @@
+from datetime import datetime, time
+
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.utils import timezone
 
 from apps.accounts.models import Branch, User
 from apps.core.models import Department
@@ -9,6 +12,8 @@ from ..models import (
     StockBalance,
     StockMovement,
     StockProduct,
+    StockEntryOperation,
+    StockEntryLine,
 )
 
 
@@ -298,3 +303,48 @@ def transfer_stock(
     destination_balance.save(update_fields=["quantity", "updated_at"])
 
     return exit_movement, entry_movement
+
+
+@transaction.atomic
+def confirm_stock_entry(*, entry, confirmed_by):
+    """Confirm an entire documented entry or leave it completely untouched."""
+    if not isinstance(entry, StockEntryOperation) or not entry.pk:
+        raise ValidationError({"entry": "La operación no es válida."})
+    if not isinstance(confirmed_by, User) or not confirmed_by.pk:
+        raise ValidationError({"confirmed_by": "El usuario confirmador no es válido."})
+
+    locked_entry = StockEntryOperation.objects.select_for_update().get(pk=entry.pk)
+    if locked_entry.status != StockEntryOperation.Status.DRAFT:
+        raise ValidationError({"status": "La operación ya no está en borrador."})
+    lines = list(
+        locked_entry.lines.select_related(
+            "product", "branch", "organizational_location"
+        ).order_by("created_at")
+    )
+    if not lines:
+        raise ValidationError({"lines": "Debe agregar al menos una línea."})
+
+    for line in lines:
+        line.full_clean()
+        movement = register_stock_entry(
+            product=line.product,
+            branch=line.branch,
+            organizational_location=line.organizational_location,
+            quantity=line.quantity,
+            reason=locked_entry.reason,
+            performed_by=confirmed_by,
+            movement_date=timezone.make_aware(datetime.combine(locked_entry.entry_date, time.min)),
+            observation=line.observation or locked_entry.observations,
+            document_reference=locked_entry.number,
+        )
+        StockEntryLine.objects.filter(pk=line.pk).update(movement=movement)
+
+    confirmed_at = timezone.now()
+    StockEntryOperation.objects.filter(pk=locked_entry.pk).update(
+        status=StockEntryOperation.Status.CONFIRMED,
+        confirmed_by=confirmed_by,
+        confirmed_at=confirmed_at,
+        updated_at=confirmed_at,
+    )
+    locked_entry.refresh_from_db()
+    return locked_entry
