@@ -12,6 +12,10 @@ from .models import (
     OrganizationalLocation,
     AcquisitionBatch,
     AcquisitionBatchDocument,
+    StockBalance,
+    StockCategory,
+    StockMovement,
+    StockProduct,
 )
 
 
@@ -463,3 +467,96 @@ class AssetTechnicalHistoryAdmin(admin.ModelAdmin):
             },
         ),
     )
+
+
+@admin.register(StockCategory)
+class StockCategoryAdmin(admin.ModelAdmin):
+    list_display = ("code", "name", "is_active", "updated_at")
+    list_filter = ("is_active",)
+    search_fields = ("code", "name")
+    readonly_fields = ("created_at", "updated_at")
+
+
+@admin.register(StockProduct)
+class StockProductAdmin(admin.ModelAdmin):
+    list_display = (
+        "reference_code",
+        "name",
+        "category",
+        "brand",
+        "model",
+        "unit_of_measure",
+        "minimum_stock",
+        "is_active",
+    )
+    list_filter = ("category", "is_active", "unit_of_measure")
+    search_fields = ("reference_code", "name", "brand", "model")
+    autocomplete_fields = ("category", "default_location")
+    readonly_fields = ("created_at", "updated_at")
+
+
+@admin.register(StockBalance)
+class StockBalanceAdmin(admin.ModelAdmin):
+    list_display = (
+        "product",
+        "branch",
+        "organizational_location",
+        "quantity",
+        "minimum_stock",
+        "updated_at",
+    )
+    list_filter = ("product", "branch", "organizational_location")
+    search_fields = (
+        "product__reference_code",
+        "product__name",
+        "branch__name",
+        "organizational_location__name",
+    )
+    autocomplete_fields = ("product", "branch", "organizational_location")
+    readonly_fields = ("quantity", "created_at", "updated_at")
+
+    def get_readonly_fields(self, request, obj=None):
+        fields = list(super().get_readonly_fields(request, obj))
+        if obj:
+            fields.extend(("product", "branch", "organizational_location"))
+        return fields
+
+
+@admin.register(StockMovement)
+class StockMovementAdmin(admin.ModelAdmin):
+    list_display = (
+        "movement_date",
+        "product",
+        "direction",
+        "reason",
+        "quantity",
+        "performed_by",
+        "recipient",
+    )
+    list_filter = ("direction", "reason", "product", "movement_date")
+    search_fields = (
+        "product__reference_code",
+        "product__name",
+        "document_reference",
+    )
+    list_select_related = (
+        "product",
+        "balance",
+        "performed_by",
+        "recipient",
+        "department",
+    )
+    readonly_fields = tuple(
+        field.name for field in StockMovement._meta.fields
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return request.method in {"GET", "HEAD"} and super().has_change_permission(
+            request, obj
+        )
+
+    def has_delete_permission(self, request, obj=None):
+        return False

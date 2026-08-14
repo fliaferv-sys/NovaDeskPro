@@ -1,8 +1,21 @@
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.urls import reverse
 
-from .models import AcquisitionBatch, Asset
+from apps.accounts.models import Branch
+
+from .models import (
+    AcquisitionBatch,
+    Asset,
+    OrganizationalLocation,
+    StockBalance,
+    StockCategory,
+    StockMovement,
+    StockProduct,
+)
+from .services.stock import register_stock_movement
 
 
 User = get_user_model()
@@ -232,3 +245,163 @@ class InventoryPermissionsTests(TestCase):
 
                 self.assertEqual(response.status_code, 200)
                 self.assertContains(response, self.asset.internal_code)
+
+
+class GenericStockTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="stock_operator",
+            email="stock_operator@example.com",
+            password="test-password-123",
+            role="ADMIN",
+        )
+        self.branch = Branch.objects.create(
+            code="STOCK-HQ",
+            name="Sede de stock",
+            branch_type=Branch.BranchType.HEADQUARTERS,
+        )
+        self.location = OrganizationalLocation.objects.create(
+            branch=self.branch,
+            code="STOCK-WH",
+            name="Depósito de stock",
+            location_type=OrganizationalLocation.LocationType.WAREHOUSE,
+        )
+        self.category = StockCategory.objects.create(
+            name="Periféricos",
+            code="perifericos",
+            description="Accesorios informáticos",
+        )
+        self.product = StockProduct.objects.create(
+            name="Mouse Logitech M90",
+            reference_code="MOUSE-LOG-M90",
+            category=self.category,
+            brand="Logitech",
+            model="M90",
+            unit_of_measure=StockProduct.UnitOfMeasure.UNIT,
+            minimum_stock=3,
+            default_location=self.location,
+        )
+        self.balance = StockBalance.objects.create(
+            product=self.product,
+            branch=self.branch,
+            organizational_location=self.location,
+        )
+
+    def register(self, *, quantity, direction, reason):
+        return register_stock_movement(
+            balance=self.balance,
+            quantity=quantity,
+            direction=direction,
+            reason=reason,
+            performed_by=self.user,
+        )
+
+    def test_category_can_be_created(self):
+        self.assertEqual(self.category.code, "perifericos")
+        self.assertTrue(self.category.is_active)
+
+    def test_product_can_be_created(self):
+        self.assertEqual(self.product.category, self.category)
+        self.assertEqual(self.product.default_location, self.location)
+
+    def test_balance_starts_at_zero(self):
+        self.assertEqual(self.balance.quantity, 0)
+
+    def test_entry_creates_movement_and_updates_balance(self):
+        movement = self.register(
+            quantity=10,
+            direction=StockMovement.Direction.ENTRY,
+            reason=StockMovement.Reason.PURCHASE,
+        )
+
+        self.balance.refresh_from_db()
+        self.assertEqual(self.balance.quantity, 10)
+        self.assertEqual(movement.direction, StockMovement.Direction.ENTRY)
+        self.assertEqual(movement.quantity, 10)
+
+    def test_second_entry_accumulates_stock(self):
+        self.register(
+            quantity=10,
+            direction=StockMovement.Direction.ENTRY,
+            reason=StockMovement.Reason.PURCHASE,
+        )
+        self.register(
+            quantity=5,
+            direction=StockMovement.Direction.ENTRY,
+            reason=StockMovement.Reason.RETURN,
+        )
+
+        self.balance.refresh_from_db()
+        self.assertEqual(self.balance.quantity, 15)
+
+    def test_valid_exit_reduces_stock(self):
+        self.register(
+            quantity=15,
+            direction=StockMovement.Direction.ENTRY,
+            reason=StockMovement.Reason.PURCHASE,
+        )
+        movement = self.register(
+            quantity=3,
+            direction=StockMovement.Direction.EXIT,
+            reason=StockMovement.Reason.DELIVERY,
+        )
+
+        self.balance.refresh_from_db()
+        self.assertEqual(self.balance.quantity, 12)
+        self.assertEqual(movement.direction, StockMovement.Direction.EXIT)
+
+    def test_exit_above_stock_rolls_back_without_movement(self):
+        self.register(
+            quantity=10,
+            direction=StockMovement.Direction.ENTRY,
+            reason=StockMovement.Reason.PURCHASE,
+        )
+        movement_count = StockMovement.objects.count()
+
+        with self.assertRaises(ValidationError):
+            self.register(
+                quantity=11,
+                direction=StockMovement.Direction.EXIT,
+                reason=StockMovement.Reason.CONSUMPTION,
+            )
+
+        self.balance.refresh_from_db()
+        self.assertEqual(self.balance.quantity, 10)
+        self.assertEqual(StockMovement.objects.count(), movement_count)
+
+    def test_zero_quantity_is_rejected(self):
+        with self.assertRaises(ValidationError):
+            self.register(
+                quantity=0,
+                direction=StockMovement.Direction.ENTRY,
+                reason=StockMovement.Reason.PURCHASE,
+            )
+        self.assertEqual(StockMovement.objects.count(), 0)
+
+    def test_negative_quantity_is_rejected(self):
+        with self.assertRaises(ValidationError):
+            self.register(
+                quantity=-1,
+                direction=StockMovement.Direction.ENTRY,
+                reason=StockMovement.Reason.PURCHASE,
+            )
+        self.assertEqual(StockMovement.objects.count(), 0)
+
+    def test_balance_is_unique_per_product_branch_and_location(self):
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                StockBalance.objects.create(
+                    product=self.product,
+                    branch=self.branch,
+                    organizational_location=self.location,
+                )
+
+    def test_asset_model_continues_working(self):
+        asset = Asset.objects.create(
+            internal_code="ASSET-STOCK-REGRESSION",
+            asset_type=Asset.AssetType.UPS,
+            branch=self.branch,
+            physical_location=self.location,
+        )
+
+        self.assertEqual(asset.internal_code, "ASSET-STOCK-REGRESSION")

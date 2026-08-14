@@ -1,6 +1,7 @@
 import uuid
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
 
@@ -878,6 +879,242 @@ class AcquisitionBatchDocument(models.Model):
 
     def __str__(self):
         return f"{self.batch.code} - {self.get_document_type_display()}"
+
+
+# ==========================================================
+# STOCK GENÉRICO
+# ==========================================================
+
+class StockCategory(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField("Nombre", max_length=120)
+    code = models.SlugField("Código", max_length=50, unique=True)
+    description = models.TextField("Descripción", blank=True)
+    is_active = models.BooleanField("Activa", default=True)
+    created_at = models.DateTimeField("Fecha de creación", auto_now_add=True)
+    updated_at = models.DateTimeField("Última actualización", auto_now=True)
+
+    class Meta:
+        verbose_name = "Categoría de stock"
+        verbose_name_plural = "Categorías de stock"
+        ordering = ["name"]
+
+    def __str__(self):
+        return f"{self.code} - {self.name}"
+
+
+class StockProduct(models.Model):
+    class UnitOfMeasure(models.TextChoices):
+        UNIT = "UNIT", "Unidad"
+        BOX = "BOX", "Caja"
+        METER = "METER", "Metro"
+        ROLL = "ROLL", "Rollo"
+        PACKAGE = "PACKAGE", "Paquete"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField("Nombre", max_length=200)
+    reference_code = models.CharField(
+        "Código de referencia", max_length=100, unique=True
+    )
+    category = models.ForeignKey(
+        StockCategory,
+        on_delete=models.PROTECT,
+        related_name="products",
+        verbose_name="Categoría",
+    )
+    brand = models.CharField("Marca", max_length=150, blank=True)
+    model = models.CharField("Modelo", max_length=150, blank=True)
+    description = models.TextField("Descripción", blank=True)
+    unit_of_measure = models.CharField(
+        "Unidad de medida",
+        max_length=20,
+        choices=UnitOfMeasure.choices,
+        default=UnitOfMeasure.UNIT,
+    )
+    minimum_stock = models.PositiveIntegerField("Stock mínimo", default=0)
+    is_active = models.BooleanField("Activo", default=True)
+    default_location = models.ForeignKey(
+        OrganizationalLocation,
+        on_delete=models.PROTECT,
+        related_name="default_stock_products",
+        verbose_name="Ubicación predeterminada",
+        blank=True,
+        null=True,
+    )
+    created_at = models.DateTimeField("Fecha de creación", auto_now_add=True)
+    updated_at = models.DateTimeField("Última actualización", auto_now=True)
+
+    class Meta:
+        verbose_name = "Producto de stock"
+        verbose_name_plural = "Productos de stock"
+        ordering = ["name", "reference_code"]
+
+    def __str__(self):
+        return f"{self.reference_code} - {self.name}"
+
+
+class StockBalance(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    product = models.ForeignKey(
+        StockProduct,
+        on_delete=models.PROTECT,
+        related_name="balances",
+        verbose_name="Producto",
+    )
+    branch = models.ForeignKey(
+        Branch,
+        on_delete=models.PROTECT,
+        related_name="stock_balances",
+        verbose_name="Sede o planta",
+    )
+    organizational_location = models.ForeignKey(
+        OrganizationalLocation,
+        on_delete=models.PROTECT,
+        related_name="stock_balances",
+        verbose_name="Ubicación organizacional",
+    )
+    quantity = models.PositiveIntegerField("Cantidad actual", default=0)
+    minimum_stock = models.PositiveIntegerField(
+        "Stock mínimo en la ubicación", blank=True, null=True
+    )
+    created_at = models.DateTimeField("Fecha de creación", auto_now_add=True)
+    updated_at = models.DateTimeField("Última actualización", auto_now=True)
+
+    class Meta:
+        verbose_name = "Saldo de stock"
+        verbose_name_plural = "Saldos de stock"
+        ordering = ["product__name", "branch__name", "organizational_location__name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["product", "branch", "organizational_location"],
+                name="unique_stock_balance_per_location",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(quantity__gte=0),
+                name="stock_balance_quantity_nonnegative",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        if (
+            self.organizational_location_id
+            and self.branch_id
+            and self.organizational_location.branch_id != self.branch_id
+        ):
+            raise ValidationError(
+                {"organizational_location": "La ubicación debe pertenecer a la sede seleccionada."}
+            )
+
+    def __str__(self):
+        return f"{self.product} - {self.organizational_location}: {self.quantity}"
+
+
+class StockMovement(models.Model):
+    class Direction(models.TextChoices):
+        ENTRY = "ENTRY", "Entrada"
+        EXIT = "EXIT", "Salida"
+
+    class Reason(models.TextChoices):
+        PURCHASE = "PURCHASE", "Compra"
+        RETURN = "RETURN", "Devolución"
+        DELIVERY = "DELIVERY", "Entrega"
+        REPAIR = "REPAIR", "Uso en reparación"
+        CONSUMPTION = "CONSUMPTION", "Consumo"
+        WRITE_OFF = "WRITE_OFF", "Baja"
+        ADJUSTMENT = "ADJUSTMENT", "Ajuste"
+        OTHER = "OTHER", "Otro"
+
+    ENTRY_REASONS = frozenset(
+        {Reason.PURCHASE, Reason.RETURN, Reason.ADJUSTMENT, Reason.OTHER}
+    )
+    EXIT_REASONS = frozenset(
+        {
+            Reason.DELIVERY,
+            Reason.REPAIR,
+            Reason.CONSUMPTION,
+            Reason.WRITE_OFF,
+            Reason.ADJUSTMENT,
+            Reason.OTHER,
+        }
+    )
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    product = models.ForeignKey(
+        StockProduct,
+        on_delete=models.PROTECT,
+        related_name="stock_movements",
+        verbose_name="Producto",
+    )
+    balance = models.ForeignKey(
+        StockBalance,
+        on_delete=models.PROTECT,
+        related_name="movements",
+        verbose_name="Saldo",
+    )
+    quantity = models.PositiveIntegerField("Cantidad")
+    direction = models.CharField(
+        "Dirección", max_length=10, choices=Direction.choices
+    )
+    reason = models.CharField("Motivo", max_length=20, choices=Reason.choices)
+    movement_date = models.DateTimeField("Fecha del movimiento", default=timezone.now)
+    performed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="inventory_stock_movements",
+        verbose_name="Registrado por",
+    )
+    recipient = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="received_stock_movements",
+        verbose_name="Destinatario",
+        blank=True,
+        null=True,
+    )
+    department = models.ForeignKey(
+        "core.Department",
+        on_delete=models.PROTECT,
+        related_name="stock_movements",
+        verbose_name="Departamento",
+        blank=True,
+        null=True,
+    )
+    observation = models.TextField("Observación", blank=True)
+    document_reference = models.CharField(
+        "Referencia documental", max_length=100, blank=True
+    )
+    created_at = models.DateTimeField("Fecha de registro", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Movimiento de stock"
+        verbose_name_plural = "Movimientos de stock"
+        ordering = ["-movement_date", "-created_at"]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(quantity__gt=0),
+                name="stock_movement_quantity_positive",
+            )
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.balance_id and self.product_id != self.balance.product_id:
+            raise ValidationError(
+                {"product": "El producto debe coincidir con el saldo seleccionado."}
+            )
+        allowed_reasons = (
+            self.ENTRY_REASONS
+            if self.direction == self.Direction.ENTRY
+            else self.EXIT_REASONS
+        )
+        if self.direction and self.reason not in allowed_reasons:
+            raise ValidationError(
+                {"reason": "El motivo no corresponde a la dirección seleccionada."}
+            )
+
+    def __str__(self):
+        return f"{self.get_direction_display()} - {self.product} ({self.quantity})"
     
 
     
