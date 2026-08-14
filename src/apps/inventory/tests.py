@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
@@ -15,7 +17,12 @@ from .models import (
     StockMovement,
     StockProduct,
 )
-from .services.stock import register_stock_movement
+from .services.stock import (
+    register_stock_entry,
+    register_stock_exit,
+    register_stock_movement,
+    transfer_stock,
+)
 
 
 User = get_user_model()
@@ -286,6 +293,17 @@ class GenericStockTests(TestCase):
             branch=self.branch,
             organizational_location=self.location,
         )
+        self.destination_branch = Branch.objects.create(
+            code="STOCK-BRANCH-2",
+            name="Sede destino",
+            branch_type=Branch.BranchType.BRANCH,
+        )
+        self.destination_location = OrganizationalLocation.objects.create(
+            branch=self.destination_branch,
+            code="STOCK-WH-2",
+            name="Depósito destino",
+            location_type=OrganizationalLocation.LocationType.WAREHOUSE,
+        )
 
     def register(self, *, quantity, direction, reason):
         return register_stock_movement(
@@ -405,3 +423,295 @@ class GenericStockTests(TestCase):
         )
 
         self.assertEqual(asset.internal_code, "ASSET-STOCK-REGRESSION")
+
+    def test_entry_creates_missing_balance(self):
+        self.balance.delete()
+
+        movement = register_stock_entry(
+            product=self.product,
+            branch=self.branch,
+            organizational_location=self.location,
+            quantity=8,
+            reason=StockMovement.Reason.INITIAL_ENTRY,
+            performed_by=self.user,
+        )
+
+        balance = StockBalance.objects.get(
+            product=self.product,
+            branch=self.branch,
+            organizational_location=self.location,
+        )
+        self.assertEqual(balance.quantity, 8)
+        self.assertEqual(movement.balance, balance)
+        self.assertEqual(movement.reason, StockMovement.Reason.INITIAL_ENTRY)
+
+    def test_exact_exit_leaves_zero_balance(self):
+        register_stock_entry(
+            product=self.product,
+            branch=self.branch,
+            organizational_location=self.location,
+            quantity=6,
+            reason=StockMovement.Reason.PURCHASE,
+            performed_by=self.user,
+        )
+        register_stock_exit(
+            product=self.product,
+            branch=self.branch,
+            organizational_location=self.location,
+            quantity=6,
+            reason=StockMovement.Reason.CONSUMPTION,
+            performed_by=self.user,
+        )
+
+        self.balance.refresh_from_db()
+        self.assertEqual(self.balance.quantity, 0)
+
+    def test_return_is_an_explicit_entry(self):
+        movement = register_stock_entry(
+            product=self.product,
+            branch=self.branch,
+            organizational_location=self.location,
+            quantity=2,
+            reason=StockMovement.Reason.RETURN,
+            performed_by=self.user,
+        )
+
+        self.assertEqual(movement.direction, StockMovement.Direction.ENTRY)
+        self.assertEqual(movement.reason, StockMovement.Reason.RETURN)
+
+    def test_positive_and_negative_adjustments_are_auditable(self):
+        positive = register_stock_entry(
+            product=self.product,
+            branch=self.branch,
+            organizational_location=self.location,
+            quantity=7,
+            reason=StockMovement.Reason.POSITIVE_ADJUSTMENT,
+            performed_by=self.user,
+            observation="Corrección de conteo",
+        )
+        negative = register_stock_exit(
+            product=self.product,
+            branch=self.branch,
+            organizational_location=self.location,
+            quantity=2,
+            reason=StockMovement.Reason.NEGATIVE_ADJUSTMENT,
+            performed_by=self.user,
+            observation="Corrección de conteo",
+        )
+
+        self.balance.refresh_from_db()
+        self.assertEqual(self.balance.quantity, 5)
+        self.assertEqual(positive.direction, StockMovement.Direction.ENTRY)
+        self.assertEqual(negative.direction, StockMovement.Direction.EXIT)
+
+    def test_write_off_is_an_exit_and_validates_availability(self):
+        self.register(
+            quantity=4,
+            direction=StockMovement.Direction.ENTRY,
+            reason=StockMovement.Reason.PURCHASE,
+        )
+        movement = register_stock_exit(
+            product=self.product,
+            branch=self.branch,
+            organizational_location=self.location,
+            quantity=3,
+            reason=StockMovement.Reason.WRITE_OFF,
+            performed_by=self.user,
+        )
+
+        self.balance.refresh_from_db()
+        self.assertEqual(self.balance.quantity, 1)
+        self.assertEqual(movement.reason, StockMovement.Reason.WRITE_OFF)
+
+    def test_valid_transfer_updates_both_balances_and_history(self):
+        self.register(
+            quantity=10,
+            direction=StockMovement.Direction.ENTRY,
+            reason=StockMovement.Reason.PURCHASE,
+        )
+        destination_balance = StockBalance.objects.create(
+            product=self.product,
+            branch=self.destination_branch,
+            organizational_location=self.destination_location,
+            quantity=1,
+        )
+
+        exit_movement, entry_movement = transfer_stock(
+            product=self.product,
+            source_branch=self.branch,
+            source_location=self.location,
+            destination_branch=self.destination_branch,
+            destination_location=self.destination_location,
+            quantity=4,
+            performed_by=self.user,
+            document_reference="TR-001",
+        )
+
+        self.balance.refresh_from_db()
+        destination_balance.refresh_from_db()
+        self.assertEqual(self.balance.quantity, 6)
+        self.assertEqual(destination_balance.quantity, 5)
+        self.assertEqual(exit_movement.direction, StockMovement.Direction.EXIT)
+        self.assertEqual(entry_movement.direction, StockMovement.Direction.ENTRY)
+        self.assertEqual(exit_movement.reason, StockMovement.Reason.TRANSFER)
+        self.assertEqual(entry_movement.reason, StockMovement.Reason.TRANSFER)
+
+    def test_transfer_creates_destination_balance(self):
+        self.register(
+            quantity=5,
+            direction=StockMovement.Direction.ENTRY,
+            reason=StockMovement.Reason.PURCHASE,
+        )
+
+        transfer_stock(
+            product=self.product,
+            source_branch=self.branch,
+            source_location=self.location,
+            destination_branch=self.destination_branch,
+            destination_location=self.destination_location,
+            quantity=2,
+            performed_by=self.user,
+        )
+
+        destination_balance = StockBalance.objects.get(
+            product=self.product,
+            branch=self.destination_branch,
+            organizational_location=self.destination_location,
+        )
+        self.assertEqual(destination_balance.quantity, 2)
+
+    def test_insufficient_transfer_rolls_back_destination_and_movements(self):
+        self.register(
+            quantity=3,
+            direction=StockMovement.Direction.ENTRY,
+            reason=StockMovement.Reason.PURCHASE,
+        )
+        movement_count = StockMovement.objects.count()
+
+        with self.assertRaises(ValidationError):
+            transfer_stock(
+                product=self.product,
+                source_branch=self.branch,
+                source_location=self.location,
+                destination_branch=self.destination_branch,
+                destination_location=self.destination_location,
+                quantity=4,
+                performed_by=self.user,
+            )
+
+        self.balance.refresh_from_db()
+        self.assertEqual(self.balance.quantity, 3)
+        self.assertEqual(StockMovement.objects.count(), movement_count)
+        self.assertFalse(
+            StockBalance.objects.filter(
+                product=self.product,
+                branch=self.destination_branch,
+                organizational_location=self.destination_location,
+            ).exists()
+        )
+
+    def test_transfer_rejects_same_origin_and_destination(self):
+        with self.assertRaises(ValidationError):
+            transfer_stock(
+                product=self.product,
+                source_branch=self.branch,
+                source_location=self.location,
+                destination_branch=self.branch,
+                destination_location=self.location,
+                quantity=1,
+                performed_by=self.user,
+            )
+
+        self.assertEqual(StockMovement.objects.count(), 0)
+
+    def test_transfer_rolls_back_if_second_movement_creation_fails(self):
+        self.register(
+            quantity=5,
+            direction=StockMovement.Direction.ENTRY,
+            reason=StockMovement.Reason.PURCHASE,
+        )
+        destination_balance = StockBalance.objects.create(
+            product=self.product,
+            branch=self.destination_branch,
+            organizational_location=self.destination_location,
+        )
+        movement_count = StockMovement.objects.count()
+        original_create = StockMovement.objects.create
+        calls = 0
+
+        def fail_second_movement(**kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise RuntimeError("Fallo simulado al crear el segundo movimiento")
+            return original_create(**kwargs)
+
+        with patch.object(
+            StockMovement.objects,
+            "create",
+            side_effect=fail_second_movement,
+        ):
+            with self.assertRaises(RuntimeError):
+                transfer_stock(
+                    product=self.product,
+                    source_branch=self.branch,
+                    source_location=self.location,
+                    destination_branch=self.destination_branch,
+                    destination_location=self.destination_location,
+                    quantity=2,
+                    performed_by=self.user,
+                )
+
+        self.balance.refresh_from_db()
+        destination_balance.refresh_from_db()
+        self.assertEqual(self.balance.quantity, 5)
+        self.assertEqual(destination_balance.quantity, 0)
+        self.assertEqual(StockMovement.objects.count(), movement_count)
+
+    def test_service_rejects_product_incoherent_with_balance(self):
+        other_product = StockProduct.objects.create(
+            name="Teclado",
+            reference_code="KEYBOARD-001",
+            category=self.category,
+        )
+
+        with self.assertRaises(ValidationError):
+            register_stock_movement(
+                balance=self.balance,
+                product=other_product,
+                quantity=1,
+                direction=StockMovement.Direction.ENTRY,
+                reason=StockMovement.Reason.PURCHASE,
+                performed_by=self.user,
+            )
+
+        self.balance.refresh_from_db()
+        self.assertEqual(self.balance.quantity, 0)
+
+    def test_entry_rejects_location_from_another_branch(self):
+        with self.assertRaises(ValidationError):
+            register_stock_entry(
+                product=self.product,
+                branch=self.branch,
+                organizational_location=self.destination_location,
+                quantity=1,
+                reason=StockMovement.Reason.PURCHASE,
+                performed_by=self.user,
+            )
+
+        self.assertEqual(StockMovement.objects.count(), 0)
+
+    def test_confirmed_movement_cannot_be_edited_or_deleted(self):
+        movement = self.register(
+            quantity=1,
+            direction=StockMovement.Direction.ENTRY,
+            reason=StockMovement.Reason.PURCHASE,
+        )
+        movement.observation = "Intento de edición"
+
+        with self.assertRaises(ValidationError):
+            movement.save()
+        with self.assertRaises(ValidationError):
+            movement.delete()
+
+        self.assertEqual(StockMovement.objects.count(), 1)

@@ -1018,15 +1018,27 @@ class StockMovement(models.Model):
     class Reason(models.TextChoices):
         PURCHASE = "PURCHASE", "Compra"
         RETURN = "RETURN", "Devolución"
+        INITIAL_ENTRY = "INITIAL_ENTRY", "Ingreso inicial"
         DELIVERY = "DELIVERY", "Entrega"
         REPAIR = "REPAIR", "Uso en reparación"
         CONSUMPTION = "CONSUMPTION", "Consumo"
         WRITE_OFF = "WRITE_OFF", "Baja"
         ADJUSTMENT = "ADJUSTMENT", "Ajuste"
+        POSITIVE_ADJUSTMENT = "POSITIVE_ADJUSTMENT", "Ajuste positivo"
+        NEGATIVE_ADJUSTMENT = "NEGATIVE_ADJUSTMENT", "Ajuste negativo"
+        TRANSFER = "TRANSFER", "Transferencia"
         OTHER = "OTHER", "Otro"
 
     ENTRY_REASONS = frozenset(
-        {Reason.PURCHASE, Reason.RETURN, Reason.ADJUSTMENT, Reason.OTHER}
+        {
+            Reason.PURCHASE,
+            Reason.RETURN,
+            Reason.INITIAL_ENTRY,
+            Reason.ADJUSTMENT,
+            Reason.POSITIVE_ADJUSTMENT,
+            Reason.TRANSFER,
+            Reason.OTHER,
+        }
     )
     EXIT_REASONS = frozenset(
         {
@@ -1035,6 +1047,8 @@ class StockMovement(models.Model):
             Reason.CONSUMPTION,
             Reason.WRITE_OFF,
             Reason.ADJUSTMENT,
+            Reason.NEGATIVE_ADJUSTMENT,
+            Reason.TRANSFER,
             Reason.OTHER,
         }
     )
@@ -1115,6 +1129,16 @@ class StockMovement(models.Model):
 
     def __str__(self):
         return f"{self.get_direction_display()} - {self.product} ({self.quantity})"
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError(
+                "Los movimientos confirmados no pueden modificarse; registre un movimiento compensatorio."
+            )
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Los movimientos confirmados no pueden eliminarse.")
     
 
     
