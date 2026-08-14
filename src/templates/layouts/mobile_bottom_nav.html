@@ -26,6 +26,15 @@
         <span>Crear</span>
     </a>
 
+    {% if request.user.role == "CLIENT" %}
+    <a
+        href="{% url 'inventory:my_asset_list' %}"
+        class="mobile-bottom-nav-item{% if request.resolver_match.namespace == 'inventory' and request.resolver_match.url_name == 'my_asset_list' %} is-active{% endif %}"
+        {% if request.resolver_match.namespace == 'inventory' and request.resolver_match.url_name == 'my_asset_list' %}aria-current="page"{% endif %}>
+        <i class="bi bi-pc-display" aria-hidden="true"></i>
+        <span>Mis equipos</span>
+    </a>
+    {% else %}
     <a
         href="{% url 'notifications:notification_list' %}"
         class="mobile-bottom-nav-item{% if request.resolver_match.namespace == 'notifications' %} is-active{% endif %}"
@@ -40,6 +49,8 @@
         </span>
         <span>Notificaciones</span>
     </a>
+
+    {% endif %}
 
     <a
         href="{% url 'profile' %}"

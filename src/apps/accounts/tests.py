@@ -1,4 +1,5 @@
 from datetime import timedelta
+import re
 
 from django.test import TestCase
 from django.urls import reverse
@@ -21,6 +22,15 @@ class AccountAccessTests(TestCase):
         return User.objects.create_user(
             username=email, email=email, password=self.password, **extra
         )
+
+    def mobile_navigation(self, response):
+        match = re.search(
+            rb'<nav class="mobile-bottom-nav".*?</nav>',
+            response.content,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(match)
+        return match.group(0).decode()
 
     def test_suspended_user_cannot_log_in(self):
         user = self.create_user(
@@ -73,6 +83,42 @@ class AccountAccessTests(TestCase):
         self.assertContains(response, 'href="/accounts/profile/"')
         self.assertContains(response, 'class="mobile-bottom-nav-item is-active"')
         self.assertContains(response, 'aria-current="page"')
+
+    def test_client_mobile_navigation_links_to_my_assets(self):
+        user = self.create_user(
+            "client-mobile-assets@example.test", role=User.Role.CLIENT
+        )
+        self.client.force_login(user)
+
+        response = self.client.get(reverse("inventory:my_asset_list"))
+        mobile_navigation = self.mobile_navigation(response)
+
+        self.assertIn(reverse("inventory:my_asset_list"), mobile_navigation)
+        self.assertIn("Mis equipos", mobile_navigation)
+        self.assertIn("mobile-bottom-nav-item is-active", mobile_navigation)
+        self.assertNotIn("Notificaciones", mobile_navigation)
+
+    def test_non_client_mobile_navigation_keeps_notifications(self):
+        for role in (
+            User.Role.TECHNICIAN,
+            User.Role.ADMIN,
+            User.Role.SUPERVISOR,
+        ):
+            with self.subTest(role=role):
+                user = self.create_user(
+                    f"mobile-{role.lower()}@example.test", role=role
+                )
+                self.client.force_login(user)
+
+                response = self.client.get(reverse("profile"))
+                mobile_navigation = self.mobile_navigation(response)
+
+                self.assertIn(
+                    reverse("notifications:notification_list"),
+                    mobile_navigation,
+                )
+                self.assertIn("Notificaciones", mobile_navigation)
+                self.assertNotIn("Mis equipos", mobile_navigation)
 
     def test_admin_home_keeps_global_ticket_metrics(self):
         admin = self.create_user("global-admin@example.test", role=User.Role.ADMIN)

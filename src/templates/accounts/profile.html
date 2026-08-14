@@ -141,6 +141,13 @@
 {% endblock %}
 
 {% block content %}
+{% if request.user.role == "CLIENT" %}
+<div style="margin: 0 0 16px;">
+    <a href="{% url 'inventory:my_asset_list' %}" class="btn btn-primary">
+        <i class="bi bi-pc-display"></i> Mis equipos
+    </a>
+</div>
+{% endif %}
 <section class="profile-page" aria-labelledby="profile-title">
     <header class="profile-hero">
         {% if profile_user.profile_image %}

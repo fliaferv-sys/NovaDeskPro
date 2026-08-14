@@ -1,7 +1,5 @@
 from django.conf import settings
-from django.db.models import Q
-
-from .models import Notification
+from .selectors import notifications_for_user
 
 
 def notification_context(request):
@@ -15,8 +13,7 @@ def notification_context(request):
             ),
         }
 
-    unread_count = Notification.objects.filter(
-        Q(recipient=request.user) | Q(recipient__isnull=True),
+    unread_count = notifications_for_user(request.user).filter(
         is_active=True,
         is_read=False,
     ).count()

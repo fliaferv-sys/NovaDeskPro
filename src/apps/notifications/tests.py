@@ -423,6 +423,7 @@ class NotificationViewTests(TestCase):
             password="ClaveSegura123",
             first_name="Usuario",
             last_name="Vistas",
+            role=User.Role.ADMIN,
         )
 
         self.other_user = User.objects.create_user(
@@ -767,6 +768,74 @@ class NotificationViewTests(TestCase):
         self.assertIn("Crítica", level_labels)
         self.assertIn("Advertencia", level_labels)
 
+    def test_client_sees_only_own_notifications_without_executive_metrics(self):
+        self.client.force_login(self.other_user)
+
+        response = self.client.get(reverse("notifications:notification_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context["show_executive_panel"])
+        self.assertNotIn("total_count", response.context)
+        self.assertContains(response, self.other_user_notification.title)
+        self.assertNotContains(response, self.notification.title)
+        self.assertNotContains(response, self.global_notification.title)
+        self.assertNotContains(response, "Panel ejecutivo")
+        self.assertNotContains(response, "Tipos más frecuentes")
+
+    def test_client_cannot_access_another_users_notification(self):
+        self.client.force_login(self.other_user)
+
+        response = self.client.post(
+            reverse(
+                "notifications:notification_mark_read",
+                args=[self.notification.pk],
+            )
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_technician_sees_only_own_notifications(self):
+        technician = User.objects.create_user(
+            username="tecnico_notificaciones",
+            email="tecnico_notificaciones@novadesk.local",
+            password="ClaveSegura123",
+            role=User.Role.TECHNICIAN,
+        )
+        own_notification = Notification.objects.create(
+            recipient=technician,
+            title="Trabajo asignado al técnico",
+            message="Notificación laboral propia.",
+            unique_key="test-technician-own-notification",
+        )
+        self.client.force_login(technician)
+
+        response = self.client.get(reverse("notifications:notification_list"))
+
+        self.assertFalse(response.context["show_executive_panel"])
+        self.assertContains(response, own_notification.title)
+        self.assertNotContains(response, self.notification.title)
+        self.assertNotContains(response, self.global_notification.title)
+
+    def test_admin_and_supervisor_keep_executive_panel(self):
+        for role in (User.Role.ADMIN, User.Role.SUPERVISOR):
+            with self.subTest(role=role):
+                user = User.objects.create_user(
+                    username=f"executive_{role.lower()}",
+                    email=f"executive_{role.lower()}@novadesk.local",
+                    password="ClaveSegura123",
+                    role=role,
+                )
+                self.client.force_login(user)
+
+                response = self.client.get(
+                    reverse("notifications:notification_list")
+                )
+
+                self.assertTrue(response.context["show_executive_panel"])
+                self.assertIn("total_count", response.context)
+                self.assertContains(response, "Panel ejecutivo")
+                self.assertContains(response, "Tipos más frecuentes")
+
 
 class NotificationContextProcessorTests(TestCase):
     """
@@ -826,7 +895,7 @@ class NotificationContextProcessorTests(TestCase):
 
         self.assertEqual(
             context["navbar_unread_notifications"],
-            2,
+            1,
         )
 
     def test_anonymous_user_counter_is_zero(self):

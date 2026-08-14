@@ -70,6 +70,33 @@
 
     {% if assets %}
 
+    <div class="asset-cards">
+        {% for asset in assets %}
+        <article class="asset-card">
+            <div class="asset-card-heading">
+                <div>
+                    <strong>{{ asset.get_asset_type_display }}</strong>
+                    <span>{{ asset.internal_code }}</span>
+                </div>
+                <span class="badge {% if asset.operational_status == 'OPERATIONAL' %}badge-success{% elif asset.operational_status == 'MAINTENANCE' or asset.operational_status == 'OBSERVATION' %}badge-warning{% else %}badge-danger{% endif %}">
+                    {{ asset.get_operational_status_display }}
+                </span>
+            </div>
+            <dl>
+                <div><dt>Marca / modelo</dt><dd>{{ asset.brand|default:"-" }} {{ asset.model|default:"" }}</dd></div>
+                <div><dt>Número de serie</dt><dd>{{ asset.serial_number|default:"-" }}</dd></div>
+                <div><dt>Código patrimonial</dt><dd>{{ asset.patrimonial_code|default:"-" }}</dd></div>
+                <div><dt>Ubicación</dt><dd>{{ asset.full_location }}</dd></div>
+            </dl>
+            {% if asset.operational_status != "RETIRED" %}
+                <a href="{% url 'tickets:ticket_create' %}?asset={{ asset.id }}" class="btn btn-sm btn-success">
+                    <i class="bi bi-chat-dots"></i> Reportar un problema
+                </a>
+            {% endif %}
+        </article>
+        {% endfor %}
+    </div>
+
     <div class="table-container">
         <table>
             <thead>
@@ -88,16 +115,16 @@
                 {% for asset in assets %}
                 <tr>
                     <td>
-                        <span class="equipo-icono" title="{{ asset.asset_type.name|default:'Equipo' }}">
-                            {% if asset.asset_type.name|lower == "computadora" or asset.asset_type.name|lower == "laptop" %}
+                        <span class="equipo-icono" title="{{ asset.get_asset_type_display }}">
+                            {% if asset.asset_type == "DESKTOP" or asset.asset_type == "LAPTOP" %}
                                 <i class="bi bi-laptop"></i>
-                            {% elif asset.asset_type.name|lower == "impresora" %}
+                            {% elif asset.asset_type == "PRINTER" %}
                                 <i class="bi bi-printer"></i>
                             {% elif asset.asset_type.name|lower == "tablet" %}
                                 <i class="bi bi-tablet"></i>
-                            {% elif asset.asset_type.name|lower == "monitor" %}
+                            {% elif asset.asset_type == "MONITOR" %}
                                 <i class="bi bi-display"></i>
-                            {% elif asset.asset_type.name|lower == "telefono" or asset.asset_type.name|lower == "celular" %}
+                            {% elif asset.asset_type == "IP_PHONE" %}
                                 <i class="bi bi-phone"></i>
                             {% else %}
                                 <i class="bi bi-pc-display"></i>
@@ -106,44 +133,36 @@
                     </td>
                     <td>
                         <span class="equipo-nombre">{{ asset.internal_code }}</span>
-                        <span class="equipo-detalle">{{ asset.asset_type.name|default:"Sin tipo" }}</span>
+                        <span class="equipo-detalle">{{ asset.get_asset_type_display }}</span>
                     </td>
                     <td>
                         <strong>{{ asset.brand|default:"-" }}</strong>
                         <span class="equipo-detalle">{{ asset.model|default:"-" }}</span>
                     </td>
                     <td>{{ asset.serial_number|default:"-" }}</td>
-                    <td>{{ asset.asset_tag|default:"—" }}</td>
+                    <td>{{ asset.patrimonial_code|default:"—" }}</td>
                     <td>
-                        {% if asset.status == "OPERATIVE" %}
+                        {% if asset.operational_status == "OPERATIONAL" %}
                             <span class="badge badge-success">
                                 <i class="bi bi-check-circle"></i> Operativo
                             </span>
-                        {% elif asset.status == "MAINTENANCE" %}
+                        {% elif asset.operational_status == "MAINTENANCE" or asset.operational_status == "OBSERVATION" %}
                             <span class="badge badge-warning">
                                 <i class="bi bi-exclamation-triangle"></i> En mantenimiento
                             </span>
-                        {% elif asset.status == "ASSIGNED" %}
-                            <span class="badge badge-info">
-                                <i class="bi bi-person-check"></i> Asignado
-                            </span>
-                        {% elif asset.status == "REPAIR" %}
-                            <span class="badge badge-warning">
-                                <i class="bi bi-tools"></i> En reparación
-                            </span>
-                        {% elif asset.status == "DISPOSED" %}
+                        {% elif asset.operational_status == "RETIRED" or asset.operational_status == "OUT_OF_SERVICE" %}
                             <span class="badge badge-danger">
-                                <i class="bi bi-x-circle"></i> Dado de baja
+                                <i class="bi bi-x-circle"></i> {{ asset.get_operational_status_display }}
                             </span>
                         {% else %}
                             <span class="badge badge-secondary">
-                                {{ asset.get_status_display|default:"-" }}
+                                {{ asset.get_operational_status_display }}
                             </span>
                         {% endif %}
                     </td>
-                    <td>{{ asset.location|default:"-" }}</td>
+                    <td>{{ asset.full_location }}</td>
                     <td style="text-align:center;">
-                        {% if asset.status != "DISPOSED" %}
+                        {% if asset.operational_status != "RETIRED" %}
                             <a href="{% url 'tickets:ticket_create' %}?asset={{ asset.id }}" class="btn btn-sm btn-success">
                                 <i class="bi bi-chat-dots"></i> Reportar
                             </a>
@@ -162,7 +181,7 @@
     <div class="table-footer">
         <span>
             <i class="bi bi-database"></i>
-            Mostrando {{ assets|length }} de {{ total_count }} equipos activos asignados a tu nombre
+            Mostrando {{ assets|length }} de {{ total_count }} equipos asignados a tu nombre
         </span>
     </div>
 
@@ -350,6 +369,10 @@
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
     }
 
+    .asset-cards {
+        display: none;
+    }
+
     table {
         width: 100%;
         border-collapse: collapse;
@@ -502,6 +525,61 @@
 
         .stats-grid {
             grid-template-columns: 1fr 1fr;
+        }
+
+        .table-container {
+            display: none;
+        }
+
+        .asset-cards {
+            display: grid;
+            gap: 12px;
+        }
+
+        .asset-card {
+            padding: 16px;
+            background: white;
+            border: 1px solid #eaecf0;
+            border-radius: 12px;
+        }
+
+        .asset-card-heading {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: flex-start;
+        }
+
+        .asset-card-heading strong,
+        .asset-card-heading span {
+            display: block;
+        }
+
+        .asset-card-heading div > span {
+            color: #667085;
+            margin-top: 3px;
+        }
+
+        .asset-card dl {
+            margin: 16px 0;
+        }
+
+        .asset-card dl div {
+            display: grid;
+            grid-template-columns: minmax(110px, 40%) 1fr;
+            gap: 8px;
+            padding: 7px 0;
+            border-bottom: 1px solid #f2f4f7;
+        }
+
+        .asset-card dt {
+            color: #667085;
+        }
+
+        .asset-card dd {
+            margin: 0;
+            color: #101828;
+            overflow-wrap: anywhere;
         }
 
         td,

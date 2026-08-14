@@ -443,7 +443,10 @@ def my_asset_list(request):
     
     assets = Asset.objects.filter(
         assigned_user=request.user,
-        operational_status='OPERATIONAL',
+    ).exclude(
+        operational_status=Asset.OperationalStatus.RETIRED,
+    ).select_related(
+        "branch", "physical_location"
     ).order_by(
         'operational_status',
         'asset_type',
@@ -452,9 +455,14 @@ def my_asset_list(request):
 
     # Estadísticas
     total_count = assets.count()
-    operative_count = assets.filter(operational_status='OPERATIONAL').count()
+    operative_count = assets.filter(
+        operational_status=Asset.OperationalStatus.OPERATIONAL
+    ).count()
     maintenance_count = assets.filter(
-        operational_status__in=['MAINTENANCE', 'OBSERVATION']
+        operational_status__in=[
+            Asset.OperationalStatus.MAINTENANCE,
+            Asset.OperationalStatus.OBSERVATION,
+        ]
     ).count()
 
     context = {

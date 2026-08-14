@@ -9,7 +9,11 @@
         <div>
             <h1>Notificaciones</h1>
             <p>
-                Panel ejecutivo de alertas y eventos importantes de NovaDesk Pro.
+                {% if show_executive_panel %}
+                    Panel ejecutivo de alertas y eventos importantes de NovaDesk Pro.
+                {% else %}
+                    Alertas y novedades relacionadas con tu actividad.
+                {% endif %}
             </p>
         </div>
 
@@ -37,6 +41,7 @@
         </div>
     </div>
 
+    {% if show_executive_panel %}
     <div class="notifications-summary">
         <div class="summary-card">
             <span>Activas</span>
@@ -121,6 +126,7 @@
             {% endif %}
         </div>
     </div>
+    {% endif %}
 
     <form method="get" class="notifications-filters">
         <div class="filter-group filter-search">
@@ -297,19 +303,21 @@
                                 </button>
                             </form>
 
-                            <form
-                                method="post"
-                                action="{% url 'notifications:notification_resolve' notification.pk %}"
-                                class="inline-form"
-                            >
-                                {% csrf_token %}
-                                <button type="submit" class="notification-resolve-button">
-                                    Resolver
-                                </button>
-                            </form>
+                            {% if show_executive_panel %}
+                                <form
+                                    method="post"
+                                    action="{% url 'notifications:notification_resolve' notification.pk %}"
+                                    class="inline-form"
+                                >
+                                    {% csrf_token %}
+                                    <button type="submit" class="notification-resolve-button">
+                                        Resolver
+                                    </button>
+                                </form>
+                            {% endif %}
                         </div>
                     {% else %}
-                        <div class="notification-action-group">
+                        {% if show_executive_panel %}<div class="notification-action-group">
                             <form
                                 method="post"
                                 action="{% url 'notifications:notification_reopen' notification.pk %}"
@@ -320,7 +328,7 @@
                                     Reabrir
                                 </button>
                             </form>
-                        </div>
+                        </div>{% endif %}
                     {% endif %}
                 </div>
             </article>

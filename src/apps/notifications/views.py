@@ -9,12 +9,11 @@ import json
 from django.http import JsonResponse
 
 from .models import Notification, PushSubscription
+from .selectors import can_view_executive_notifications, notifications_for_user
 
 
 def _notification_base_queryset(user):
-    return Notification.objects.filter(
-        Q(recipient=user) | Q(recipient__isnull=True)
-    )
+    return notifications_for_user(user)
 
 
 @login_required
@@ -63,87 +62,15 @@ def notification_list(request):
         is_active=True,
     )
 
-    today = timezone.localdate()
-
     unread_count = active_notifications.filter(
         is_read=False,
     ).count()
-
-    danger_count = active_notifications.filter(
-        level=Notification.LEVEL_DANGER,
-    ).count()
-
-    warning_count = active_notifications.filter(
-        level=Notification.LEVEL_WARNING,
-    ).count()
-
-    info_count = active_notifications.filter(
-        level=Notification.LEVEL_INFO,
-    ).count()
-
-    resolved_queryset = base_queryset.filter(
-        is_active=False,
-    )
-
-    resolved_count = resolved_queryset.count()
-
-    resolved_today_count = base_queryset.filter(
-        resolved_at__date=today,
-    ).count()
-
-    reopened_total_count = base_queryset.filter(
-        reopened_at__isnull=False,
-    ).count()
-
-    reopened_today_count = base_queryset.filter(
-        reopened_at__date=today,
-    ).count()
-
-    type_summary = list(
-        base_queryset.values(
-            "notification_type"
-        ).annotate(
-            total=Count("id")
-        ).order_by("-total")
-    )
-
-    type_labels = dict(Notification.TYPE_CHOICES)
-
-    for item in type_summary:
-        item["label"] = type_labels.get(
-            item["notification_type"],
-            item["notification_type"],
-        )
-
-    level_summary = list(
-        base_queryset.values(
-            "level"
-        ).annotate(
-            total=Count("id")
-        ).order_by("-total")
-    )
-
-    level_labels = dict(Notification.LEVEL_CHOICES)
-
-    for item in level_summary:
-        item["label"] = level_labels.get(
-            item["level"],
-            item["level"],
-        )
+    show_executive_panel = can_view_executive_notifications(request.user)
 
     context = {
         "notifications": notifications,
         "unread_count": unread_count,
-        "total_count": active_notifications.count(),
-        "danger_count": danger_count,
-        "warning_count": warning_count,
-        "info_count": info_count,
-        "resolved_count": resolved_count,
-        "resolved_today_count": resolved_today_count,
-        "reopened_total_count": reopened_total_count,
-        "reopened_today_count": reopened_today_count,
-        "type_summary": type_summary,
-        "level_summary": level_summary,
+        "show_executive_panel": show_executive_panel,
         "search": search,
         "selected_level": level,
         "selected_type": notification_type,
@@ -152,6 +79,55 @@ def notification_list(request):
         "type_choices": Notification.TYPE_CHOICES,
         "level_choices": Notification.LEVEL_CHOICES,
     }
+
+    if show_executive_panel:
+        today = timezone.localdate()
+        type_summary = list(
+            base_queryset.values("notification_type")
+            .annotate(total=Count("id"))
+            .order_by("-total")
+        )
+        type_labels = dict(Notification.TYPE_CHOICES)
+        for item in type_summary:
+            item["label"] = type_labels.get(
+                item["notification_type"], item["notification_type"]
+            )
+
+        level_summary = list(
+            base_queryset.values("level")
+            .annotate(total=Count("id"))
+            .order_by("-total")
+        )
+        level_labels = dict(Notification.LEVEL_CHOICES)
+        for item in level_summary:
+            item["label"] = level_labels.get(item["level"], item["level"])
+
+        context.update(
+            {
+                "total_count": active_notifications.count(),
+                "danger_count": active_notifications.filter(
+                    level=Notification.LEVEL_DANGER
+                ).count(),
+                "warning_count": active_notifications.filter(
+                    level=Notification.LEVEL_WARNING
+                ).count(),
+                "info_count": active_notifications.filter(
+                    level=Notification.LEVEL_INFO
+                ).count(),
+                "resolved_count": base_queryset.filter(is_active=False).count(),
+                "resolved_today_count": base_queryset.filter(
+                    resolved_at__date=today
+                ).count(),
+                "reopened_total_count": base_queryset.filter(
+                    reopened_at__isnull=False
+                ).count(),
+                "reopened_today_count": base_queryset.filter(
+                    reopened_at__date=today
+                ).count(),
+                "type_summary": type_summary,
+                "level_summary": level_summary,
+            }
+        )
 
     return render(
         request,
