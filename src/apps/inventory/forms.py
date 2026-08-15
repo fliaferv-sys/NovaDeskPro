@@ -263,9 +263,164 @@ class AssetForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.fields["acquisition_batch"].queryset = AcquisitionBatch.objects.order_by(
-            "-date", "code"
+        self.fields["acquisition_batch"].queryset = (
+            AcquisitionBatch.objects.order_by("-date", "code")
         )
+
+        for field_name in (
+            "brand",
+            "model",
+            "patrimonial_code",
+            "serial_number",
+            "acquisition_batch",
+        ):
+            self.fields[field_name].required = True
+
+        self.fields["assigned_user"].queryset = (
+            User.objects
+            .filter(
+                is_active=True,
+                approval_status=User.ApprovalStatus.APPROVED,
+            )
+            .select_related("branch")
+            .order_by("first_name", "last_name")
+        )
+        self.fields["assigned_user"].empty_label = "Sin usuario asignado"
+
+        self.fields["branch"].queryset = (
+            self.fields["branch"].queryset
+            .filter(is_active=True)
+            .order_by("name")
+        )
+        self.fields["branch"].empty_label = "Seleccione una sede"
+
+        active_locations = (
+            OrganizationalLocation.objects
+            .filter(
+                is_active=True,
+                branch__is_active=True,
+            )
+            .select_related("branch", "parent")
+            .order_by("branch__name", "name")
+        )
+
+        selected_branch_id = None
+
+        if self.is_bound:
+            selected_branch_id = self.data.get("branch")
+        elif (
+            self.instance
+            and self.instance.pk
+            and self.instance.branch_id
+        ):
+            selected_branch_id = self.instance.branch_id
+
+        if selected_branch_id:
+            active_locations = active_locations.filter(
+                branch_id=selected_branch_id
+            )
+
+        self.fields["physical_location"].queryset = active_locations
+
+        self.fields["assigned_user"].help_text = (
+            "Persona responsable o custodio del equipo."
+        )
+        self.fields["branch"].help_text = (
+            "Sede donde se encuentra físicamente el equipo."
+        )
+        self.fields["physical_location"].help_text = (
+            "Edificio, piso, oficina, depósito, sala técnica "
+            "o sector dentro de la sede."
+        )
+        self.fields["department"].help_text = (
+            "Departamento responsable o área donde se utiliza el equipo."
+        )
+        self.fields["location"].help_text = (
+            "Referencia adicional: rack, mesa, puesto o sector."
+        )
+
+    def clean_mac_address(self):
+        mac_address = (
+            self.cleaned_data.get("mac_address", "")
+            .strip()
+            .upper()
+        )
+
+        if not mac_address:
+            return ""
+
+        mac_address = mac_address.replace("-", ":")
+        parts = mac_address.split(":")
+
+        if (
+            len(parts) != 6
+            or any(len(part) != 2 for part in parts)
+        ):
+            raise forms.ValidationError(
+                "Ingrese una dirección MAC válida. "
+                "Ejemplo: 00:1A:2B:3C:4D:5E."
+            )
+
+        try:
+            int("".join(parts), 16)
+        except ValueError as exc:
+            raise forms.ValidationError(
+                "La dirección MAC contiene caracteres inválidos."
+            ) from exc
+
+        return ":".join(parts)
+
+    def clean(self):
+        cleaned_data = super().clean()
+
+        branch = cleaned_data.get("branch")
+        physical_location = cleaned_data.get("physical_location")
+        purchase_date = cleaned_data.get("purchase_date")
+        warranty_expiration = cleaned_data.get("warranty_expiration")
+
+        for field_name, label in {
+            "brand": "La marca",
+            "model": "El modelo",
+            "patrimonial_code": "El patrimonio",
+            "serial_number": "El número de serie",
+            "acquisition_batch": "El lote",
+        }.items():
+            if not cleaned_data.get(field_name):
+                self.add_error(
+                    field_name,
+                    f"{label} es obligatorio para registrar el equipo.",
+                )
+
+        if physical_location and not branch:
+            self.add_error(
+                "branch",
+                "Debe seleccionar la sede correspondiente "
+                "a la ubicación física.",
+            )
+
+        if (
+            branch
+            and physical_location
+            and physical_location.branch_id != branch.pk
+        ):
+            self.add_error(
+                "physical_location",
+                "La ubicación seleccionada no pertenece "
+                "a la sede indicada.",
+            )
+
+        if (
+            purchase_date
+            and warranty_expiration
+            and warranty_expiration < purchase_date
+        ):
+            self.add_error(
+                "warranty_expiration",
+                "La fecha de vencimiento de garantía "
+                "no puede ser anterior a la compra.",
+            )
+
+        return cleaned_data
 
 
 class StockCategoryForm(forms.ModelForm):
