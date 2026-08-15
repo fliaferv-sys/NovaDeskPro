@@ -8,6 +8,8 @@ from apps.accounts.models import Branch, User
 from apps.core.models import Department
 from apps.tickets.models import Ticket
 
+from .notifications import sync_inventory_stock_notification
+
 from ..models import (
     OrganizationalLocation,
     StockBalance,
@@ -135,6 +137,14 @@ def register_stock_movement(
     locked_balance.save(update_fields=["quantity", "updated_at"])
 
     balance.quantity = locked_balance.quantity
+
+    balance_id = locked_balance.pk
+    transaction.on_commit(
+        lambda balance_id=balance_id: sync_inventory_stock_notification(
+            balance_id
+        )
+    )
+
     return movement
 
 
@@ -315,6 +325,20 @@ def transfer_stock(
     )
     source_balance.save(update_fields=["quantity", "updated_at"])
     destination_balance.save(update_fields=["quantity", "updated_at"])
+
+    source_balance_id = source_balance.pk
+    destination_balance_id = destination_balance.pk
+
+    transaction.on_commit(
+        lambda source_balance_id=source_balance_id: sync_inventory_stock_notification(
+            source_balance_id
+        )
+    )
+    transaction.on_commit(
+        lambda destination_balance_id=destination_balance_id: sync_inventory_stock_notification(
+            destination_balance_id
+        )
+    )
 
     return exit_movement, entry_movement
 

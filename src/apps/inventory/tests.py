@@ -1318,6 +1318,11 @@ class InventoryStockNotificationTests(TestCase):
         ]
         self.category = StockCategory.objects.create(name="Alertas", code="alertas-stock")
         self.product = StockProduct.objects.create(name="Mouse alerta", reference_code="ALERT-MOUSE", category=self.category, minimum_stock=3)
+        self.admin = User.objects.create_user(
+            username="alert_admin",
+            email="alert_admin@example.com",
+            role="ADMIN",
+        )
 
     def balance(self, quantity, index=0, minimum=None):
         return StockBalance.objects.create(product=self.product, branch=self.branch, organizational_location=self.locations[index], quantity=quantity, minimum_stock=minimum)
@@ -1402,6 +1407,156 @@ class InventoryStockNotificationTests(TestCase):
         call_command("generate_notifications", stdout=output)
         self.assertIn("Stock de inventario genérico", output.getvalue())
         self.assertTrue(Notification.objects.filter(unique_key__startswith="inventory-stock-out-").exists())
+
+
+    def test_stock_exit_automatically_creates_low_and_out_alerts(self):
+        balance = self.balance(4)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            register_stock_exit(
+                product=self.product,
+                branch=self.branch,
+                organizational_location=self.locations[0],
+                quantity=1,
+                reason=StockMovement.Reason.CONSUMPTION,
+                performed_by=self.admin,
+            )
+
+        balance.refresh_from_db()
+        self.assertEqual(balance.quantity, 3)
+        self.assertTrue(
+            self.notification("inventory-stock-low-", balance).is_active
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            register_stock_exit(
+                product=self.product,
+                branch=self.branch,
+                organizational_location=self.locations[0],
+                quantity=3,
+                reason=StockMovement.Reason.CONSUMPTION,
+                performed_by=self.admin,
+            )
+
+        balance.refresh_from_db()
+        self.assertEqual(balance.quantity, 0)
+        self.assertFalse(
+            self.notification("inventory-stock-low-", balance).is_active
+        )
+        self.assertTrue(
+            self.notification("inventory-stock-out-", balance).is_active
+        )
+
+    def test_stock_entry_automatically_deactivates_existing_alert(self):
+        balance = self.balance(0)
+        generate_inventory_stock_notifications()
+
+        self.assertTrue(
+            self.notification("inventory-stock-out-", balance).is_active
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            register_stock_entry(
+                product=self.product,
+                branch=self.branch,
+                organizational_location=self.locations[0],
+                quantity=5,
+                reason=StockMovement.Reason.PURCHASE,
+                performed_by=self.admin,
+            )
+
+        balance.refresh_from_db()
+        self.assertEqual(balance.quantity, 5)
+        self.assertFalse(
+            self.notification("inventory-stock-out-", balance).is_active
+        )
+        self.assertFalse(
+            Notification.objects.filter(
+                unique_key=f"inventory-stock-low-{balance.pk}",
+                is_active=True,
+            ).exists()
+        )
+
+    def test_transfer_automatically_updates_origin_and_destination_alerts(self):
+        source = self.balance(4, index=0)
+        destination = self.balance(0, index=1, minimum=0)
+
+        generate_inventory_stock_notifications()
+        self.assertTrue(
+            self.notification("inventory-stock-out-", destination).is_active
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            transfer_stock(
+                product=self.product,
+                source_branch=self.branch,
+                source_location=self.locations[0],
+                destination_branch=self.branch,
+                destination_location=self.locations[1],
+                quantity=1,
+                performed_by=self.admin,
+            )
+
+        source.refresh_from_db()
+        destination.refresh_from_db()
+
+        self.assertEqual(source.quantity, 3)
+        self.assertEqual(destination.quantity, 1)
+
+        self.assertTrue(
+            self.notification("inventory-stock-low-", source).is_active
+        )
+        self.assertFalse(
+            self.notification("inventory-stock-out-", destination).is_active
+        )
+
+    def test_failed_stock_operation_does_not_run_alert_callback(self):
+        balance = self.balance(4)
+
+        with self.captureOnCommitCallbacks(execute=True) as callbacks:
+            with self.assertRaises(RuntimeError):
+                with transaction.atomic():
+                    register_stock_exit(
+                        product=self.product,
+                        branch=self.branch,
+                        organizational_location=self.locations[0],
+                        quantity=1,
+                        reason=StockMovement.Reason.CONSUMPTION,
+                        performed_by=self.admin,
+                    )
+                    raise RuntimeError("Rollback simulado")
+
+        balance.refresh_from_db()
+
+        self.assertEqual(balance.quantity, 4)
+        self.assertEqual(len(callbacks), 0)
+        self.assertFalse(
+            Notification.objects.filter(
+                object_id=str(balance.pk),
+                is_active=True,
+            ).exists()
+        )
+
+    def test_automatic_alert_does_not_duplicate_existing_notification(self):
+        balance = self.balance(3)
+        generate_inventory_stock_notifications()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            register_stock_entry(
+                product=self.product,
+                branch=self.branch,
+                organizational_location=self.locations[0],
+                quantity=1,
+                reason=StockMovement.Reason.PURCHASE,
+                performed_by=self.admin,
+            )
+
+        self.assertEqual(
+            Notification.objects.filter(
+                unique_key=f"inventory-stock-low-{balance.pk}"
+            ).count(),
+            1,
+        )
 
 
 class TicketStockUsageTests(TestCase):
