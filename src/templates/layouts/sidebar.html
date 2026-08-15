@@ -92,7 +92,7 @@
     <!-- ============================================= -->
 
     <a
-        href="{% if request.user.role == 'CLIENT' %}{% url 'tickets:ticket_create' %}{% elif request.user.role == 'TECHNICIAN' %}{% url 'tickets:dashboard' %}{% else %}/{% endif %}"
+        href="{% if request.user.role == 'CLIENT' and not request.user.is_superuser %}{% url 'tickets:ticket_create' %}{% elif request.user.role == 'TECHNICIAN' and not request.user.is_superuser %}{% url 'tickets:dashboard' %}{% else %}/{% endif %}"
         class="sidebar-menu-link"
         title="Panel principal">
 
@@ -132,22 +132,6 @@
     <!-- ============================================= -->
 
     {% if request.user.role == "CLIENT" and not request.user.is_superuser %}
-
-        <a
-            href="{% url 'inventory:my_asset_list' %}?v={% now 'U' %}"
-            class="sidebar-menu-link"
-            title="Mis equipos"
-            id="misEquiposLink">
-
-            <i class="bi bi-pc-display"></i>
-
-            <span class="sidebar-menu-text">
-                Mis equipos
-            </span>
-
-        </a>
-
-
     {% else %}
 
 
@@ -173,14 +157,6 @@
     </a>
 
 {% endif %}
-
-
-        {% if request.user.is_superuser or request.user.role == "ADMIN" or request.user.role == "SUPERVISOR" or request.user.role == "AUDITOR" %}
-        <a href="{% url 'reports:index' %}" class="sidebar-menu-link" title="Reportes">
-            <i class="bi bi-bar-chart-line"></i>
-            <span class="sidebar-menu-text">Reportes</span>
-        </a>
-        {% endif %}
 
 
         <!-- ============================================= -->
@@ -239,84 +215,6 @@
             </span>
 
         </a>
-
-
-        <!-- ============================================= -->
-        <!-- ENTREGAS Y CUSTODIA -->
-        <!-- ============================================= -->
-
-        <a
-            href="{% url 'deliveries:custody_movement_list' %}"
-            class="sidebar-menu-link"
-            title="Entregas y custodia">
-
-            <i class="bi bi-box-seam"></i>
-
-            <span class="sidebar-menu-text">
-                Custodia
-            </span>
-
-        </a>
-
-
-        <!-- ============================================= -->
-        <!-- ADMIN / SUPERVISOR -->
-        <!-- ============================================= -->
-
-        {% if request.user.is_superuser or request.user.role == "ADMIN" or request.user.role == "SUPERVISOR" %}
-
-
-            <!-- MONITOREO -->
-
-            <a
-                href="{% url 'monitoring:dashboard' %}"
-                class="sidebar-menu-link"
-                title="Monitoreo">
-
-                <i class="bi bi-display"></i>
-
-                <span class="sidebar-menu-text">
-                    Monitoreo
-                </span>
-
-            </a>
-
-
-            <!-- NOTIFICACIONES -->
-
-            <a
-                href="{% url 'notifications:notification_list' %}"
-                class="sidebar-menu-link"
-                title="Notificaciones">
-
-                <i class="bi bi-bell"></i>
-
-                <span class="sidebar-menu-text">
-                    Notificaciones
-                </span>
-
-            </a>
-
-
-            <!-- ============================================= -->
-            <!-- MIS EQUIPOS -->
-            <!-- ============================================= -->
-
-            <a
-                href="{% url 'inventory:my_asset_list' %}?v={% now 'U' %}"
-                class="sidebar-menu-link"
-                title="Mis equipos"
-                id="misEquiposLink">
-
-                <i class="bi bi-pc-display"></i>
-
-                <span class="sidebar-menu-text">
-                    Mis equipos
-                </span>
-
-            </a>
-
-        {% endif %}
 
 
         <!-- ============================================= -->

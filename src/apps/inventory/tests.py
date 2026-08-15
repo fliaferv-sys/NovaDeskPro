@@ -918,6 +918,7 @@ class StockAdministrationTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(StockMovement.objects.exists())
 
+
     def test_exit_valid_exact_zero_and_insufficient_rollback(self):
         register_stock_entry(
             product=self.product,
@@ -1738,3 +1739,52 @@ class EmptyInventoryViewsTests(TestCase):
             with self.subTest(url=url):
                 response = self.client.get(url)
                 self.assertEqual(response.status_code, 200)
+
+
+class InventoryNavigationTests(TestCase):
+    def create_user(self, name, role):
+        return User.objects.create_user(
+            username=name,
+            email=f"{name}@example.test",
+            password="test-password-123",
+            role=role,
+        )
+
+    def test_inventory_links_stock_and_custody_according_to_permissions(self):
+        stock_url = reverse("inventory:stock_product_list")
+        custody_url = reverse("deliveries:custody_movement_list")
+        for role in (User.Role.ADMIN, User.Role.SUPERVISOR):
+            with self.subTest(role=role):
+                self.client.force_login(self.create_user(f"inventory-nav-{role.lower()}", role))
+                response = self.client.get(reverse("inventory:asset_list"))
+                self.assertContains(response, f'href="{stock_url}"')
+                self.assertContains(response, f'href="{custody_url}"')
+
+        for role in (User.Role.AUDITOR, User.Role.TECHNICIAN):
+            with self.subTest(role=role):
+                self.client.force_login(self.create_user(f"inventory-nav-{role.lower()}", role))
+                response = self.client.get(reverse("inventory:asset_list"))
+                self.assertNotContains(response, f'href="{stock_url}"')
+                self.assertContains(response, f'href="{custody_url}"')
+
+    def test_stock_panel_exposes_all_existing_operations(self):
+        admin = self.create_user("stock-navigation-admin", User.Role.ADMIN)
+        self.client.force_login(admin)
+        response = self.client.get(reverse("inventory:stock_product_list"))
+        for name in (
+            "stock_product_list", "stock_category_list", "stock_entry",
+            "documented_stock_entry_list", "stock_exit", "stock_transfer",
+            "stock_movement_list", "stock_delivery_list", "ticket_stock_usage_list",
+        ):
+            self.assertContains(response, f'href="{reverse(f"inventory:{name}")}"')
+
+    def test_relocated_destinations_still_respond(self):
+        admin = self.create_user("relocated-navigation-admin", User.Role.ADMIN)
+        self.client.force_login(admin)
+        for destination in (
+            reverse("reports:index"), reverse("notifications:notification_list"),
+            reverse("monitoring:dashboard"), reverse("inventory:my_asset_list"),
+            reverse("deliveries:custody_movement_list"),
+        ):
+            with self.subTest(destination=destination):
+                self.assertEqual(self.client.get(destination).status_code, 200)

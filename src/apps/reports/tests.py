@@ -58,10 +58,10 @@ class ReportAccessTests(ReportsFixtureMixin, TestCase):
         for name in self.urls:
             self.assertEqual(self.client.post(reverse(name)).status_code, 405)
 
-    def test_sidebar_visibility(self):
+    def test_sidebar_does_not_include_reports_shortcut(self):
         for user in (self.admin, self.supervisor, self.auditor, self.superuser):
             self.client.force_login(user)
-            self.assertContains(self.client.get(reverse("reports:index")), 'title="Reportes"')
+            self.assertNotContains(self.client.get(reverse("reports:index")), 'title="Reportes"')
         for user in (self.client_user, self.technician):
             self.client.force_login(user)
             response = self.client.get(

@@ -25,10 +25,10 @@ class CustomLoginView(LoginView):
 
 @login_required
 def home_view(request):
-    if request.user.role == "CLIENT":
+    if request.user.role == "CLIENT" and not request.user.is_superuser:
         return redirect("tickets:ticket_create")
 
-    if request.user.role == User.Role.TECHNICIAN:
+    if request.user.role == User.Role.TECHNICIAN and not request.user.is_superuser:
         return redirect("tickets:dashboard")
 
     total_tickets = Ticket.objects.count()

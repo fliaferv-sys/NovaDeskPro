@@ -226,3 +226,84 @@ class CentralizedPermissionTests(TestCase):
         self.assertTrue(can_register_intervention(supervisor))
         self.assertTrue(can_register_intervention(technician))
         self.assertFalse(can_register_intervention(client))        
+
+
+class GlobalNavigationTests(TestCase):
+    def create_user(self, name, role, **extra):
+        return User.objects.create_user(
+            username=name,
+            email=f"{name}@example.test",
+            password="test-password-123",
+            role=role,
+            **extra,
+        )
+
+    def sidebar_html(self, response):
+        match = re.search(rb'<aside\s+class="sidebar".*?</aside>', response.content, re.DOTALL)
+        self.assertIsNotNone(match)
+        return match.group(0).decode()
+
+    def test_global_home_shows_quick_access_for_global_roles(self):
+        destinations = (
+            reverse("reports:index"),
+            reverse("notifications:notification_list"),
+            reverse("monitoring:dashboard"),
+            reverse("inventory:my_asset_list"),
+        )
+        for role in (User.Role.ADMIN, User.Role.SUPERVISOR, User.Role.AUDITOR):
+            with self.subTest(role=role):
+                user = self.create_user(f"quick-{role.lower()}", role)
+                self.client.force_login(user)
+                response = self.client.get(reverse("home"))
+                self.assertEqual(response.status_code, 200)
+                for destination in destinations:
+                    self.assertContains(response, f'href="{destination}"')
+
+    def test_superuser_with_default_client_role_reaches_global_home(self):
+        user = User.objects.create_superuser(
+            username="navigation-root",
+            email="navigation-root@example.test",
+            password="test-password-123",
+        )
+        self.client.force_login(user)
+        response = self.client.get(reverse("home"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Accesos rápidos")
+        self.assertContains(response, f'href="{reverse("reports:index")}"')
+
+    def test_sidebar_omits_secondary_navigation_for_global_user(self):
+        admin = self.create_user("lean-sidebar-admin", User.Role.ADMIN)
+        self.client.force_login(admin)
+        sidebar = self.sidebar_html(self.client.get(reverse("home")))
+        for destination in (
+            reverse("reports:index"),
+            reverse("monitoring:dashboard"),
+            reverse("notifications:notification_list"),
+            reverse("inventory:my_asset_list"),
+            reverse("deliveries:custody_movement_list"),
+        ):
+            self.assertNotIn(f'href="{destination}"', sidebar)
+
+        client = self.create_user("lean-sidebar-client", User.Role.CLIENT)
+        self.client.force_login(client)
+        sidebar = self.sidebar_html(self.client.get(reverse("inventory:my_asset_list")))
+        self.assertNotIn(
+            f'href="{reverse("inventory:my_asset_list")}',
+            sidebar,
+        )
+
+    def test_client_and_technician_home_flows_are_unchanged(self):
+        client = self.create_user("navigation-client", User.Role.CLIENT)
+        technician = self.create_user("navigation-tech", User.Role.TECHNICIAN)
+        self.client.force_login(client)
+        self.assertRedirects(
+            self.client.get(reverse("home")),
+            reverse("tickets:ticket_create"),
+            fetch_redirect_response=False,
+        )
+        self.client.force_login(technician)
+        self.assertRedirects(
+            self.client.get(reverse("home")),
+            reverse("tickets:dashboard"),
+            fetch_redirect_response=False,
+        )

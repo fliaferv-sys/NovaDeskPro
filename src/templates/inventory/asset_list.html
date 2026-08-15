@@ -53,6 +53,51 @@ Inventario
 
     </div>
 
+    <section class="inventory-module-access" aria-labelledby="inventory-module-access-title">
+        <div class="inventory-module-access-heading">
+            <h2 id="inventory-module-access-title">Gestión complementaria</h2>
+            <p>Accesos relacionados con existencias y asignación patrimonial.</p>
+        </div>
+        <div class="inventory-module-access-grid">
+            {% if request.user.is_superuser or request.user.role == "ADMIN" or request.user.role == "SUPERVISOR" %}
+            <article class="inventory-module-access-card">
+                <div class="inventory-module-access-icon"><i class="bi bi-boxes"></i></div>
+                <div class="inventory-module-access-copy">
+                    <h3>Stock e insumos</h3>
+                    <p>Control de periféricos, repuestos, accesorios y otros insumos disponibles.</p>
+                </div>
+                <a href="{% url 'inventory:stock_product_list' %}" class="inventory-module-access-link">Abrir stock <i class="bi bi-arrow-right"></i></a>
+            </article>
+            {% endif %}
+
+            {% if request.user.is_superuser or request.user.role == "ADMIN" or request.user.role == "SUPERVISOR" or request.user.role == "AUDITOR" or request.user.role == "TECHNICIAN" %}
+            <article class="inventory-module-access-card">
+                <div class="inventory-module-access-icon"><i class="bi bi-person-check"></i></div>
+                <div class="inventory-module-access-copy">
+                    <h3>Custodia de equipos</h3>
+                    <p>Gestión y seguimiento de equipos patrimoniales asignados y movimientos de custodia.</p>
+                </div>
+                <a href="{% url 'deliveries:custody_movement_list' %}" class="inventory-module-access-link">Abrir custodia <i class="bi bi-arrow-right"></i></a>
+            </article>
+            {% endif %}
+        </div>
+    </section>
+
+    <style>
+        .inventory-module-access { margin: 0 0 22px; }
+        .inventory-module-access-heading { margin-bottom: 12px; }
+        .inventory-module-access-heading h2 { margin: 0; color: #17233b; font-size: 18px; }
+        .inventory-module-access-heading p { margin: 4px 0 0; color: #667085; font-size: 13px; }
+        .inventory-module-access-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+        .inventory-module-access-card { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 15px; min-width: 0; padding: 17px; border: 1px solid #e3e8ef; border-radius: 15px; background: #fff; box-shadow: 0 6px 20px rgba(15, 35, 65, .06); }
+        .inventory-module-access-icon { display: grid; width: 48px; height: 48px; place-items: center; border-radius: 12px; color: var(--primary-color, #0a1a3a); background: var(--primary-light, #eef3fa); font-size: 21px; }
+        .inventory-module-access-copy h3 { margin: 0 0 4px; color: #17233b; font-size: 15px; }
+        .inventory-module-access-copy p { margin: 0; color: #667085; font-size: 12px; line-height: 1.45; }
+        .inventory-module-access-link { display: inline-flex; align-items: center; gap: 6px; padding: 9px 12px; border-radius: 9px; color: #fff !important; background: var(--secondary-color, #f68b1e); text-decoration: none; font-size: 12px; font-weight: 700; white-space: nowrap; }
+        @media (max-width: 920px) { .inventory-module-access-grid { grid-template-columns: 1fr; } }
+        @media (max-width: 600px) { .inventory-module-access-card { grid-template-columns: auto minmax(0, 1fr); } .inventory-module-access-link { grid-column: 1 / -1; justify-content: center; } }
+    </style>
+
     <form method="get" class="inventory-filters">
         <div class="inventory-filter-search">
             <label for="inventory-search">Buscar equipo o usuario</label>
