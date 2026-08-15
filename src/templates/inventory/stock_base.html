@@ -1,4 +1,416 @@
 {% extends "layouts/base.html" %}
+
 {% block title %}Stock | NovaDesk Pro{% endblock %}
-{% block content %}<main class="stock-page"><header class="stock-header"><h1>{% block stock_heading %}Stock genérico{% endblock %}</h1><nav class="stock-nav"><a href="{% url 'inventory:stock_product_list' %}">Productos</a><a href="{% url 'inventory:stock_category_list' %}">Categorías</a><a href="{% url 'inventory:documented_stock_entry_list' %}">Entradas documentadas</a><a href="{% url 'inventory:stock_delivery_list' %}">Entregas de stock</a><a href="{% url 'inventory:ticket_stock_usage_list' %}">Consumo por Tickets</a><a href="{% url 'inventory:stock_entry' %}">Entrada simple</a><a href="{% url 'inventory:stock_exit' %}">Salida</a><a href="{% url 'inventory:stock_transfer' %}">Transferencia</a><a href="{% url 'inventory:stock_movement_list' %}">Movimientos</a></nav></header>{% block stock_content %}{% endblock %}</main>
-<style>.stock-page{padding:24px}.stock-header{display:flex;justify-content:space-between;gap:18px;align-items:center;margin-bottom:22px}.stock-header h1{color:#123a63}.stock-nav,.stock-actions{display:flex;gap:8px;flex-wrap:wrap}.stock-nav a,.stock-actions a,.stock-button{padding:9px 13px;border-radius:8px;text-decoration:none;border:1px solid #123a63;background:#fff;color:#123a63;font-weight:600}.stock-button,.stock-actions .primary{background:#123a63;color:#fff}.stock-card{background:#fff;border:1px solid #e1e7ef;border-radius:12px;padding:18px;margin:18px 0;overflow:auto}.stock-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px}.stock-filters,.stock-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;align-items:end}.stock-form p{margin:0}.stock-form label{display:block;font-weight:600}.stock-form input,.stock-form select,.stock-form textarea,.stock-filters input,.stock-filters select{width:100%;box-sizing:border-box;padding:9px;border:1px solid #cfd8e3;border-radius:7px}.stock-table{width:100%;border-collapse:collapse;min-width:760px}.stock-table th,.stock-table td{padding:11px;border-bottom:1px solid #e7ebf0;text-align:left}.stock-table th{background:#f5f8fc}.stock-badge{padding:4px 9px;border-radius:999px;font-size:12px;font-weight:700}.stock-ok{background:#d1e7dd}.stock-low{background:#fff3cd}.stock-out{background:#f8d7da}.stock-inactive{background:#e9ecef}.errorlist{color:#b42318}@media(max-width:768px){.stock-page{padding:12px}.stock-header{align-items:flex-start;flex-direction:column}.stock-nav{overflow-x:auto;max-width:100%;flex-wrap:nowrap}.stock-filters,.stock-form{grid-template-columns:1fr}}</style>{% endblock %}
+
+{% block content %}
+<main class="stock-page">
+
+    <header class="stock-hero">
+        <div class="stock-hero-copy">
+            <span class="stock-eyebrow">INVENTARIO · STOCK</span>
+
+            <h1>
+                {% block stock_heading %}
+                Stock genérico
+                {% endblock %}
+            </h1>
+
+            <p class="stock-subtitle">
+                {% block stock_subtitle %}
+                Gestión de productos, existencias y movimientos.
+                {% endblock %}
+            </p>
+        </div>
+
+        <div class="stock-hero-actions">
+            {% block stock_header_actions %}{% endblock %}
+        </div>
+    </header>
+
+    <nav class="stock-nav" aria-label="Navegación de stock">
+        <a href="{% url 'inventory:stock_product_list' %}">Productos</a>
+        <a href="{% url 'inventory:stock_category_list' %}">Categorías</a>
+        <a href="{% url 'inventory:documented_stock_entry_list' %}">Entradas documentadas</a>
+        <a href="{% url 'inventory:stock_delivery_list' %}">Entregas</a>
+        <a href="{% url 'inventory:ticket_stock_usage_list' %}">Consumo por Tickets</a>
+        <a href="{% url 'inventory:stock_entry' %}">Entrada simple</a>
+        <a href="{% url 'inventory:stock_exit' %}">Salida</a>
+        <a href="{% url 'inventory:stock_transfer' %}">Transferencia</a>
+        <a href="{% url 'inventory:stock_movement_list' %}">Movimientos</a>
+    </nav>
+
+    {% block stock_content %}{% endblock %}
+
+</main>
+
+<style>
+.stock-page {
+    padding: 18px 12px;
+}
+
+/* CABECERA */
+
+.stock-hero {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 18px;
+    margin-bottom: 14px;
+}
+
+.stock-eyebrow {
+    display: none;
+}
+
+.stock-hero h1 {
+    margin: 0;
+    font-size: 28px;
+    color: var(--primary);
+}
+
+.stock-subtitle {
+    margin-top: 8px;
+    color: var(--muted);
+}
+
+.stock-hero-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.stock-primary-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 40px;
+    padding: 10px 16px;
+    border: none;
+    border-radius: 10px;
+    background: var(--primary);
+    color: #ffffff !important;
+    text-decoration: none;
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.stock-primary-button:hover {
+    opacity: 0.92;
+}
+
+/* NAVEGACIÓN */
+
+.stock-nav {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+}
+
+.stock-nav a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 36px;
+    padding: 8px 12px;
+    border: 1px solid #d9dee5;
+    border-radius: 9px;
+    background: #ffffff;
+    color: var(--primary);
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.stock-nav a:hover {
+    background: #f8fafc;
+    border-color: #c8d0da;
+}
+
+/* TARJETAS */
+
+.stock-card {
+    background: #ffffff;
+    border-radius: 18px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+    overflow: hidden;
+    margin-bottom: 16px;
+    padding: 0;
+}
+
+/* CABECERA DE TARJETA */
+
+.stock-card-header {
+    padding: 14px 14px 6px;
+}
+
+.stock-card-header h2 {
+    margin: 0;
+    color: #101828;
+    font-size: 16px;
+    font-weight: 700;
+}
+
+.stock-card-header p {
+    margin: 4px 0 0;
+    color: #667085;
+    font-size: 12px;
+}
+
+/* FILTROS */
+
+.stock-filters,
+.stock-form {
+    display: grid;
+    grid-template-columns: minmax(280px, 2fr) repeat(4, minmax(145px, 1fr));
+    gap: 10px 12px;
+    padding: 14px;
+}
+
+.stock-form p {
+    margin: 0;
+}
+
+.stock-form label,
+.stock-filter-label {
+    display: block;
+    margin-bottom: 5px;
+    color: #344054;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.stock-form input,
+.stock-form select,
+.stock-form textarea,
+.stock-filters input,
+.stock-filters select {
+    width: 100%;
+    min-height: 40px;
+    padding: 8px 10px;
+    box-sizing: border-box;
+
+    border: 1px solid #d0d5dd;
+    border-radius: 8px;
+
+    background: #ffffff;
+    color: #101828;
+
+    font-size: 14px;
+}
+
+.stock-form input:focus,
+.stock-form select:focus,
+.stock-form textarea:focus,
+.stock-filters input:focus,
+.stock-filters select:focus {
+    outline: none;
+    border-color: #98a2b3;
+    box-shadow: 0 0 0 3px rgba(152, 162, 179, 0.12);
+}
+
+/* BOTÓN FILTRO */
+
+.stock-button {
+    width: auto;
+    min-width: 176px;
+    min-height: 40px;
+
+    padding: 10px 18px;
+
+    border: none;
+    border-radius: 10px;
+
+    background: var(--secondary);
+    color: #ffffff;
+
+    font-weight: 700;
+    cursor: pointer;
+    justify-self: start;
+}
+
+.stock-button:hover {
+    background: #1d4ed8;
+}
+
+/* TABLA */
+
+.stock-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: auto;
+    min-width: 900px;
+}
+
+.stock-table thead th {
+    text-align: left;
+    padding: 14px 12px;
+
+    font-size: 14px;
+    font-weight: 700;
+
+    color: #344054;
+    background: #f8fafc;
+
+    border-bottom: 1px solid #e4e7ec;
+}
+
+.stock-table tbody td {
+    padding: 10px 10px;
+
+    font-size: 14px;
+    color: #101828;
+
+    border-bottom: 1px solid #eef2f7;
+}
+
+.stock-table td,
+.stock-table th {
+    vertical-align: middle;
+}
+
+.stock-table tbody tr:hover {
+    background: #f9fafb;
+}
+
+.stock-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+/* PRODUCTOS */
+
+.stock-sku {
+    color: #101828;
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.stock-sku:hover {
+    color: var(--secondary);
+}
+
+.stock-product-name {
+    font-weight: 600;
+}
+
+.stock-number {
+    font-weight: 700;
+}
+
+/* ESTADOS */
+
+.stock-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    padding: 5px 10px;
+
+    border-radius: 999px;
+
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.stock-ok {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.stock-low {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.stock-out {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.stock-inactive {
+    background: #e5e7eb;
+    color: #374151;
+}
+
+.stock-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 14px;
+    padding: 14px;
+}
+
+.stock-empty {
+    padding: 28px !important;
+    text-align: center !important;
+    color: #667085 !important;
+}
+
+.errorlist {
+    color: #b42318;
+}
+
+/* RESPONSIVE */
+
+@media (max-width: 1100px) {
+    .stock-filters {
+        grid-template-columns: repeat(2, minmax(180px, 1fr));
+    }
+}
+
+@media (max-width: 768px) {
+    .stock-page {
+        padding: 14px 12px 88px;
+    }
+
+    .stock-hero {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .stock-hero h1 {
+        font-size: 22px;
+    }
+
+    .stock-primary-button {
+        width: 100%;
+        text-align: center;
+    }
+
+    .stock-nav {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+    }
+
+    .stock-nav a {
+        flex: 0 0 auto;
+        white-space: nowrap;
+    }
+
+    .stock-filters,
+    .stock-form {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* AJUSTE TIPOGRAFIA LISTADO DE PRODUCTOS */
+.stock-card:has(.stock-table) .stock-card-header h2 {
+    font-size: 17px;
+}
+
+.stock-card:has(.stock-table) .stock-card-header p {
+    font-size: 13px;
+}
+
+.stock-table thead th {
+    font-size: 14px;
+}
+
+.stock-table tbody td {
+    font-size: 16px;
+}
+
+.stock-table .stock-badge {
+    font-size: 13px;
+}
+
+</style>
+{% endblock %}

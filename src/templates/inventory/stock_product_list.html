@@ -1,1 +1,161 @@
-{% extends "inventory/stock_base.html" %}{% block stock_heading %}Productos de stock{% endblock %}{% block stock_content %}<div class="stock-actions"><a class="primary" href="{% url 'inventory:stock_product_create' %}">Nuevo producto</a></div><form method="get" class="stock-card stock-filters"><input name="q" value="{{ filters.q }}" placeholder="Nombre, SKU, marca o modelo"><select name="category"><option value="">Todas las categorías</option>{% for item in categories %}<option value="{{ item.pk }}">{{ item.name }}</option>{% endfor %}</select><select name="active"><option value="">Todos los estados</option><option value="true">Activos</option><option value="false">Inactivos</option></select><select name="branch"><option value="">Todas las sedes</option>{% for item in branches %}<option value="{{ item.pk }}">{{ item.name }}</option>{% endfor %}</select><select name="availability"><option value="">Todo el stock</option><option value="available">Disponible</option><option value="low">Stock bajo</option><option value="out">Sin stock</option></select><button class="stock-button">Filtrar</button></form><div class="stock-card"><table class="stock-table"><thead><tr><th>SKU</th><th>Producto</th><th>Categoría</th><th>Marca / modelo</th><th>Unidad</th><th>Stock</th><th>Mínimo</th><th>Estado</th></tr></thead><tbody>{% for product in products %}<tr><td><a href="{% url 'inventory:stock_product_detail' product.pk %}">{{ product.reference_code }}</a></td><td>{{ product.name }}</td><td>{{ product.category.name }}</td><td>{{ product.brand|default:"-" }} {{ product.model }}</td><td>{{ product.get_unit_of_measure_display }}</td><td>{{ product.stock_total }}</td><td>{{ product.minimum_stock }}</td><td>{% if not product.is_active %}<span class="stock-badge stock-inactive">Inactivo</span>{% elif product.stock_total == 0 %}<span class="stock-badge stock-out">Sin stock</span>{% elif product.stock_total <= product.minimum_stock %}<span class="stock-badge stock-low">Bajo</span>{% else %}<span class="stock-badge stock-ok">Disponible</span>{% endif %}</td></tr>{% empty %}<tr><td colspan="8">No hay productos.</td></tr>{% endfor %}</tbody></table></div>{% endblock %}
+{% extends "inventory/stock_base.html" %}
+
+{% block stock_heading %}
+Productos de stock
+{% endblock %}
+
+{% block stock_subtitle %}
+Consultá existencias, mínimos y disponibilidad de los consumibles registrados.
+{% endblock %}
+
+{% block stock_header_actions %}
+<a
+    class="stock-primary-button"
+    href="{% url 'inventory:stock_product_create' %}"
+>
+    + Nuevo producto
+</a>
+{% endblock %}
+
+{% block stock_content %}
+
+<form method="get" class="stock-card">
+    <div class="stock-card-header">
+        <div>
+            <h2>Buscar y filtrar</h2>
+            <p>Refiná el listado por producto, categoría, sede o disponibilidad.</p>
+        </div>
+    </div>
+
+    <div class="stock-filters">
+        <input
+            name="q"
+            value="{{ filters.q }}"
+            placeholder="Nombre, SKU, marca o modelo"
+        >
+
+        <select name="category">
+            <option value="">Todas las categorías</option>
+            {% for item in categories %}
+                <option value="{{ item.pk }}">{{ item.name }}</option>
+            {% endfor %}
+        </select>
+
+        <select name="active">
+            <option value="">Todos los estados</option>
+            <option value="true">Activos</option>
+            <option value="false">Inactivos</option>
+        </select>
+
+        <select name="branch">
+            <option value="">Todas las sedes</option>
+            {% for item in branches %}
+                <option value="{{ item.pk }}">{{ item.name }}</option>
+            {% endfor %}
+        </select>
+
+        <select name="availability">
+            <option value="">Todo el stock</option>
+            <option value="available">Disponible</option>
+            <option value="low">Stock bajo</option>
+            <option value="out">Sin stock</option>
+        </select>
+
+        <button class="stock-button" type="submit">
+            Filtrar
+        </button>
+    </div>
+</form>
+
+<section class="stock-card">
+    <div class="stock-card-header">
+        <div>
+            <h2>Listado de productos</h2>
+            <p>Estado consolidado de los artículos disponibles en stock.</p>
+        </div>
+    </div>
+
+    <table class="stock-table">
+        <thead>
+            <tr>
+                <th>SKU</th>
+                <th>Producto</th>
+                <th>Categoría</th>
+                <th>Marca / modelo</th>
+                <th>Unidad</th>
+                <th>Stock</th>
+                <th>Mínimo</th>
+                <th>Estado</th>
+            </tr>
+        </thead>
+
+        <tbody>
+            {% for product in products %}
+            <tr>
+                <td>
+                    <a
+                        class="stock-sku"
+                        href="{% url 'inventory:stock_product_detail' product.pk %}"
+                    >
+                        {{ product.reference_code }}
+                    </a>
+                </td>
+
+                <td class="stock-product-name">
+                    {{ product.name }}
+                </td>
+
+                <td>
+                    {{ product.category.name }}
+                </td>
+
+                <td>
+                    {{ product.brand|default:"-" }}
+                    {{ product.model }}
+                </td>
+
+                <td>
+                    {{ product.get_unit_of_measure_display }}
+                </td>
+
+                <td class="stock-number">
+                    {{ product.stock_total }}
+                </td>
+
+                <td class="stock-number">
+                    {{ product.minimum_stock }}
+                </td>
+
+                <td>
+                    {% if not product.is_active %}
+                        <span class="stock-badge stock-inactive">
+                            Inactivo
+                        </span>
+                    {% elif product.stock_total == 0 %}
+                        <span class="stock-badge stock-out">
+                            Sin stock
+                        </span>
+                    {% elif product.stock_total <= product.minimum_stock %}
+                        <span class="stock-badge stock-low">
+                            Bajo
+                        </span>
+                    {% else %}
+                        <span class="stock-badge stock-ok">
+                            Disponible
+                        </span>
+                    {% endif %}
+                </td>
+            </tr>
+
+            {% empty %}
+            <tr>
+                <td colspan="8" class="stock-empty">
+                    No hay productos para mostrar.
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+
+{% endblock %}
