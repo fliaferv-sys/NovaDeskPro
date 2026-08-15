@@ -605,7 +605,7 @@ class StockEntryOperationAdmin(admin.ModelAdmin):
     list_display = ("number", "entry_date", "reason", "supplier", "status", "created_by", "confirmed_by")
     list_filter = ("status", "reason", "entry_date")
     search_fields = ("number", "supplier", "invoice_number", "purchase_order_number", "delivery_note_number")
-    readonly_fields = ("number", "created_by", "confirmed_by", "confirmed_at", "created_at", "updated_at")
+    readonly_fields = ("number", "status", "created_by", "confirmed_by", "confirmed_at", "created_at", "updated_at")
     inlines = (StockEntryLineInline, StockEntryDocumentInline)
 
     def get_readonly_fields(self, request, obj=None):
@@ -653,7 +653,7 @@ class StockDeliveryAdmin(admin.ModelAdmin):
     list_display = ("number", "delivery_date", "recipient", "department", "status", "delivery_responsible", "completed_by")
     list_filter = ("status", "department", "branch", "delivery_date")
     search_fields = ("number", "recipient_name", "department_name", "recipient__username")
-    readonly_fields = ("number", "recipient_name", "department_name", "created_by", "completed_by", "completed_at", "signed_document_uploaded_by", "signed_document_uploaded_at", "created_at", "updated_at")
+    readonly_fields = ("number", "status", "recipient_name", "department_name", "created_by", "completed_by", "completed_at", "signed_document_uploaded_by", "signed_document_uploaded_at", "created_at", "updated_at")
     inlines = (StockDeliveryLineInline,)
 
     def get_readonly_fields(self, request, obj=None):
@@ -691,7 +691,7 @@ class TicketStockUsageAdmin(admin.ModelAdmin):
     list_display = ("ticket", "status", "registered_by", "registered_at", "confirmed_by", "confirmed_at")
     list_filter = ("status", "registered_at")
     search_fields = ("ticket__ticket_number", "ticket_number", "ticket__title")
-    readonly_fields = ("ticket_number", "registered_by", "registered_at", "confirmed_by", "confirmed_at", "updated_at")
+    readonly_fields = ("ticket_number", "status", "registered_by", "registered_at", "confirmed_by", "confirmed_at", "updated_at")
     inlines = (TicketStockUsageLineInline,)
 
     def get_readonly_fields(self, request, obj=None):

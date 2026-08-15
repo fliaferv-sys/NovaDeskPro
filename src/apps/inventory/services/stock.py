@@ -27,6 +27,13 @@ def _validate_quantity(quantity):
         raise ValidationError({"quantity": "La cantidad debe ser mayor que cero."})
 
 
+def _validate_active_product(product):
+    if not isinstance(product, StockProduct) or not product.pk:
+        raise ValidationError({"product": "El producto no es válido."})
+    if not product.is_active:
+        raise ValidationError({"product": "El producto debe estar activo."})
+
+
 def _validate_location(*, branch, organizational_location):
     if not isinstance(branch, Branch) or not branch.pk:
         raise ValidationError({"branch": "La sede no es válida."})
@@ -85,6 +92,7 @@ def register_stock_movement(
     locked_balance = StockBalance.objects.select_for_update().select_related(
         "product"
     ).get(pk=balance.pk)
+    _validate_active_product(locked_balance.product)
 
     if product is not None and (
         not isinstance(product, StockProduct)
@@ -143,8 +151,7 @@ def register_stock_entry(
     **movement_data,
 ):
     """Create or lock the location balance and register an entry."""
-    if not isinstance(product, StockProduct) or not product.pk:
-        raise ValidationError({"product": "El producto no es válido."})
+    _validate_active_product(product)
     _validate_quantity(quantity)
     _validate_location(
         branch=branch,
@@ -182,8 +189,7 @@ def register_stock_exit(
     **movement_data,
 ):
     """Lock an existing location balance and register an exit."""
-    if not isinstance(product, StockProduct) or not product.pk:
-        raise ValidationError({"product": "El producto no es válido."})
+    _validate_active_product(product)
     _validate_quantity(quantity)
     _validate_location(
         branch=branch,
@@ -229,8 +235,7 @@ def transfer_stock(
     document_reference="",
 ):
     """Transfer stock atomically, locking both balances in UUID order."""
-    if not isinstance(product, StockProduct) or not product.pk:
-        raise ValidationError({"product": "El producto no es válido."})
+    _validate_active_product(product)
     _validate_quantity(quantity)
     _validate_location(
         branch=source_branch,

@@ -1521,3 +1521,30 @@ class TicketStockUsageTests(TestCase):
             self.assertEqual(self.client.get(url).status_code, 200)
         self.client.force_login(self.admin)
         self.assertEqual(self.client.get(reverse("inventory:ticket_stock_usage_confirm", args=[usage.pk])).status_code, 403)
+
+
+class FinalStockSafetyRegressionTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="final_stock_admin", email="final_stock_admin@example.com", role="ADMIN")
+        self.branch = Branch.objects.create(code="FINAL-HQ", name="Sede final")
+        self.location = OrganizationalLocation.objects.create(branch=self.branch, code="FINAL-WH", name="Depósito final", location_type=OrganizationalLocation.LocationType.WAREHOUSE)
+        category = StockCategory.objects.create(name="Final", code="final-safety")
+        self.product = StockProduct.objects.create(name="Producto inactivo", reference_code="FINAL-INACTIVE", category=category, is_active=False)
+        self.balance = StockBalance.objects.create(product=self.product, branch=self.branch, organizational_location=self.location, quantity=5)
+
+    def test_services_reject_inactive_products(self):
+        with self.assertRaises(ValidationError):
+            register_stock_entry(product=self.product, branch=self.branch, organizational_location=self.location, quantity=1, reason=StockMovement.Reason.PURCHASE, performed_by=self.user)
+        with self.assertRaises(ValidationError):
+            register_stock_exit(product=self.product, branch=self.branch, organizational_location=self.location, quantity=1, reason=StockMovement.Reason.CONSUMPTION, performed_by=self.user)
+        with self.assertRaises(ValidationError):
+            transfer_stock(product=self.product, source_branch=self.branch, source_location=self.location, destination_branch=self.branch, destination_location=self.location, quantity=1, performed_by=self.user)
+        self.balance.refresh_from_db()
+        self.assertEqual(self.balance.quantity, 5)
+        self.assertEqual(StockMovement.objects.count(), 0)
+
+    def test_admin_state_fields_are_readonly(self):
+        from .admin import StockDeliveryAdmin, StockEntryOperationAdmin, TicketStockUsageAdmin
+        self.assertIn("status", StockEntryOperationAdmin.readonly_fields)
+        self.assertIn("status", StockDeliveryAdmin.readonly_fields)
+        self.assertIn("status", TicketStockUsageAdmin.readonly_fields)
