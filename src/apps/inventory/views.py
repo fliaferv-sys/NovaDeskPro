@@ -31,6 +31,8 @@ from .forms import (
     StockDeliveryForm,
     StockDeliveryLineForm,
     StockDeliverySignedDocumentForm,
+    TicketStockUsageForm,
+    TicketStockUsageLineForm,
     StockExitForm,
     StockProductForm,
     StockTransferForm,
@@ -47,6 +49,8 @@ from .models import (
     StockEntryOperation,
     StockDelivery,
     StockDeliveryLine,
+    TicketStockUsage,
+    TicketStockUsageLine,
 )
 from .services.stock import (
     register_stock_entry,
@@ -55,6 +59,7 @@ from .services.stock import (
     confirm_stock_entry,
     prepare_stock_delivery,
     complete_stock_delivery,
+    confirm_ticket_stock_usage,
 )
 from .stock_delivery_pdf import generate_stock_delivery_pdf
 
@@ -1056,3 +1061,96 @@ def stock_delivery_signed_document_download_view(request, pk):
     if not delivery.signed_document:
         raise PermissionDenied("La entrega no posee un acta firmada.")
     return FileResponse(delivery.signed_document.open("rb"), as_attachment=True, filename=delivery.signed_document.name.rsplit("/", 1)[-1])
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def ticket_stock_usage_list_view(request):
+    usages = TicketStockUsage.objects.select_related("ticket", "registered_by", "confirmed_by").annotate(line_count=Count("lines"))
+    search = request.GET.get("q", "").strip()
+    if search:
+        usages = usages.filter(Q(ticket__ticket_number__icontains=search) | Q(ticket_number__icontains=search) | Q(ticket__title__icontains=search))
+    if request.GET.get("status"):
+        usages = usages.filter(status=request.GET["status"])
+    return render(request, "inventory/ticket_stock_usage_list.html", {"usages": usages, "statuses": TicketStockUsage.Status.choices, "filters": request.GET})
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def ticket_stock_usage_create_view(request):
+    form = TicketStockUsageForm(request.POST or None, initial={"ticket": request.GET.get("ticket")})
+    if request.method == "POST" and form.is_valid():
+        usage = form.save(commit=False)
+        usage.registered_by = request.user
+        usage.save()
+        return redirect("inventory:ticket_stock_usage_detail", pk=usage.pk)
+    return render(request, "inventory/ticket_stock_usage_form.html", {"form": form, "editing": False})
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def ticket_stock_usage_update_view(request, pk):
+    usage = get_object_or_404(TicketStockUsage, pk=pk)
+    if usage.status != TicketStockUsage.Status.DRAFT:
+        raise PermissionDenied("Solo puede editarse un consumo en borrador.")
+    form = TicketStockUsageForm(request.POST or None, instance=usage)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        return redirect("inventory:ticket_stock_usage_detail", pk=usage.pk)
+    return render(request, "inventory/ticket_stock_usage_form.html", {"form": form, "editing": True, "usage": usage})
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def ticket_stock_usage_detail_view(request, pk):
+    usage = get_object_or_404(TicketStockUsage.objects.select_related("ticket", "registered_by", "confirmed_by"), pk=pk)
+    return render(request, "inventory/ticket_stock_usage_detail.html", {"usage": usage, "lines": usage.lines.select_related("product", "source_branch", "source_location", "stock_movement")})
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def ticket_stock_usage_add_line_view(request, pk):
+    usage = get_object_or_404(TicketStockUsage, pk=pk, status=TicketStockUsage.Status.DRAFT)
+    form = TicketStockUsageLineForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        line = form.save(commit=False)
+        line.usage = usage
+        line.save()
+        return redirect("inventory:ticket_stock_usage_detail", pk=usage.pk)
+    return render(request, "inventory/ticket_stock_usage_line_form.html", {"form": form, "usage": usage})
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def ticket_stock_usage_delete_line_view(request, pk, line_pk):
+    if request.method != "POST":
+        raise PermissionDenied("La eliminación requiere POST.")
+    usage = get_object_or_404(TicketStockUsage, pk=pk, status=TicketStockUsage.Status.DRAFT)
+    get_object_or_404(TicketStockUsageLine, pk=line_pk, usage=usage).delete()
+    return redirect("inventory:ticket_stock_usage_detail", pk=usage.pk)
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def ticket_stock_usage_confirm_view(request, pk):
+    if request.method != "POST":
+        raise PermissionDenied("La confirmación requiere POST.")
+    usage = get_object_or_404(TicketStockUsage, pk=pk)
+    try:
+        confirm_ticket_stock_usage(usage=usage, confirmed_by=request.user)
+    except ValidationError as error:
+        messages.error(request, "; ".join(error.messages))
+    else:
+        messages.success(request, "Consumo confirmado y stock descontado.")
+    return redirect("inventory:ticket_stock_usage_detail", pk=usage.pk)
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def ticket_stock_usage_cancel_view(request, pk):
+    if request.method != "POST":
+        raise PermissionDenied("La cancelación requiere POST.")
+    usage = get_object_or_404(TicketStockUsage, pk=pk, status=TicketStockUsage.Status.DRAFT)
+    usage.status = TicketStockUsage.Status.CANCELLED
+    usage.save(update_fields=["status", "updated_at"])
+    return redirect("inventory:ticket_stock_usage_detail", pk=usage.pk)

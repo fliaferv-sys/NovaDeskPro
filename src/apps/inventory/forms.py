@@ -24,6 +24,8 @@ from .models import (
     StockEntryOperation,
     StockDelivery,
     StockDeliveryLine,
+    TicketStockUsage,
+    TicketStockUsageLine,
     StockMovement,
     StockProduct,
 )
@@ -523,6 +525,30 @@ class StockDeliverySignedDocumentForm(forms.ModelForm):
         if uploaded_file.size > 10 * 1024 * 1024:
             raise forms.ValidationError("El archivo no puede superar los 10 MB.")
         return uploaded_file
+
+
+class TicketStockUsageForm(forms.ModelForm):
+    class Meta:
+        model = TicketStockUsage
+        fields = ["ticket", "observation"]
+        widgets = {"observation": forms.Textarea(attrs={"rows": 3})}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["ticket"].queryset = self.fields["ticket"].queryset.select_related("requester", "assigned_to").order_by("-created_at")
+
+
+class TicketStockUsageLineForm(forms.ModelForm):
+    class Meta:
+        model = TicketStockUsageLine
+        fields = ["product", "source_branch", "source_location", "quantity"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        available_products = StockProduct.objects.filter(is_active=True, balances__quantity__gt=0).distinct()
+        self.fields["product"].queryset = available_products
+        self.fields["source_branch"].queryset = Branch.objects.filter(is_active=True, stock_balances__quantity__gt=0).distinct()
+        self.fields["source_location"].queryset = OrganizationalLocation.objects.filter(is_active=True, stock_balances__quantity__gt=0).select_related("branch").distinct()
         for field_name in (
             "brand",
             "model",

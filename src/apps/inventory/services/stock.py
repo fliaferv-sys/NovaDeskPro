@@ -6,6 +6,7 @@ from django.utils import timezone
 
 from apps.accounts.models import Branch, User
 from apps.core.models import Department
+from apps.tickets.models import Ticket
 
 from ..models import (
     OrganizationalLocation,
@@ -16,6 +17,8 @@ from ..models import (
     StockEntryLine,
     StockDelivery,
     StockDeliveryLine,
+    TicketStockUsage,
+    TicketStockUsageLine,
 )
 
 
@@ -51,6 +54,7 @@ def register_stock_movement(
     movement_date=None,
     recipient=None,
     department=None,
+    ticket=None,
     observation="",
     document_reference="",
     product=None,
@@ -75,6 +79,8 @@ def register_stock_movement(
         raise ValidationError({"recipient": "El destinatario no es válido."})
     if department is not None and not isinstance(department, Department):
         raise ValidationError({"department": "El departamento no es válido."})
+    if ticket is not None and not isinstance(ticket, Ticket):
+        raise ValidationError({"ticket": "El ticket no es válido."})
 
     locked_balance = StockBalance.objects.select_for_update().select_related(
         "product"
@@ -110,6 +116,7 @@ def register_stock_movement(
         "performed_by": performed_by,
         "recipient": recipient,
         "department": department,
+        "ticket": ticket,
         "observation": observation,
         "document_reference": document_reference,
     }
@@ -428,6 +435,65 @@ def complete_stock_delivery(*, delivery, completed_by):
         status=StockDelivery.Status.COMPLETED,
         completed_by=completed_by,
         completed_at=now,
+        updated_at=now,
+    )
+    locked.refresh_from_db()
+    return locked
+
+
+@transaction.atomic
+def confirm_ticket_stock_usage(*, usage, confirmed_by):
+    locked = TicketStockUsage.objects.select_for_update().select_related("ticket").get(pk=usage.pk)
+    if locked.status != TicketStockUsage.Status.DRAFT:
+        raise ValidationError({"status": "El consumo ya no está en borrador."})
+    if not locked.ticket_id:
+        raise ValidationError({"ticket": "Debe indicar un ticket."})
+    lines = list(locked.lines.select_related("product", "source_branch", "source_location"))
+    if not lines:
+        raise ValidationError({"lines": "Debe agregar al menos un insumo."})
+
+    keys = {(line.product_id, line.source_branch_id, line.source_location_id) for line in lines}
+    balances = StockBalance.objects.select_for_update().filter(
+        product_id__in={key[0] for key in keys},
+        branch_id__in={key[1] for key in keys},
+        organizational_location_id__in={key[2] for key in keys},
+    ).order_by("pk")
+    balance_map = {(balance.product_id, balance.branch_id, balance.organizational_location_id): balance for balance in balances}
+    requested = {}
+    for line in lines:
+        line.full_clean()
+        key = (line.product_id, line.source_branch_id, line.source_location_id)
+        requested[key] = requested.get(key, 0) + line.quantity
+    for key, quantity in requested.items():
+        balance = balance_map.get(key)
+        if not balance or balance.quantity < quantity:
+            raise ValidationError({"quantity": "Stock insuficiente para confirmar el consumo."})
+
+    for line in lines:
+        movement = register_stock_exit(
+            product=line.product,
+            branch=line.source_branch,
+            organizational_location=line.source_location,
+            quantity=line.quantity,
+            reason=StockMovement.Reason.CONSUMPTION,
+            performed_by=confirmed_by,
+            ticket=locked.ticket,
+            observation=locked.observation,
+            document_reference=locked.ticket.ticket_number,
+        )
+        TicketStockUsageLine.objects.filter(pk=line.pk).update(
+            stock_movement=movement,
+            product_name=line.product.name,
+            product_sku=line.product.reference_code,
+            product_unit=line.product.get_unit_of_measure_display(),
+            product_brand_model=" ".join(filter(None, [line.product.brand, line.product.model])),
+        )
+    now = timezone.now()
+    TicketStockUsage.objects.filter(pk=locked.pk).update(
+        status=TicketStockUsage.Status.CONFIRMED,
+        ticket_number=locked.ticket.ticket_number,
+        confirmed_by=confirmed_by,
+        confirmed_at=now,
         updated_at=now,
     )
     locked.refresh_from_db()

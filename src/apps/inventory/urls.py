@@ -44,6 +44,14 @@ from .views import (
     stock_delivery_pdf_view,
     stock_delivery_signed_document_upload_view,
     stock_delivery_signed_document_download_view,
+    ticket_stock_usage_list_view,
+    ticket_stock_usage_create_view,
+    ticket_stock_usage_detail_view,
+    ticket_stock_usage_update_view,
+    ticket_stock_usage_add_line_view,
+    ticket_stock_usage_delete_line_view,
+    ticket_stock_usage_confirm_view,
+    ticket_stock_usage_cancel_view,
 )
 
 
@@ -51,6 +59,14 @@ app_name = "inventory"
 
 
 urlpatterns = [
+    path("stock/consumos-tickets/", ticket_stock_usage_list_view, name="ticket_stock_usage_list"),
+    path("stock/consumos-tickets/nuevo/", ticket_stock_usage_create_view, name="ticket_stock_usage_create"),
+    path("stock/consumos-tickets/<uuid:pk>/", ticket_stock_usage_detail_view, name="ticket_stock_usage_detail"),
+    path("stock/consumos-tickets/<uuid:pk>/editar/", ticket_stock_usage_update_view, name="ticket_stock_usage_update"),
+    path("stock/consumos-tickets/<uuid:pk>/lineas/agregar/", ticket_stock_usage_add_line_view, name="ticket_stock_usage_add_line"),
+    path("stock/consumos-tickets/<uuid:pk>/lineas/<uuid:line_pk>/eliminar/", ticket_stock_usage_delete_line_view, name="ticket_stock_usage_delete_line"),
+    path("stock/consumos-tickets/<uuid:pk>/confirmar/", ticket_stock_usage_confirm_view, name="ticket_stock_usage_confirm"),
+    path("stock/consumos-tickets/<uuid:pk>/cancelar/", ticket_stock_usage_cancel_view, name="ticket_stock_usage_cancel"),
     path("stock/entregas/", stock_delivery_list_view, name="stock_delivery_list"),
     path("stock/entregas/nueva/", stock_delivery_create_view, name="stock_delivery_create"),
     path("stock/entregas/<uuid:pk>/", stock_delivery_detail_view, name="stock_delivery_detail"),

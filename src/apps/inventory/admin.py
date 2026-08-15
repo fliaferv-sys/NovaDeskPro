@@ -21,6 +21,8 @@ from .models import (
     StockEntryDocument,
     StockDelivery,
     StockDeliveryLine,
+    TicketStockUsage,
+    TicketStockUsageLine,
 )
 
 
@@ -535,6 +537,7 @@ class StockMovementAdmin(admin.ModelAdmin):
         "direction",
         "reason",
         "quantity",
+        "ticket",
         "performed_by",
         "recipient",
     )
@@ -666,3 +669,41 @@ class StockDeliveryAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return bool(obj and obj.status == StockDelivery.Status.DRAFT and super().has_delete_permission(request, obj))
+
+
+class TicketStockUsageLineInline(admin.TabularInline):
+    model = TicketStockUsageLine
+    extra = 0
+    readonly_fields = ("stock_movement", "product_name", "product_sku", "product_unit", "product_brand_model", "created_at")
+
+    def has_add_permission(self, request, obj=None):
+        return not obj or obj.status == TicketStockUsage.Status.DRAFT
+
+    def has_change_permission(self, request, obj=None):
+        return not obj or obj.status == TicketStockUsage.Status.DRAFT
+
+    def has_delete_permission(self, request, obj=None):
+        return not obj or obj.status == TicketStockUsage.Status.DRAFT
+
+
+@admin.register(TicketStockUsage)
+class TicketStockUsageAdmin(admin.ModelAdmin):
+    list_display = ("ticket", "status", "registered_by", "registered_at", "confirmed_by", "confirmed_at")
+    list_filter = ("status", "registered_at")
+    search_fields = ("ticket__ticket_number", "ticket_number", "ticket__title")
+    readonly_fields = ("ticket_number", "registered_by", "registered_at", "confirmed_by", "confirmed_at", "updated_at")
+    inlines = (TicketStockUsageLineInline,)
+
+    def get_readonly_fields(self, request, obj=None):
+        fields = list(super().get_readonly_fields(request, obj))
+        if obj and obj.status == TicketStockUsage.Status.CONFIRMED:
+            fields.extend(field.name for field in TicketStockUsage._meta.fields)
+        return tuple(dict.fromkeys(fields))
+
+    def save_model(self, request, obj, form, change):
+        if not obj.registered_by_id:
+            obj.registered_by = request.user
+        super().save_model(request, obj, form, change)
+
+    def has_delete_permission(self, request, obj=None):
+        return bool(obj and obj.status == TicketStockUsage.Status.DRAFT and super().has_delete_permission(request, obj))

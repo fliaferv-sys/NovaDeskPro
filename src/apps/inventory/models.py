@@ -1109,6 +1109,14 @@ class StockMovement(models.Model):
         blank=True,
         null=True,
     )
+    ticket = models.ForeignKey(
+        "tickets.Ticket",
+        on_delete=models.PROTECT,
+        related_name="stock_movements",
+        verbose_name="Ticket relacionado",
+        blank=True,
+        null=True,
+    )
     observation = models.TextField("Observación", blank=True)
     document_reference = models.CharField(
         "Referencia documental", max_length=100, blank=True
@@ -1367,6 +1375,81 @@ class StockDeliveryLine(models.Model):
     def delete(self, *args, **kwargs):
         if self.delivery.status != StockDelivery.Status.DRAFT:
             raise ValidationError("No puede eliminarse una línea de una entrega bloqueada.")
+        return super().delete(*args, **kwargs)
+
+
+class TicketStockUsage(models.Model):
+    class Status(models.TextChoices):
+        DRAFT = "DRAFT", "Borrador"
+        CONFIRMED = "CONFIRMED", "Confirmado"
+        CANCELLED = "CANCELLED", "Cancelado"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    ticket = models.ForeignKey("tickets.Ticket", on_delete=models.PROTECT, related_name="stock_usages")
+    ticket_number = models.CharField("Número histórico del ticket", max_length=50, blank=True)
+    observation = models.TextField("Observación", blank=True)
+    status = models.CharField("Estado", max_length=12, choices=Status.choices, default=Status.DRAFT)
+    registered_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="registered_ticket_stock_usages")
+    registered_at = models.DateTimeField(auto_now_add=True)
+    confirmed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="confirmed_ticket_stock_usages", blank=True, null=True)
+    confirmed_at = models.DateTimeField(blank=True, null=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-registered_at"]
+        verbose_name = "Consumo de stock por ticket"
+        verbose_name_plural = "Consumos de stock por tickets"
+
+    def save(self, *args, **kwargs):
+        if self.pk and not self._state.adding:
+            previous = type(self).objects.filter(pk=self.pk).values("status").first()
+            if previous and previous["status"] == self.Status.CONFIRMED:
+                raise ValidationError("Un consumo confirmado es inmutable.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if self.status != self.Status.DRAFT:
+            raise ValidationError("Solo puede eliminarse un consumo en borrador.")
+        return super().delete(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.ticket_number or self.ticket.ticket_number} - {self.get_status_display()}"
+
+
+class TicketStockUsageLine(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    usage = models.ForeignKey(TicketStockUsage, on_delete=models.PROTECT, related_name="lines")
+    product = models.ForeignKey(StockProduct, on_delete=models.PROTECT, related_name="ticket_usage_lines")
+    source_branch = models.ForeignKey(Branch, on_delete=models.PROTECT, related_name="ticket_stock_usage_lines")
+    source_location = models.ForeignKey(OrganizationalLocation, on_delete=models.PROTECT, related_name="ticket_stock_usage_lines")
+    quantity = models.PositiveIntegerField("Cantidad")
+    stock_movement = models.OneToOneField(StockMovement, on_delete=models.PROTECT, related_name="ticket_usage_line", blank=True, null=True)
+    product_name = models.CharField("Producto histórico", max_length=200, blank=True)
+    product_sku = models.CharField("SKU histórico", max_length=100, blank=True)
+    product_unit = models.CharField("Unidad histórica", max_length=80, blank=True)
+    product_brand_model = models.CharField("Marca/modelo histórico", max_length=300, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+        constraints = [models.CheckConstraint(condition=models.Q(quantity__gt=0), name="ticket_stock_usage_line_quantity_positive")]
+
+    def clean(self):
+        super().clean()
+        if self.source_location_id and self.source_branch_id and self.source_location.branch_id != self.source_branch_id:
+            raise ValidationError({"source_location": "La ubicación no pertenece a la sede de origen."})
+        if self.product_id and not self.product.is_active:
+            raise ValidationError({"product": "El producto debe estar activo."})
+
+    def save(self, *args, **kwargs):
+        if self.usage_id and self.usage.status != TicketStockUsage.Status.DRAFT:
+            raise ValidationError("Las líneas solo pueden modificarse en borrador.")
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if self.usage.status != TicketStockUsage.Status.DRAFT:
+            raise ValidationError("No puede eliminarse una línea confirmada.")
         return super().delete(*args, **kwargs)
     
 

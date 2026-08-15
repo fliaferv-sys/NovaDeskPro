@@ -13,6 +13,7 @@ from django.urls import reverse
 from apps.accounts.models import Branch
 from apps.core.models import Department
 from apps.notifications.models import Notification
+from apps.tickets.models import Ticket
 
 from .models import (
     AcquisitionBatch,
@@ -27,6 +28,8 @@ from .models import (
     StockEntryOperation,
     StockDelivery,
     StockDeliveryLine,
+    TicketStockUsage,
+    TicketStockUsageLine,
 )
 from .services.stock import (
     register_stock_entry,
@@ -36,6 +39,7 @@ from .services.stock import (
     confirm_stock_entry,
     prepare_stock_delivery,
     complete_stock_delivery,
+    confirm_ticket_stock_usage,
 )
 from .stock_delivery_pdf import generate_stock_delivery_pdf
 from .services.notifications import generate_inventory_stock_notifications
@@ -1398,3 +1402,122 @@ class InventoryStockNotificationTests(TestCase):
         call_command("generate_notifications", stdout=output)
         self.assertIn("Stock de inventario genérico", output.getvalue())
         self.assertTrue(Notification.objects.filter(unique_key__startswith="inventory-stock-out-").exists())
+
+
+class TicketStockUsageTests(TestCase):
+    def setUp(self):
+        self.admin = User.objects.create_user(username="usage_admin", email="usage_admin@example.com", password="pass", role="ADMIN")
+        self.supervisor = User.objects.create_user(username="usage_super", email="usage_super@example.com", password="pass", role="SUPERVISOR")
+        self.requester = User.objects.create_user(username="usage_requester", email="usage_requester@example.com", role="CLIENT")
+        self.ticket = Ticket.objects.create(title="Reparación con insumos", description="Prueba", requester=self.requester)
+        self.branch = Branch.objects.create(code="USAGE-HQ", name="Sede consumos")
+        self.location = OrganizationalLocation.objects.create(branch=self.branch, code="USAGE-WH", name="Depósito consumos", location_type=OrganizationalLocation.LocationType.WAREHOUSE)
+        category = StockCategory.objects.create(name="Consumos", code="ticket-usages")
+        self.product = StockProduct.objects.create(name="SSD Kingston 480 GB", reference_code="USAGE-SSD", category=category, brand="Kingston", model="480 GB")
+        self.product_two = StockProduct.objects.create(name="Patch Cord Cat6", reference_code="USAGE-CABLE", category=category)
+
+    def usage(self):
+        return TicketStockUsage.objects.create(ticket=self.ticket, registered_by=self.admin, observation="Reparación")
+
+    def line(self, usage, product=None, quantity=1):
+        return TicketStockUsageLine.objects.create(usage=usage, product=product or self.product, source_branch=self.branch, source_location=self.location, quantity=quantity)
+
+    def balance(self, product, quantity):
+        return StockBalance.objects.create(product=product, branch=self.branch, organizational_location=self.location, quantity=quantity)
+
+    def test_draft_supports_multiple_lines_and_line_deletion(self):
+        usage = self.usage()
+        first = self.line(usage)
+        self.line(usage, self.product_two, 2)
+        self.assertEqual(usage.status, TicketStockUsage.Status.DRAFT)
+        self.assertEqual(usage.lines.count(), 2)
+        first.delete()
+        self.assertEqual(usage.lines.count(), 1)
+        self.assertEqual(StockMovement.objects.count(), 0)
+
+    def test_confirm_multiple_lines_creates_ticket_movements_and_snapshots(self):
+        usage = self.usage()
+        self.line(usage, self.product, 1)
+        self.line(usage, self.product_two, 2)
+        self.balance(self.product, 3)
+        self.balance(self.product_two, 2)
+        confirmed = confirm_ticket_stock_usage(usage=usage, confirmed_by=self.supervisor)
+        self.assertEqual(confirmed.status, TicketStockUsage.Status.CONFIRMED)
+        self.assertEqual(confirmed.ticket_number, self.ticket.ticket_number)
+        self.assertEqual(confirmed.confirmed_by, self.supervisor)
+        self.assertEqual(StockMovement.objects.filter(ticket=self.ticket, reason=StockMovement.Reason.CONSUMPTION).count(), 2)
+        self.assertEqual(StockBalance.objects.get(product=self.product).quantity, 2)
+        self.assertEqual(StockBalance.objects.get(product=self.product_two).quantity, 0)
+        line = confirmed.lines.get(product=self.product)
+        self.assertEqual(line.product_sku, "USAGE-SSD")
+        self.assertEqual(line.product_name, "SSD Kingston 480 GB")
+        self.assertIsNotNone(line.stock_movement)
+
+    def test_insufficient_stock_has_no_partial_effect(self):
+        usage = self.usage()
+        self.line(usage, self.product, 1)
+        self.line(usage, self.product_two, 5)
+        self.balance(self.product, 4)
+        self.balance(self.product_two, 1)
+        with self.assertRaises(ValidationError):
+            confirm_ticket_stock_usage(usage=usage, confirmed_by=self.admin)
+        self.assertEqual(StockMovement.objects.count(), 0)
+        self.assertEqual(StockBalance.objects.get(product=self.product).quantity, 4)
+        usage.refresh_from_db()
+        self.assertEqual(usage.status, TicketStockUsage.Status.DRAFT)
+
+    def test_intermediate_failure_rolls_back_everything(self):
+        usage = self.usage()
+        self.line(usage, self.product, 1)
+        self.line(usage, self.product_two, 1)
+        self.balance(self.product, 4)
+        self.balance(self.product_two, 4)
+        from .services import stock as stock_service
+        original = stock_service.register_stock_exit
+        calls = {"value": 0}
+        def fail_second(**kwargs):
+            calls["value"] += 1
+            if calls["value"] == 2:
+                raise ValidationError("Fallo simulado")
+            return original(**kwargs)
+        with patch("apps.inventory.services.stock.register_stock_exit", side_effect=fail_second):
+            with self.assertRaises(ValidationError):
+                confirm_ticket_stock_usage(usage=usage, confirmed_by=self.admin)
+        self.assertEqual(StockMovement.objects.count(), 0)
+        self.assertEqual(StockBalance.objects.get(product=self.product).quantity, 4)
+
+    def test_confirmed_usage_is_immutable_and_not_repeatable(self):
+        usage = self.usage()
+        line = self.line(usage)
+        self.balance(self.product, 2)
+        confirm_ticket_stock_usage(usage=usage, confirmed_by=self.admin)
+        usage.refresh_from_db()
+        usage.ticket = Ticket.objects.create(title="Otro", description="Otro", requester=self.requester)
+        with self.assertRaises(ValidationError):
+            usage.save()
+        line.refresh_from_db()
+        line.quantity = 2
+        with self.assertRaises(ValidationError):
+            line.save()
+        with self.assertRaises(ValidationError):
+            line.delete()
+        with self.assertRaises(ValidationError):
+            confirm_ticket_stock_usage(usage=usage, confirmed_by=self.admin)
+
+    def test_regular_stock_movement_remains_valid_without_ticket(self):
+        balance = self.balance(self.product, 0)
+        movement = register_stock_movement(balance=balance, quantity=1, direction=StockMovement.Direction.ENTRY, reason=StockMovement.Reason.PURCHASE, performed_by=self.admin)
+        self.assertIsNone(movement.ticket)
+
+    def test_permissions_are_admin_and_supervisor_only(self):
+        usage = self.usage()
+        url = reverse("inventory:ticket_stock_usage_list")
+        for role in ("CLIENT", "TECHNICIAN", "AUDITOR"):
+            user = User.objects.create_user(username=f"usage_{role.lower()}", email=f"usage_{role.lower()}@example.com", role=role)
+            self.client.force_login(user)
+            self.assertEqual(self.client.get(url).status_code, 403)
+        for user in (self.admin, self.supervisor):
+            self.client.force_login(user)
+            self.assertEqual(self.client.get(url).status_code, 200)
+        self.client.force_login(self.admin)
+        self.assertEqual(self.client.get(reverse("inventory:ticket_stock_usage_confirm", args=[usage.pk])).status_code, 403)
