@@ -1,0 +1,48 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}Etiqueta QR · {{ asset.internal_code }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .asset-label-page { max-width: 900px; margin: 0 auto; }
+    .asset-label { width: 76mm; min-height: 48mm; margin: 0 auto; padding: 5mm; border: 1px solid #cbd5e1; border-radius: 3mm; background: #fff; color: #111827; display: grid; grid-template-columns: 31mm 1fr; gap: 4mm; align-items: center; box-shadow: 0 12px 30px rgba(15, 23, 42, .12); }
+    .asset-label img { width: 31mm; height: 31mm; display: block; }
+    .asset-label-brand { color: #0f3d5e; font-size: 10pt; font-weight: 800; letter-spacing: .02em; }
+    .asset-label-code { font-size: 15pt; font-weight: 800; line-height: 1.1; overflow-wrap: anywhere; }
+    .asset-label-data { font-size: 8.5pt; line-height: 1.35; }
+    .asset-label-hint { font-size: 7.5pt; color: #475569; }
+    @media (max-width: 575.98px) { .asset-label { max-width: 100%; width: 100%; height: auto; grid-template-columns: minmax(105px, 36%) 1fr; } .asset-label img { width: 100%; height: auto; } }
+    @media print {
+        @page { size: auto; margin: 8mm; }
+        body { background: #fff !important; }
+        header, nav, aside, footer, .sidebar, .navbar, .mobile-bottom-nav, .asset-label-actions { display: none !important; }
+        main, .main-content, .content-wrapper, .container, .container-fluid { margin: 0 !important; padding: 0 !important; max-width: none !important; width: 100% !important; }
+        .asset-label-page { max-width: none; margin: 0; }
+        .asset-label { box-shadow: none; margin: 0 auto; break-inside: avoid; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="asset-label-page">
+    <div class="asset-label-actions d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
+        <a class="btn btn-outline-secondary" href="{% url 'inventory:asset_detail' asset.pk %}"><i class="bi bi-arrow-left me-1"></i> Volver al activo</a>
+        <button class="btn btn-primary" type="button" onclick="window.print()"><i class="bi bi-printer me-1"></i> Imprimir etiqueta</button>
+    </div>
+
+    <div class="asset-label" aria-label="Etiqueta QR del activo {{ asset.internal_code }}">
+        <img src="{% url 'inventory:asset_qr_image' asset.pk %}" alt="Código QR del activo {{ asset.internal_code }}">
+        <div>
+            <div class="asset-label-brand mb-1">NovaDesk Pro</div>
+            <div class="asset-label-code mb-2">{{ asset.internal_code }}</div>
+            <div class="asset-label-data">
+                <div><strong>{{ asset.get_asset_type_display }}</strong></div>
+                {% if asset.patrimonial_code %}<div>Patrimonial: {{ asset.patrimonial_code }}</div>{% endif %}
+                {% if asset.brand or asset.model %}<div>{{ asset.brand }} {{ asset.model }}</div>{% endif %}
+                {% if asset.serial_number %}<div>S/N: {{ asset.serial_number }}</div>{% endif %}
+            </div>
+            <div class="asset-label-hint mt-2"><i class="bi bi-phone me-1"></i>Escanee para abrir la ficha</div>
+        </div>
+    </div>
+</div>
+{% endblock %}

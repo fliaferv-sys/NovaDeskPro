@@ -249,6 +249,7 @@ class GlobalNavigationTests(TestCase):
             reverse("notifications:notification_list"),
             reverse("monitoring:dashboard"),
             reverse("inventory:my_asset_list"),
+            reverse("inventory:asset_qr_center"),
         )
         for role in (User.Role.ADMIN, User.Role.SUPERVISOR, User.Role.AUDITOR):
             with self.subTest(role=role):
@@ -270,6 +271,7 @@ class GlobalNavigationTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Accesos rápidos")
         self.assertContains(response, f'href="{reverse("reports:index")}"')
+        self.assertContains(response, f'href="{reverse("inventory:asset_qr_center")}"')
 
     def test_sidebar_omits_secondary_navigation_for_global_user(self):
         admin = self.create_user("lean-sidebar-admin", User.Role.ADMIN)

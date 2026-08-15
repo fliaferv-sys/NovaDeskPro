@@ -9,6 +9,9 @@ from .views import (
     asset_detail_view,
     asset_list_view,
     asset_update_view,
+    asset_qr_center_view,
+    asset_qr_image_view,
+    asset_qr_label_view,
     technical_history_create_view,
     my_asset_list,  # ✅ YA ESTÁ IMPORTADO
     stock_category_create_view,
@@ -59,6 +62,7 @@ app_name = "inventory"
 
 
 urlpatterns = [
+    path("qr/", asset_qr_center_view, name="asset_qr_center"),
     path("stock/consumos-tickets/", ticket_stock_usage_list_view, name="ticket_stock_usage_list"),
     path("stock/consumos-tickets/nuevo/", ticket_stock_usage_create_view, name="ticket_stock_usage_create"),
     path("stock/consumos-tickets/<uuid:pk>/", ticket_stock_usage_detail_view, name="ticket_stock_usage_detail"),
@@ -127,6 +131,8 @@ urlpatterns = [
         asset_detail_view,
         name="asset_detail",
     ),
+    path("<uuid:pk>/qr/", asset_qr_image_view, name="asset_qr_image"),
+    path("<uuid:pk>/etiqueta/", asset_qr_label_view, name="asset_qr_label"),
     path(
         "<uuid:pk>/editar/",
         asset_update_view,

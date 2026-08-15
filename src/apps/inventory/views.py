@@ -1,6 +1,9 @@
+from io import BytesIO
+
+import qrcode
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.http import FileResponse
+from django.http import FileResponse, HttpResponse
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Count, F, Q, Sum
 from django.db.models.functions import Coalesce
@@ -37,6 +40,8 @@ from .forms import (
     StockProductForm,
     StockTransferForm,
 )
+from django.urls import reverse
+from django.views.decorators.http import require_GET
 from django.utils import timezone
 from .models import (
     Asset,
@@ -75,8 +80,74 @@ from .stock_delivery_pdf import generate_stock_delivery_pdf
 # LISTADO DE ACTIVOS
 # ==========================================================
 
+ASSET_READ_ROLES = ("ADMIN", "SUPERVISOR", "AUDITOR", "TECHNICIAN")
+
+
+def _asset_detail_absolute_url(request, asset):
+    return request.build_absolute_uri(
+        reverse("inventory:asset_detail", kwargs={"pk": asset.pk})
+    )
+
+
 @login_required
-@roles_required("ADMIN", "SUPERVISOR", "AUDITOR", "TECHNICIAN")
+@roles_required(*ASSET_READ_ROLES)
+@require_GET
+def asset_qr_center_view(request):
+    search = request.GET.get("q", "").strip()
+    assets = Asset.objects.none()
+    if search:
+        assets = Asset.objects.filter(
+            Q(internal_code__icontains=search)
+            | Q(patrimonial_code__icontains=search)
+            | Q(serial_number__icontains=search)
+            | Q(brand__icontains=search)
+            | Q(model__icontains=search)
+        ).order_by("internal_code")[:50]
+    return render(
+        request,
+        "inventory/qr/index.html",
+        {"assets": assets, "search": search},
+    )
+
+
+@login_required
+@roles_required(*ASSET_READ_ROLES)
+@require_GET
+def asset_qr_image_view(request, pk):
+    asset = get_object_or_404(Asset, pk=pk)
+    asset_url = _asset_detail_absolute_url(request, asset)
+    qr = qrcode.QRCode(
+        version=None,
+        error_correction=qrcode.constants.ERROR_CORRECT_M,
+        box_size=10,
+        border=4,
+    )
+    qr.add_data(asset_url)
+    qr.make(fit=True)
+    image = qr.make_image(fill_color="black", back_color="white")
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+    response = HttpResponse(buffer.getvalue(), content_type="image/png")
+    response["Cache-Control"] = "private, max-age=3600"
+    return response
+
+
+@login_required
+@roles_required(*ASSET_READ_ROLES)
+@require_GET
+def asset_qr_label_view(request, pk):
+    asset = get_object_or_404(Asset, pk=pk)
+    return render(
+        request,
+        "inventory/qr/label.html",
+        {
+            "asset": asset,
+            "asset_url": _asset_detail_absolute_url(request, asset),
+        },
+    )
+
+@login_required
+@roles_required(*ASSET_READ_ROLES)
 def asset_list_view(request):
     assets = (
         Asset.objects
@@ -219,7 +290,7 @@ def asset_create_view(request):
 # ==========================================================
 
 @login_required
-@roles_required("ADMIN", "SUPERVISOR", "AUDITOR", "TECHNICIAN")
+@roles_required(*ASSET_READ_ROLES)
 def asset_detail_view(request, pk):
     asset = get_object_or_404(
         Asset.objects.select_related(

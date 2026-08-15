@@ -1788,3 +1788,83 @@ class InventoryNavigationTests(TestCase):
         ):
             with self.subTest(destination=destination):
                 self.assertEqual(self.client.get(destination).status_code, 200)
+
+
+class AssetQrTests(TestCase):
+    def setUp(self):
+        self.asset = Asset.objects.create(
+            internal_code="QR-ACT-001",
+            patrimonial_code="PAT-QR-900",
+            asset_type=Asset.AssetType.LAPTOP,
+            brand="Lenovo",
+            model="ThinkPad",
+            serial_number="SERIAL-QR-001",
+        )
+        self.admin = self.create_user("qr-admin", User.Role.ADMIN)
+        self.client_user = self.create_user("qr-client", User.Role.CLIENT)
+
+    def create_user(self, name, role):
+        return User.objects.create_user(
+            username=name,
+            email=f"{name}@example.test",
+            password="test-password-123",
+            role=role,
+        )
+
+    def test_authorized_roles_can_open_qr_center(self):
+        for role in (User.Role.ADMIN, User.Role.SUPERVISOR, User.Role.AUDITOR, User.Role.TECHNICIAN):
+            with self.subTest(role=role):
+                self.client.force_login(self.create_user(f"qr-authorized-{role.lower()}", role))
+                self.assertEqual(self.client.get(reverse("inventory:asset_qr_center")).status_code, 200)
+
+    def test_qr_center_searches_existing_asset_fields(self):
+        self.client.force_login(self.admin)
+        for search in ("QR-ACT", "PAT-QR", "SERIAL-QR", "Lenovo", "ThinkPad"):
+            with self.subTest(search=search):
+                response = self.client.get(reverse("inventory:asset_qr_center"), {"q": search})
+                self.assertContains(response, self.asset.internal_code)
+
+    def test_qr_image_is_png_and_encodes_absolute_asset_detail_url(self):
+        self.client.force_login(self.admin)
+        expected_url = "http://testserver" + reverse("inventory:asset_detail", args=[self.asset.pk])
+        with patch("apps.inventory.views.qrcode.QRCode") as qr_class:
+            qr_image = qr_class.return_value.make_image.return_value
+            qr_image.save.side_effect = lambda output, format: output.write(b"\x89PNG\r\n\x1a\n")
+            response = self.client.get(reverse("inventory:asset_qr_image", args=[self.asset.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "image/png")
+        self.assertTrue(response.content.startswith(b"\x89PNG"))
+        qr_class.return_value.add_data.assert_called_once_with(expected_url)
+
+    def test_label_uses_asset_detail_url_and_is_linked_from_detail(self):
+        self.client.force_login(self.admin)
+        label_url = reverse("inventory:asset_qr_label", args=[self.asset.pk])
+        response = self.client.get(label_url)
+        self.assertEqual(response.context["asset_url"], "http://testserver" + reverse("inventory:asset_detail", args=[self.asset.pk]))
+        self.assertContains(response, reverse("inventory:asset_qr_image", args=[self.asset.pk]))
+        self.assertContains(self.client.get(reverse("inventory:asset_detail", args=[self.asset.pk])), f'href="{label_url}"')
+
+    def test_client_and_anonymous_cannot_access_qr_resources(self):
+        urls = (
+            reverse("inventory:asset_qr_center"),
+            reverse("inventory:asset_qr_image", args=[self.asset.pk]),
+            reverse("inventory:asset_qr_label", args=[self.asset.pk]),
+        )
+        for url in urls:
+            with self.subTest(url=url, user="client"):
+                self.client.force_login(self.client_user)
+                self.assertEqual(self.client.get(url).status_code, 403)
+            with self.subTest(url=url, user="anonymous"):
+                self.client.logout()
+                self.assertEqual(self.client.get(url).status_code, 302)
+
+    def test_qr_views_are_read_only(self):
+        self.client.force_login(self.admin)
+        for url in (
+            reverse("inventory:asset_qr_center"),
+            reverse("inventory:asset_qr_image", args=[self.asset.pk]),
+            reverse("inventory:asset_qr_label", args=[self.asset.pk]),
+        ):
+            with self.subTest(url=url):
+                self.assertEqual(self.client.post(url).status_code, 405)

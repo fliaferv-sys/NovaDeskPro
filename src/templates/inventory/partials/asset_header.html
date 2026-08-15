@@ -2,7 +2,58 @@
      ENCABEZADO DEL ACTIVO
      ====================================================== -->
 
-     <div class="ticket-detail-header">
+<style>
+    .asset-detail-header {
+        align-items: flex-start;
+    }
+
+    .asset-header-actions {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 10px;
+    }
+
+    .asset-header-actions .asset-header-action {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        width: auto;
+        min-height: 44px;
+        padding: 10px 14px;
+        line-height: 1.2;
+        text-align: center;
+        white-space: nowrap;
+    }
+
+    @media (max-width: 767.98px) {
+        .asset-detail-header {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .asset-header-actions {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            width: 100%;
+            gap: 10px;
+        }
+
+        .asset-header-actions .asset-header-action {
+            width: 100%;
+            min-width: 0;
+            padding-inline: 9px;
+            white-space: normal;
+        }
+
+        .asset-header-actions .asset-intervention-action {
+            grid-column: 1 / -1;
+        }
+    }
+</style>
+
+     <div class="ticket-detail-header asset-detail-header">
 
         <div>
             <h1 class="page-title">
@@ -18,20 +69,24 @@
             </p>
         </div>
     
-        <div class="ticket-header-actions">
+        <div class="ticket-header-actions asset-header-actions">
+
+            <a href="{% url 'inventory:asset_qr_label' asset.pk %}" class="btn-secondary asset-header-action">
+                <i class="bi bi-qr-code"></i> QR del activo
+            </a>
     
             <a
                 href="{% url 'inventory:asset_list' %}"
-                class="btn-secondary">
-                ← Volver
+                class="btn-secondary asset-header-action">
+                <i class="bi bi-arrow-left"></i> Volver
             </a>
     
             {% if request.user.role == "ADMIN" or request.user.role == "SUPERVISOR" or request.user.is_superuser %}
     
                 <a
                     href="{% url 'inventory:asset_update' asset.pk %}"
-                    class="btn-small">
-                    ✏ Editar equipo
+                    class="btn-small asset-header-action">
+                    <i class="bi bi-pencil"></i> Editar equipo
                 </a>
     
             {% endif %}
@@ -40,8 +95,8 @@
     
                 <a
                     href="{% url 'inventory:technical_history_create' asset.pk %}"
-                    class="btn-primary">
-                    🔧 Nueva intervención
+                    class="btn-primary asset-header-action asset-intervention-action">
+                    <i class="bi bi-tools"></i> Nueva intervención
                 </a>
     
             {% endif %}

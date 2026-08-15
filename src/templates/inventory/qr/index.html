@@ -1,0 +1,81 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}QR de activos{% endblock %}
+
+{% block extra_css %}
+<style>
+    .asset-qr-page { max-width: 1180px; margin: 0 auto; }
+    .asset-qr-hero { background: linear-gradient(135deg, #0f3d5e, #176b87); color: #fff; border-radius: 1rem; padding: 1.75rem; box-shadow: 0 12px 30px rgba(15, 61, 94, .16); }
+    .asset-qr-hero-icon { width: 3.25rem; height: 3.25rem; display: grid; place-items: center; border-radius: .85rem; background: rgba(255,255,255,.14); font-size: 1.7rem; }
+    .asset-qr-card { border: 1px solid #e7edf3; border-radius: 1rem; box-shadow: 0 8px 24px rgba(29, 53, 87, .07); }
+    .asset-qr-table th { color: #52606d; font-size: .78rem; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; }
+    .asset-qr-empty { padding: 3rem 1rem; text-align: center; color: #667085; }
+    @media (max-width: 575.98px) { .asset-qr-hero { padding: 1.25rem; } .asset-qr-action { width: 100%; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="asset-qr-page">
+    <section class="asset-qr-hero mb-4">
+        <div class="d-flex align-items-start gap-3">
+            <div class="asset-qr-hero-icon flex-shrink-0"><i class="bi bi-qr-code"></i></div>
+            <div>
+                <h1 class="h3 mb-2">QR de activos</h1>
+                <p class="mb-0 opacity-75">Busque un equipo y genere una etiqueta que abre directamente su ficha autorizada en NovaDesk Pro.</p>
+            </div>
+        </div>
+    </section>
+
+    <section class="card asset-qr-card mb-4">
+        <div class="card-body p-3 p-md-4">
+            <form method="get" class="row g-3 align-items-end">
+                <div class="col-12 col-lg">
+                    <label for="asset-qr-search" class="form-label fw-semibold">Buscar activo</label>
+                    <div class="input-group">
+                        <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+                        <input id="asset-qr-search" name="q" value="{{ search }}" class="form-control" placeholder="Código interno, patrimonial, serie, marca o modelo" autofocus>
+                    </div>
+                </div>
+                <div class="col-12 col-sm-auto">
+                    <button class="btn btn-primary asset-qr-action" type="submit"><i class="bi bi-search me-1"></i> Buscar</button>
+                </div>
+                {% if search %}
+                <div class="col-12 col-sm-auto">
+                    <a class="btn btn-outline-secondary asset-qr-action" href="{% url 'inventory:asset_qr_center' %}">Limpiar</a>
+                </div>
+                {% endif %}
+            </form>
+        </div>
+    </section>
+
+    <section class="card asset-qr-card overflow-hidden">
+        <div class="card-header bg-white border-0 px-3 px-md-4 pt-4 pb-2">
+            <h2 class="h5 mb-1">Resultados</h2>
+            {% if search %}<p class="text-muted small mb-0">Hasta 50 coincidencias para “{{ search }}”.</p>{% endif %}
+        </div>
+        {% if assets %}
+        <div class="table-responsive">
+            <table class="table table-hover align-middle asset-qr-table mb-0">
+                <thead class="table-light"><tr><th class="ps-3 ps-md-4">Código</th><th>Activo</th><th>Serie</th><th>Ubicación</th><th class="text-end pe-3 pe-md-4">Acción</th></tr></thead>
+                <tbody>
+                {% for asset in assets %}
+                    <tr>
+                        <td class="ps-3 ps-md-4"><strong>{{ asset.internal_code }}</strong>{% if asset.patrimonial_code %}<div class="small text-muted">Patrimonial: {{ asset.patrimonial_code }}</div>{% endif %}</td>
+                        <td>{{ asset.get_asset_type_display }}<div class="small text-muted">{{ asset.brand|default:"Sin marca" }} {{ asset.model }}</div></td>
+                        <td>{{ asset.serial_number|default:"—" }}</td>
+                        <td>{{ asset.branch|default:"—" }}</td>
+                        <td class="text-end pe-3 pe-md-4"><a class="btn btn-sm btn-outline-primary" href="{% url 'inventory:asset_qr_label' asset.pk %}"><i class="bi bi-printer me-1"></i> Etiqueta QR</a></td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="asset-qr-empty">
+            <i class="bi {% if search %}bi-search{% else %}bi-upc-scan{% endif %} d-block fs-1 mb-2"></i>
+            {% if search %}<p class="mb-0">No se encontraron activos con ese criterio.</p>{% else %}<p class="mb-0">Ingrese un dato del activo para comenzar.</p>{% endif %}
+        </div>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}

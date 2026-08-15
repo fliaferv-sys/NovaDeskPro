@@ -880,6 +880,15 @@ NovaDesk Pro
             <p>Equipos asociados al usuario.</p>
             <a href="{% url 'inventory:my_asset_list' %}" class="staff-quick-access-link">Ver mis equipos <i class="bi bi-arrow-right"></i></a>
         </article>
+
+        {% if request.user.is_superuser or request.user.role == "ADMIN" or request.user.role == "SUPERVISOR" or request.user.role == "AUDITOR" %}
+        <article class="staff-quick-access-card">
+            <div class="staff-quick-access-icon"><i class="bi bi-qr-code"></i></div>
+            <h3>QR de activos</h3>
+            <p>Escanear, identificar e imprimir códigos QR de equipos patrimoniales.</p>
+            <a href="{% url 'inventory:asset_qr_center' %}" class="staff-quick-access-link">Gestionar QR <i class="bi bi-arrow-right"></i></a>
+        </article>
+        {% endif %}
     </div>
 </section>
 
