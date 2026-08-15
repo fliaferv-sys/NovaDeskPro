@@ -1703,3 +1703,38 @@ class FinalStockSafetyRegressionTests(TestCase):
         self.assertIn("status", StockEntryOperationAdmin.readonly_fields)
         self.assertIn("status", StockDeliveryAdmin.readonly_fields)
         self.assertIn("status", TicketStockUsageAdmin.readonly_fields)
+
+
+
+class EmptyInventoryViewsTests(TestCase):
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            username="empty_inventory_admin",
+            email="empty_inventory_admin@example.com",
+            password="test-password-123",
+            role="ADMIN",
+        )
+        self.client.force_login(self.admin)
+
+    def test_empty_inventory_lists_render_without_errors(self):
+        urls = [
+            reverse("inventory:stock_category_list"),
+            reverse("inventory:stock_product_list"),
+            reverse("inventory:stock_movement_list"),
+            reverse("inventory:documented_stock_entry_list"),
+            reverse("inventory:stock_delivery_list"),
+            reverse("inventory:ticket_stock_usage_list"),
+        ]
+
+        self.assertFalse(StockCategory.objects.exists())
+        self.assertFalse(StockProduct.objects.exists())
+        self.assertFalse(StockBalance.objects.exists())
+        self.assertFalse(StockMovement.objects.exists())
+        self.assertFalse(StockEntryOperation.objects.exists())
+        self.assertFalse(StockDelivery.objects.exists())
+        self.assertFalse(TicketStockUsage.objects.exists())
+
+        for url in urls:
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self.assertEqual(response.status_code, 200)
