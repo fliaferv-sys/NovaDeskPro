@@ -55,6 +55,11 @@ urlpatterns = [
         "psline/",
         include("apps.printing.urls"),
     ),
+
+    path(
+        "reportes/",
+        include("apps.reports.urls"),
+    ),
 ]
 
 

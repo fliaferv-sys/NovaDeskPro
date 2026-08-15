@@ -131,7 +131,7 @@
     <!-- MENÚ DEL CLIENTE -->
     <!-- ============================================= -->
 
-    {% if request.user.role == "CLIENT" %}
+    {% if request.user.role == "CLIENT" and not request.user.is_superuser %}
 
         <a
             href="{% url 'inventory:my_asset_list' %}?v={% now 'U' %}"
@@ -173,6 +173,14 @@
     </a>
 
 {% endif %}
+
+
+        {% if request.user.is_superuser or request.user.role == "ADMIN" or request.user.role == "SUPERVISOR" or request.user.role == "AUDITOR" %}
+        <a href="{% url 'reports:index' %}" class="sidebar-menu-link" title="Reportes">
+            <i class="bi bi-bar-chart-line"></i>
+            <span class="sidebar-menu-text">Reportes</span>
+        </a>
+        {% endif %}
 
 
         <!-- ============================================= -->

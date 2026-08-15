@@ -1,0 +1,4 @@
+<div class="reports-metric"{% if color %} style="--metric-color: {{ color }};"{% endif %}>
+    <div class="reports-metric-icon"><i class="bi {{ icon|default:'bi-bar-chart' }}"></i></div>
+    <div><div class="reports-metric-label">{{ label }}</div><div class="reports-metric-value">{{ value|default:0 }}</div>{% if help_text %}<div class="reports-panel-subtitle">{{ help_text }}</div>{% endif %}</div>
+</div>

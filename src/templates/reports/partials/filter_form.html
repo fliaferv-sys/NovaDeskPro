@@ -1,0 +1,10 @@
+<form method="get" class="reports-filter-card">
+    <div class="reports-filter-header"><i class="bi bi-sliders"></i><strong>Filtros del reporte</strong></div>
+    <div class="reports-filter-body">
+        {% if form.non_field_errors %}<div class="reports-alert">{{ form.non_field_errors }}</div>{% endif %}
+        <div class="reports-filter-grid">
+            {% for field in form %}<div class="reports-filter-field"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% for error in field.errors %}<div class="reports-error">{{ error }}</div>{% endfor %}</div>{% endfor %}
+            <div class="reports-filter-actions"><button class="reports-btn reports-btn-primary" type="submit"><i class="bi bi-funnel"></i> Aplicar</button><a class="reports-btn reports-btn-secondary" href="{{ request.path }}"><i class="bi bi-arrow-counterclockwise"></i> Limpiar</a></div>
+        </div>
+    </div>
+</form>
