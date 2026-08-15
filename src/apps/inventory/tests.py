@@ -1,15 +1,18 @@
 from unittest.mock import patch
 import tempfile
+from io import StringIO
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.management import call_command
 from django.db import IntegrityError, transaction
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from apps.accounts.models import Branch
 from apps.core.models import Department
+from apps.notifications.models import Notification
 
 from .models import (
     AcquisitionBatch,
@@ -35,6 +38,7 @@ from .services.stock import (
     complete_stock_delivery,
 )
 from .stock_delivery_pdf import generate_stock_delivery_pdf
+from .services.notifications import generate_inventory_stock_notifications
 
 
 User = get_user_model()
@@ -1299,3 +1303,98 @@ class StockDeliveryTests(TestCase):
             client_user = User.objects.create_user(username="signed_client", email="signed_client@example.com", role="CLIENT")
             self.client.force_login(client_user)
             self.assertEqual(self.client.get(reverse("inventory:stock_delivery_signed_download", args=[delivery.pk])).status_code, 403)
+
+
+class InventoryStockNotificationTests(TestCase):
+    def setUp(self):
+        self.branch = Branch.objects.create(code="ALERT-HQ", name="Sede alertas")
+        self.locations = [
+            OrganizationalLocation.objects.create(branch=self.branch, code=f"ALERT-{index}", name=f"Depósito {index}", location_type=OrganizationalLocation.LocationType.WAREHOUSE)
+            for index in range(1, 5)
+        ]
+        self.category = StockCategory.objects.create(name="Alertas", code="alertas-stock")
+        self.product = StockProduct.objects.create(name="Mouse alerta", reference_code="ALERT-MOUSE", category=self.category, minimum_stock=3)
+
+    def balance(self, quantity, index=0, minimum=None):
+        return StockBalance.objects.create(product=self.product, branch=self.branch, organizational_location=self.locations[index], quantity=quantity, minimum_stock=minimum)
+
+    def notification(self, prefix, balance):
+        return Notification.objects.get(unique_key=f"{prefix}{balance.pk}")
+
+    def test_out_of_stock_creates_only_stock_out_with_correct_reference_and_link(self):
+        balance = self.balance(0)
+        result = generate_inventory_stock_notifications()
+        alert = self.notification("inventory-stock-out-", balance)
+        self.assertEqual(result["created"], 1)
+        self.assertTrue(alert.is_active)
+        self.assertEqual(alert.notification_type, Notification.TYPE_STOCK_OUT)
+        self.assertEqual(alert.object_type, "StockBalance")
+        self.assertEqual(alert.object_id, str(balance.pk))
+        self.assertEqual(alert.link, reverse("inventory:stock_product_detail", args=[self.product.pk]))
+        self.assertFalse(Notification.objects.filter(unique_key=f"inventory-stock-low-{balance.pk}", is_active=True).exists())
+
+    def test_low_stock_uses_product_fallback_and_deactivates_out_alert(self):
+        balance = self.balance(0)
+        generate_inventory_stock_notifications()
+        balance.quantity = 2
+        balance.save(update_fields=["quantity"])
+        generate_inventory_stock_notifications()
+        self.assertTrue(self.notification("inventory-stock-low-", balance).is_active)
+        self.assertFalse(self.notification("inventory-stock-out-", balance).is_active)
+        self.assertEqual(balance.effective_minimum_stock, 3)
+
+    def test_balance_specific_minimum_has_priority(self):
+        balance = self.balance(4, minimum=5)
+        generate_inventory_stock_notifications()
+        self.assertTrue(self.notification("inventory-stock-low-", balance).is_active)
+        self.assertEqual(balance.effective_minimum_stock, 5)
+
+    def test_normal_stock_deactivates_both_alert_types(self):
+        balance = self.balance(0)
+        generate_inventory_stock_notifications()
+        balance.quantity = 2
+        balance.save(update_fields=["quantity"])
+        generate_inventory_stock_notifications()
+        balance.quantity = 10
+        balance.save(update_fields=["quantity"])
+        generate_inventory_stock_notifications()
+        self.assertFalse(self.notification("inventory-stock-out-", balance).is_active)
+        self.assertFalse(self.notification("inventory-stock-low-", balance).is_active)
+
+    def test_multiple_locations_are_evaluated_independently(self):
+        normal = self.balance(10, 0)
+        low = self.balance(1, 1)
+        out = self.balance(0, 2)
+        generate_inventory_stock_notifications()
+        self.assertFalse(Notification.objects.filter(object_id=str(normal.pk), is_active=True).exists())
+        self.assertEqual(self.notification("inventory-stock-low-", low).notification_type, Notification.TYPE_LOW_STOCK)
+        self.assertEqual(self.notification("inventory-stock-out-", out).notification_type, Notification.TYPE_STOCK_OUT)
+
+    def test_repeated_generation_does_not_duplicate_notifications(self):
+        balance = self.balance(1)
+        generate_inventory_stock_notifications()
+        generate_inventory_stock_notifications()
+        self.assertEqual(Notification.objects.filter(unique_key=f"inventory-stock-low-{balance.pk}").count(), 1)
+
+    def test_inactive_product_deactivates_existing_alerts(self):
+        balance = self.balance(0)
+        generate_inventory_stock_notifications()
+        self.product.is_active = False
+        self.product.save(update_fields=["is_active"])
+        generate_inventory_stock_notifications()
+        self.assertFalse(self.notification("inventory-stock-out-", balance).is_active)
+        self.assertFalse(Notification.objects.filter(object_id=str(balance.pk), is_active=True).exists())
+
+    def test_zero_minimum_only_alerts_when_stock_is_zero(self):
+        positive = self.balance(1, 0, minimum=0)
+        empty = self.balance(0, 1, minimum=0)
+        generate_inventory_stock_notifications()
+        self.assertFalse(Notification.objects.filter(object_id=str(positive.pk), is_active=True).exists())
+        self.assertTrue(self.notification("inventory-stock-out-", empty).is_active)
+
+    def test_generate_notifications_command_includes_inventory_stock(self):
+        self.balance(0)
+        output = StringIO()
+        call_command("generate_notifications", stdout=output)
+        self.assertIn("Stock de inventario genérico", output.getvalue())
+        self.assertTrue(Notification.objects.filter(unique_key__startswith="inventory-stock-out-").exists())

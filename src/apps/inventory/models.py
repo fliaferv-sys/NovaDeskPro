@@ -1010,6 +1010,20 @@ class StockBalance(models.Model):
     def __str__(self):
         return f"{self.product} - {self.organizational_location}: {self.quantity}"
 
+    @property
+    def effective_minimum_stock(self):
+        if self.minimum_stock is not None:
+            return self.minimum_stock
+        return self.product.minimum_stock
+
+    @property
+    def stock_status(self):
+        if self.quantity == 0:
+            return "out"
+        if self.effective_minimum_stock > 0 and self.quantity <= self.effective_minimum_stock:
+            return "low"
+        return "available"
+
 
 class StockMovement(models.Model):
     class Direction(models.TextChoices):

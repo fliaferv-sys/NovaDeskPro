@@ -6,6 +6,7 @@ from apps.notifications.generators import (
     generate_printing_contract_notifications,
     generate_ticket_sla_notifications,
 )
+from apps.inventory.services.notifications import generate_inventory_stock_notifications
 
 
 class Command(BaseCommand):
@@ -20,6 +21,7 @@ class Command(BaseCommand):
 
         device_result = generate_device_offline_notifications()
         stock_result = generate_consumable_stock_notifications()
+        inventory_stock_result = generate_inventory_stock_notifications()
         contract_result = generate_printing_contract_notifications()
         sla_result = generate_ticket_sla_notifications()
 
@@ -48,6 +50,12 @@ class Command(BaseCommand):
         )
 
         self.stdout.write("")
+        self.stdout.write("Stock de inventario genérico:")
+        self.stdout.write(f"  Creadas: {inventory_stock_result['created']}")
+        self.stdout.write(f"  Actualizadas: {inventory_stock_result['updated']}")
+        self.stdout.write(f"  Desactivadas: {inventory_stock_result['deactivated']}")
+
+        self.stdout.write("")
         self.stdout.write("Contratos de impresión:")
         self.stdout.write(
             f"  Creadas: {contract_result['created']}"
@@ -62,6 +70,7 @@ class Command(BaseCommand):
         total_created = (
             device_result["created"]
             + stock_result["created"]
+            + inventory_stock_result["created"]
             + contract_result["created"]
             + sla_result["created"]
         )
@@ -69,6 +78,7 @@ class Command(BaseCommand):
         total_updated = (
             device_result["updated"]
             + stock_result["updated"]
+            + inventory_stock_result["updated"]
             + contract_result["updated"]
             + sla_result["updated"]
         )
@@ -76,6 +86,7 @@ class Command(BaseCommand):
         total_deactivated = (
             device_result["deactivated"]
             + stock_result["deactivated"]
+            + inventory_stock_result["deactivated"]
             + contract_result["deactivated"]
             + sla_result["deactivated"]
         )
