@@ -75,9 +75,16 @@ class OrganizationalLocationAdmin(admin.ModelAdmin):
     )
 
     readonly_fields = (
-        "created_at",
-        "updated_at",
+    	"full_path_display",
+    	"created_at",
+    	"updated_at",
     )
+
+    @admin.display(description="Ruta completa")
+    def full_path_display(self, obj):
+        if not obj:
+            return "-"
+        return obj.full_path
 
     fieldsets = (
         (

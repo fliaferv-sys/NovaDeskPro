@@ -535,338 +535,54 @@ class TicketStockUsageForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["ticket"].queryset = self.fields["ticket"].queryset.select_related("requester", "assigned_to").order_by("-created_at")
+        self.fields["ticket"].queryset = (
+            self.fields["ticket"]
+            .queryset
+            .select_related("requester", "assigned_to")
+            .order_by("-created_at")
+        )
 
 
 class TicketStockUsageLineForm(forms.ModelForm):
     class Meta:
         model = TicketStockUsageLine
-        fields = ["product", "source_branch", "source_location", "quantity"]
+        fields = [
+            "product",
+            "source_branch",
+            "source_location",
+            "quantity",
+        ]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        available_products = StockProduct.objects.filter(is_active=True, balances__quantity__gt=0).distinct()
-        self.fields["product"].queryset = available_products
-        self.fields["source_branch"].queryset = Branch.objects.filter(is_active=True, stock_balances__quantity__gt=0).distinct()
-        self.fields["source_location"].queryset = OrganizationalLocation.objects.filter(is_active=True, stock_balances__quantity__gt=0).select_related("branch").distinct()
-        for field_name in (
-            "brand",
-            "model",
-            "patrimonial_code",
-            "serial_number",
-            "acquisition_batch",
-        ):
-            self.fields[field_name].required = True
 
-        # ==================================================
-        # USUARIOS ACTIVOS DISPONIBLES COMO CUSTODIOS
-        # ==================================================
-
-        self.fields["assigned_user"].queryset = (
-            User.objects
+        self.fields["product"].queryset = (
+            StockProduct.objects
             .filter(
                 is_active=True,
-                approval_status=(
-                    User.ApprovalStatus.APPROVED
-                ),
+                balances__quantity__gt=0,
             )
-            .select_related(
-                "branch"
-            )
-            .order_by(
-                "first_name",
-                "last_name",
-            )
+            .distinct()
         )
 
-        self.fields["assigned_user"].empty_label = (
-            "Sin usuario asignado"
-        )
-
-        # ==================================================
-        # MOSTRAR SOLAMENTE SEDES ACTIVAS
-        # ==================================================
-
-        self.fields["branch"].queryset = (
-            self.fields["branch"]
-            .queryset
+        self.fields["source_branch"].queryset = (
+            Branch.objects
             .filter(
-                is_active=True
+                is_active=True,
+                stock_balances__quantity__gt=0,
             )
-            .order_by(
-                "name"
-            )
+            .distinct()
         )
 
-        self.fields["branch"].empty_label = (
-            "Seleccione una sede"
-        )
-
-        # ==================================================
-        # UBICACIONES FÍSICAS ACTIVAS
-        # ==================================================
-
-        active_locations = (
+        self.fields["source_location"].queryset = (
             OrganizationalLocation.objects
             .filter(
                 is_active=True,
-                branch__is_active=True,
+                stock_balances__quantity__gt=0,
             )
-            .select_related(
-                "branch",
-                "parent",
-            )
-            .order_by(
-                "branch__name",
-                "name",
-            )
+            .select_related("branch")
+            .distinct()
         )
-
-        selected_branch_id = None
-
-        # Cuando el formulario fue enviado.
-        if self.is_bound:
-            selected_branch_id = (
-                self.data.get("branch")
-            )
-
-        # Cuando se está editando un activo existente.
-        elif (
-            self.instance
-            and self.instance.pk
-            and self.instance.branch_id
-        ):
-            selected_branch_id = (
-                self.instance.branch_id
-            )
-
-        # Si ya se eligió una sede, mostrar únicamente
-        # sus ubicaciones.
-        if selected_branch_id:
-            active_locations = (
-                active_locations.filter(
-                    branch_id=selected_branch_id
-                )
-            )
-
-        self.fields[
-            "physical_location"
-        ].queryset = active_locations
-
-        # ==================================================
-        # AYUDAS VISUALES
-        # ==================================================
-
-        self.fields["assigned_user"].help_text = (
-            "Persona responsable o custodio del equipo. "
-            "Puede estar en una sede distinta a la "
-            "ubicación física del activo."
-        )
-
-        self.fields["branch"].help_text = (
-            "Sede donde se encuentra físicamente "
-            "el equipo."
-        )
-
-        self.fields[
-            "physical_location"
-        ].help_text = (
-            "Edificio, piso, oficina, depósito, "
-            "sala técnica o sector dentro de la sede."
-        )
-
-        self.fields["department"].help_text = (
-            "Departamento responsable o área donde "
-            "se utiliza el equipo."
-        )
-
-        self.fields["location"].help_text = (
-            "Referencia adicional, por ejemplo: "
-            "rack, mesa, puesto o sector específico."
-        )
-
-    # ======================================================
-    # VALIDACIÓN DE UBICACIÓN
-    # ======================================================
-
-    def clean(self):
-        cleaned_data = super().clean()
-
-        for field_name, label in {
-            "brand": "La marca",
-            "model": "El modelo",
-            "patrimonial_code": "El patrimonio",
-            "serial_number": "El número de serie",
-            "acquisition_batch": "El lote",
-        }.items():
-            if not cleaned_data.get(field_name):
-                self.add_error(field_name, f"{label} es obligatorio para registrar el equipo.")
-
-        branch = cleaned_data.get(
-            "branch"
-        )
-
-        physical_location = cleaned_data.get(
-            "physical_location"
-        )
-
-        assigned_user = cleaned_data.get(
-            "assigned_user"
-        )
-
-        # No permitir una ubicación detallada sin sede.
-        if physical_location and not branch:
-            self.add_error(
-                "branch",
-                (
-                    "Debe seleccionar la sede correspondiente "
-                    "a la ubicación física."
-                ),
-            )
-
-        # Comprobar que la ubicación pertenece a la sede.
-        if (
-            branch
-            and physical_location
-            and physical_location.branch_id
-            != branch.pk
-        ):
-            self.add_error(
-                "physical_location",
-                (
-                    "La ubicación seleccionada no pertenece "
-                    "a la sede indicada."
-                ),
-            )
-
-        # No impedir que custodio y activo estén en sedes
-        # distintas, porque puede ocurrir en la práctica.
-        # Solamente conservamos la información para futuros
-        # avisos y auditorías.
-        if (
-            assigned_user
-            and branch
-            and assigned_user.branch_id
-            and assigned_user.branch_id
-            != branch.pk
-        ):
-            self.add_warning_message = (
-                "El custodio pertenece a una sede diferente."
-            )
-
-        return cleaned_data
-
-    # ======================================================
-    # VALIDACIÓN DE DIRECCIÓN MAC
-    # ======================================================
-
-    def clean_mac_address(self):
-        mac_address = (
-            self.cleaned_data.get(
-                "mac_address",
-                ""
-            )
-            .strip()
-            .upper()
-        )
-
-        if not mac_address:
-            return ""
-
-        mac_address = mac_address.replace(
-            "-",
-            ":",
-        )
-
-        parts = mac_address.split(":")
-
-        if (
-            len(parts) != 6
-            or any(
-                len(part) != 2
-                for part in parts
-            )
-        ):
-            raise forms.ValidationError(
-                "Ingrese una dirección MAC válida. "
-                "Ejemplo: 00:1A:2B:3C:4D:5E."
-            )
-
-        try:
-            int(
-                "".join(parts),
-                16,
-            )
-
-        except ValueError as exc:
-            raise forms.ValidationError(
-                "La dirección MAC contiene "
-                "caracteres inválidos."
-            ) from exc
-
-        return ":".join(parts)
-
-    # ======================================================
-    # VALIDACIÓN DE FECHAS
-    # ======================================================
-
-    def clean(self):
-        cleaned_data = super().clean()
-
-        branch = cleaned_data.get(
-            "branch"
-        )
-
-        physical_location = cleaned_data.get(
-            "physical_location"
-        )
-
-        purchase_date = cleaned_data.get(
-            "purchase_date"
-        )
-
-        warranty_expiration = cleaned_data.get(
-            "warranty_expiration"
-        )
-
-        if physical_location and not branch:
-            self.add_error(
-                "branch",
-                (
-                    "Debe seleccionar la sede correspondiente "
-                    "a la ubicación física."
-                ),
-            )
-
-        if (
-            branch
-            and physical_location
-            and physical_location.branch_id
-            != branch.pk
-        ):
-            self.add_error(
-                "physical_location",
-                (
-                    "La ubicación seleccionada no pertenece "
-                    "a la sede indicada."
-                ),
-            )
-
-        if (
-            purchase_date
-            and warranty_expiration
-            and warranty_expiration < purchase_date
-        ):
-            self.add_error(
-                "warranty_expiration",
-                (
-                    "La fecha de vencimiento de garantía "
-                    "no puede ser anterior a la compra."
-                ),
-            )
-
-        return cleaned_data
-
 
 # ==========================================================
 # FORMULARIO DE INTERVENCIONES TÉCNICAS

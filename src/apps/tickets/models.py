@@ -279,7 +279,7 @@ class Ticket(models.Model):
             "text": f"{time_text} restantes",
         }
 
-def __str__(self):
+    def __str__(self):
         return f"{self.ticket_number} - {self.title}"
 
 
