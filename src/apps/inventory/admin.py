@@ -19,6 +19,8 @@ from .models import (
     StockEntryOperation,
     StockEntryLine,
     StockEntryDocument,
+    StockDelivery,
+    StockDeliveryLine,
 )
 
 
@@ -626,3 +628,41 @@ class StockEntryOperationAdmin(admin.ModelAdmin):
         for instance in formset.deleted_objects:
             instance.delete()
         formset.save_m2m()
+
+
+class StockDeliveryLineInline(admin.TabularInline):
+    model = StockDeliveryLine
+    extra = 0
+    readonly_fields = ("movement", "product_name", "product_sku", "product_unit", "product_brand_model", "created_at", "updated_at")
+
+    def has_add_permission(self, request, obj=None):
+        return not obj or obj.status == StockDelivery.Status.DRAFT
+
+    def has_change_permission(self, request, obj=None):
+        return not obj or obj.status == StockDelivery.Status.DRAFT
+
+    def has_delete_permission(self, request, obj=None):
+        return not obj or obj.status == StockDelivery.Status.DRAFT
+
+
+@admin.register(StockDelivery)
+class StockDeliveryAdmin(admin.ModelAdmin):
+    list_display = ("number", "delivery_date", "recipient", "department", "status", "delivery_responsible", "completed_by")
+    list_filter = ("status", "department", "branch", "delivery_date")
+    search_fields = ("number", "recipient_name", "department_name", "recipient__username")
+    readonly_fields = ("number", "recipient_name", "department_name", "created_by", "completed_by", "completed_at", "signed_document_uploaded_by", "signed_document_uploaded_at", "created_at", "updated_at")
+    inlines = (StockDeliveryLineInline,)
+
+    def get_readonly_fields(self, request, obj=None):
+        fields = list(super().get_readonly_fields(request, obj))
+        if obj and obj.status == StockDelivery.Status.COMPLETED:
+            fields.extend(field.name for field in StockDelivery._meta.fields)
+        return tuple(dict.fromkeys(fields))
+
+    def save_model(self, request, obj, form, change):
+        if not obj.created_by_id:
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
+
+    def has_delete_permission(self, request, obj=None):
+        return bool(obj and obj.status == StockDelivery.Status.DRAFT and super().has_delete_permission(request, obj))

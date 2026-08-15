@@ -1,12 +1,15 @@
 from unittest.mock import patch
+import tempfile
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError, transaction
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from apps.accounts.models import Branch
+from apps.core.models import Department
 
 from .models import (
     AcquisitionBatch,
@@ -19,6 +22,8 @@ from .models import (
     StockEntryDocument,
     StockEntryLine,
     StockEntryOperation,
+    StockDelivery,
+    StockDeliveryLine,
 )
 from .services.stock import (
     register_stock_entry,
@@ -26,7 +31,10 @@ from .services.stock import (
     register_stock_movement,
     transfer_stock,
     confirm_stock_entry,
+    prepare_stock_delivery,
+    complete_stock_delivery,
 )
+from .stock_delivery_pdf import generate_stock_delivery_pdf
 
 
 User = get_user_model()
@@ -1126,3 +1134,168 @@ class DocumentedStockEntryTests(TestCase):
         self.client.force_login(self.admin)
         self.assertEqual(self.client.get(reverse("inventory:documented_stock_entry_confirm", args=[entry.pk])).status_code, 403)
         self.assertEqual(self.client.get(reverse("inventory:documented_stock_entry_cancel", args=[entry.pk])).status_code, 403)
+
+
+class StockDeliveryTests(TestCase):
+    def setUp(self):
+        self.admin = User.objects.create_user(username="delivery_admin", email="delivery_admin@example.com", password="pass", role="ADMIN", first_name="Ana", last_name="Admin")
+        self.supervisor = User.objects.create_user(username="delivery_super", email="delivery_super@example.com", password="pass", role="SUPERVISOR")
+        self.recipient = User.objects.create_user(username="delivery_recipient", email="delivery_recipient@example.com", first_name="Juan", last_name="Pérez", role="CLIENT")
+        self.department = Department.objects.create(name="DTI entregas", code="DTI-DEL")
+        self.branch = Branch.objects.create(code="DEL-HQ", name="Sede entregas")
+        self.location = OrganizationalLocation.objects.create(branch=self.branch, code="DEL-WH", name="Depósito entregas", location_type=OrganizationalLocation.LocationType.WAREHOUSE)
+        category = StockCategory.objects.create(name="Entrega", code="delivery-tests")
+        self.product = StockProduct.objects.create(name="Mouse Logitech M90", reference_code="DEL-MOUSE", category=category, brand="Logitech", model="M90")
+        self.product_two = StockProduct.objects.create(name="Teclado Logitech K120", reference_code="DEL-KEY", category=category)
+
+    def make_delivery(self):
+        return StockDelivery.objects.create(recipient=self.recipient, department=self.department, branch=self.branch, location=self.location, delivery_responsible=self.admin, created_by=self.admin)
+
+    def add_line(self, delivery, product=None, quantity=2):
+        return StockDeliveryLine.objects.create(delivery=delivery, product=product or self.product, quantity=quantity, source_branch=self.branch, source_location=self.location)
+
+    def stock(self, product, quantity):
+        return StockBalance.objects.create(product=product, branch=self.branch, organizational_location=self.location, quantity=quantity)
+
+    def test_draft_multiple_lines_edit_and_delete(self):
+        delivery = self.make_delivery()
+        first = self.add_line(delivery)
+        self.add_line(delivery, self.product_two, 3)
+        self.assertRegex(delivery.number, r"^STK-OUT-\d{6}$")
+        self.assertEqual(delivery.lines.count(), 2)
+        first.delete()
+        delivery.observations = "Editado"
+        delivery.save()
+        self.assertEqual(delivery.lines.count(), 1)
+
+    def test_prepare_requires_lines_and_captures_history(self):
+        empty = self.make_delivery()
+        with self.assertRaises(ValidationError):
+            prepare_stock_delivery(delivery=empty)
+        delivery = self.make_delivery()
+        line = self.add_line(delivery)
+        prepared = prepare_stock_delivery(delivery=delivery)
+        line.refresh_from_db()
+        self.assertEqual(prepared.status, StockDelivery.Status.PREPARED)
+        self.assertEqual(prepared.recipient_name, "Juan Pérez")
+        self.assertEqual(prepared.department_name, self.department.name)
+        self.assertEqual(line.product_sku, self.product.reference_code)
+
+    def test_complete_multiple_lines_exact_zero_and_traceability(self):
+        delivery = self.make_delivery()
+        self.add_line(delivery, self.product, 2)
+        self.add_line(delivery, self.product_two, 3)
+        self.stock(self.product, 2)
+        self.stock(self.product_two, 5)
+        prepare_stock_delivery(delivery=delivery)
+        completed = complete_stock_delivery(delivery=delivery, completed_by=self.supervisor)
+        self.assertEqual(completed.status, StockDelivery.Status.COMPLETED)
+        self.assertEqual(completed.completed_by, self.supervisor)
+        self.assertIsNotNone(completed.completed_at)
+        self.assertEqual(StockBalance.objects.get(product=self.product).quantity, 0)
+        self.assertEqual(StockBalance.objects.get(product=self.product_two).quantity, 2)
+        self.assertEqual(StockMovement.objects.filter(document_reference=delivery.number, recipient=self.recipient, department=self.department).count(), 2)
+
+    def test_insufficient_stock_has_no_partial_effect(self):
+        delivery = self.make_delivery()
+        self.add_line(delivery, self.product, 2)
+        self.add_line(delivery, self.product_two, 4)
+        self.stock(self.product, 10)
+        self.stock(self.product_two, 1)
+        prepare_stock_delivery(delivery=delivery)
+        with self.assertRaises(ValidationError):
+            complete_stock_delivery(delivery=delivery, completed_by=self.admin)
+        delivery.refresh_from_db()
+        self.assertEqual(delivery.status, StockDelivery.Status.PREPARED)
+        self.assertEqual(StockMovement.objects.count(), 0)
+        self.assertEqual(StockBalance.objects.get(product=self.product).quantity, 10)
+
+    def test_intermediate_failure_rolls_back(self):
+        delivery = self.make_delivery()
+        self.add_line(delivery, self.product, 2)
+        self.add_line(delivery, self.product_two, 2)
+        self.stock(self.product, 5)
+        self.stock(self.product_two, 5)
+        prepare_stock_delivery(delivery=delivery)
+        from .services import stock as stock_service
+        original = stock_service.register_stock_exit
+        calls = {"value": 0}
+        def fail_second(**kwargs):
+            calls["value"] += 1
+            if calls["value"] == 2:
+                raise ValidationError("Fallo simulado")
+            return original(**kwargs)
+        with patch("apps.inventory.services.stock.register_stock_exit", side_effect=fail_second):
+            with self.assertRaises(ValidationError):
+                complete_stock_delivery(delivery=delivery, completed_by=self.admin)
+        self.assertEqual(StockMovement.objects.count(), 0)
+        self.assertEqual(StockBalance.objects.get(product=self.product).quantity, 5)
+        delivery.refresh_from_db()
+        self.assertEqual(delivery.status, StockDelivery.Status.PREPARED)
+
+    def test_completed_delivery_is_immutable_and_not_repeatable(self):
+        delivery = self.make_delivery()
+        line = self.add_line(delivery, quantity=1)
+        self.stock(self.product, 2)
+        prepare_stock_delivery(delivery=delivery)
+        complete_stock_delivery(delivery=delivery, completed_by=self.admin)
+        delivery.refresh_from_db()
+        delivery.observations = "Cambio"
+        with self.assertRaises(ValidationError):
+            delivery.save()
+        line.refresh_from_db()
+        line.quantity = 2
+        with self.assertRaises(ValidationError):
+            line.save()
+        with self.assertRaises(ValidationError):
+            line.delete()
+        with self.assertRaises(ValidationError):
+            complete_stock_delivery(delivery=delivery, completed_by=self.admin)
+
+    def test_pdf_contains_delivery_data_and_excludes_asset_fields(self):
+        delivery = self.make_delivery()
+        self.add_line(delivery, quantity=1)
+        prepare_stock_delivery(delivery=delivery)
+        delivery.refresh_from_db()
+        content = generate_stock_delivery_pdf(delivery).getvalue()
+        self.assertTrue(content.startswith(b"%PDF"))
+        self.assertIn(delivery.number.encode(), content)
+        self.assertIn(b"Juan", content)
+        self.assertIn(b"Mouse Logitech M90", content)
+        self.assertNotIn(b"Hostname", content)
+        self.assertNotIn(b"Patrimonio", content)
+
+    def test_permissions_and_pdf_response(self):
+        delivery = self.make_delivery()
+        self.add_line(delivery)
+        prepare_stock_delivery(delivery=delivery)
+        list_url = reverse("inventory:stock_delivery_list")
+        for role in ("CLIENT", "TECHNICIAN", "AUDITOR"):
+            user = User.objects.create_user(username=f"delivery_{role.lower()}", email=f"delivery_{role.lower()}@example.com", role=role)
+            self.client.force_login(user)
+            self.assertEqual(self.client.get(list_url).status_code, 403)
+        for user in (self.admin, self.supervisor):
+            self.client.force_login(user)
+            self.assertEqual(self.client.get(list_url).status_code, 200)
+        response = self.client.get(reverse("inventory:stock_delivery_pdf", args=[delivery.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+
+    def test_signed_document_upload_and_protected_download(self):
+        delivery = self.make_delivery()
+        self.add_line(delivery)
+        prepare_stock_delivery(delivery=delivery)
+        with tempfile.TemporaryDirectory() as media_root, override_settings(MEDIA_ROOT=media_root):
+            self.client.force_login(self.admin)
+            response = self.client.post(reverse("inventory:stock_delivery_signed_upload", args=[delivery.pk]), {"signed_document": SimpleUploadedFile("acta.pdf", b"signed-pdf", content_type="application/pdf"), "signed_document_verified": True})
+            self.assertEqual(response.status_code, 302)
+            delivery.refresh_from_db()
+            self.assertEqual(delivery.signed_document_uploaded_by, self.admin)
+            self.assertIsNotNone(delivery.signed_document_uploaded_at)
+            self.client.force_login(self.supervisor)
+            download = self.client.get(reverse("inventory:stock_delivery_signed_download", args=[delivery.pk]))
+            self.assertEqual(download.status_code, 200)
+            download.close()
+            client_user = User.objects.create_user(username="signed_client", email="signed_client@example.com", role="CLIENT")
+            self.client.force_login(client_user)
+            self.assertEqual(self.client.get(reverse("inventory:stock_delivery_signed_download", args=[delivery.pk])).status_code, 403)

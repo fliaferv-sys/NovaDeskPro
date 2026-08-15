@@ -1,0 +1,1 @@
+{% extends "inventory/stock_base.html" %}{% block stock_heading %}Acta firmada de {{ delivery.number }}{% endblock %}{% block stock_content %}<form method="post" enctype="multipart/form-data" class="stock-card stock-form">{% csrf_token %}{{ form.as_p }}<button class="stock-button">Cargar acta</button></form>{% endblock %}

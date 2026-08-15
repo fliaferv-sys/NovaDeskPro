@@ -22,6 +22,8 @@ from .models import (
     StockEntryDocument,
     StockEntryLine,
     StockEntryOperation,
+    StockDelivery,
+    StockDeliveryLine,
     StockMovement,
     StockProduct,
 )
@@ -478,6 +480,48 @@ class StockEntryDocumentForm(forms.ModelForm):
             raise forms.ValidationError("El tipo de archivo no está permitido.")
         if uploaded_file.size > 10 * 1024 * 1024:
             raise forms.ValidationError("El archivo supera el tamaño máximo de 10 MB.")
+        return uploaded_file
+
+
+class StockDeliveryForm(forms.ModelForm):
+    class Meta:
+        model = StockDelivery
+        fields = ["recipient", "department", "branch", "location", "delivery_responsible", "authorized_by", "delivery_date", "observations"]
+        widgets = {"delivery_date": forms.DateInput(attrs={"type": "date"}), "observations": forms.Textarea(attrs={"rows": 3})}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field in ("recipient", "delivery_responsible", "authorized_by"):
+            self.fields[field].queryset = User.objects.filter(is_active=True).order_by("first_name", "last_name", "username")
+        self.fields["branch"].queryset = Branch.objects.filter(is_active=True)
+        self.fields["location"].queryset = OrganizationalLocation.objects.filter(is_active=True, branch__is_active=True).select_related("branch")
+
+
+class StockDeliveryLineForm(forms.ModelForm):
+    class Meta:
+        model = StockDeliveryLine
+        fields = ["product", "source_branch", "source_location", "quantity"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["product"].queryset = StockProduct.objects.filter(is_active=True)
+        self.fields["source_branch"].queryset = Branch.objects.filter(is_active=True)
+        self.fields["source_location"].queryset = OrganizationalLocation.objects.filter(is_active=True, branch__is_active=True).select_related("branch")
+
+
+class StockDeliverySignedDocumentForm(forms.ModelForm):
+    class Meta:
+        model = StockDelivery
+        fields = ["signed_document", "signed_document_verified"]
+
+    def clean_signed_document(self):
+        uploaded_file = self.cleaned_data.get("signed_document")
+        if not uploaded_file or uploaded_file.size == 0:
+            raise forms.ValidationError("Debe seleccionar un archivo no vacío.")
+        if Path(uploaded_file.name).suffix.lower() not in {".pdf", ".jpg", ".jpeg", ".png"}:
+            raise forms.ValidationError("Solo se permiten archivos PDF, JPG, JPEG o PNG.")
+        if uploaded_file.size > 10 * 1024 * 1024:
+            raise forms.ValidationError("El archivo no puede superar los 10 MB.")
         return uploaded_file
         for field_name in (
             "brand",

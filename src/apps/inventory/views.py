@@ -28,10 +28,14 @@ from .forms import (
     StockEntryDocumentForm,
     StockEntryLineForm,
     StockEntryOperationForm,
+    StockDeliveryForm,
+    StockDeliveryLineForm,
+    StockDeliverySignedDocumentForm,
     StockExitForm,
     StockProductForm,
     StockTransferForm,
 )
+from django.utils import timezone
 from .models import (
     Asset,
     StockBalance,
@@ -41,13 +45,18 @@ from .models import (
     StockEntryDocument,
     StockEntryLine,
     StockEntryOperation,
+    StockDelivery,
+    StockDeliveryLine,
 )
 from .services.stock import (
     register_stock_entry,
     register_stock_exit,
     transfer_stock,
     confirm_stock_entry,
+    prepare_stock_delivery,
+    complete_stock_delivery,
 )
+from .stock_delivery_pdf import generate_stock_delivery_pdf
 
 
 # ==========================================================
@@ -909,3 +918,141 @@ def stock_movement_list_view(request):
         "reason_choices": StockMovement.Reason.choices,
         "filters": request.GET,
     })
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def stock_delivery_list_view(request):
+    deliveries = StockDelivery.objects.select_related("recipient", "department", "branch", "created_by").annotate(line_count=Count("lines"))
+    search = request.GET.get("q", "").strip()
+    if search:
+        deliveries = deliveries.filter(Q(number__icontains=search) | Q(recipient_name__icontains=search) | Q(department_name__icontains=search))
+    for field in ("status", "department", "recipient", "branch"):
+        value = request.GET.get(field, "").strip()
+        if value:
+            deliveries = deliveries.filter(**{f"{field}_id" if field != "status" else field: value})
+    if request.GET.get("date"):
+        deliveries = deliveries.filter(delivery_date=request.GET["date"])
+    return render(request, "inventory/stock_delivery_list.html", {"deliveries": deliveries, "statuses": StockDelivery.Status.choices, "filters": request.GET})
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def stock_delivery_create_view(request):
+    form = StockDeliveryForm(request.POST or None, initial={"delivery_responsible": request.user})
+    if request.method == "POST" and form.is_valid():
+        delivery = form.save(commit=False)
+        delivery.created_by = request.user
+        delivery.save()
+        return redirect("inventory:stock_delivery_detail", pk=delivery.pk)
+    return render(request, "inventory/stock_delivery_form.html", {"form": form, "editing": False})
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def stock_delivery_update_view(request, pk):
+    delivery = get_object_or_404(StockDelivery, pk=pk)
+    if delivery.status != StockDelivery.Status.DRAFT:
+        raise PermissionDenied("Solo puede editarse una entrega en borrador.")
+    form = StockDeliveryForm(request.POST or None, instance=delivery)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        return redirect("inventory:stock_delivery_detail", pk=delivery.pk)
+    return render(request, "inventory/stock_delivery_form.html", {"form": form, "editing": True, "delivery": delivery})
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def stock_delivery_detail_view(request, pk):
+    delivery = get_object_or_404(StockDelivery.objects.select_related("recipient", "department", "branch", "location", "delivery_responsible", "authorized_by", "created_by", "completed_by"), pk=pk)
+    return render(request, "inventory/stock_delivery_detail.html", {"delivery": delivery, "lines": delivery.lines.select_related("product", "source_branch", "source_location", "movement")})
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def stock_delivery_add_line_view(request, pk):
+    delivery = get_object_or_404(StockDelivery, pk=pk, status=StockDelivery.Status.DRAFT)
+    form = StockDeliveryLineForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        line = form.save(commit=False)
+        line.delivery = delivery
+        line.save()
+        return redirect("inventory:stock_delivery_detail", pk=delivery.pk)
+    return render(request, "inventory/stock_delivery_line_form.html", {"form": form, "delivery": delivery})
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def stock_delivery_delete_line_view(request, pk, line_pk):
+    if request.method != "POST":
+        raise PermissionDenied("La eliminación requiere POST.")
+    delivery = get_object_or_404(StockDelivery, pk=pk, status=StockDelivery.Status.DRAFT)
+    get_object_or_404(StockDeliveryLine, pk=line_pk, delivery=delivery).delete()
+    return redirect("inventory:stock_delivery_detail", pk=delivery.pk)
+
+
+def _delivery_state_action(request, pk, service, success):
+    if request.method != "POST":
+        raise PermissionDenied("La acción requiere POST.")
+    delivery = get_object_or_404(StockDelivery, pk=pk)
+    try:
+        service(delivery=delivery, **({"completed_by": request.user} if service is complete_stock_delivery else {}))
+    except ValidationError as error:
+        messages.error(request, "; ".join(error.messages))
+    else:
+        messages.success(request, success)
+    return redirect("inventory:stock_delivery_detail", pk=delivery.pk)
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def stock_delivery_prepare_view(request, pk):
+    return _delivery_state_action(request, pk, prepare_stock_delivery, "Entrega preparada.")
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def stock_delivery_complete_view(request, pk):
+    return _delivery_state_action(request, pk, complete_stock_delivery, "Entrega completada y stock descontado.")
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def stock_delivery_cancel_view(request, pk):
+    if request.method != "POST":
+        raise PermissionDenied("La cancelación requiere POST.")
+    delivery = get_object_or_404(StockDelivery, pk=pk, status__in=[StockDelivery.Status.DRAFT, StockDelivery.Status.PREPARED, StockDelivery.Status.PENDING_SIGNATURE])
+    StockDelivery.objects.filter(pk=delivery.pk).update(status=StockDelivery.Status.CANCELLED)
+    return redirect("inventory:stock_delivery_detail", pk=delivery.pk)
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def stock_delivery_pdf_view(request, pk):
+    delivery = get_object_or_404(StockDelivery, pk=pk, status__in=[StockDelivery.Status.PREPARED, StockDelivery.Status.PENDING_SIGNATURE, StockDelivery.Status.COMPLETED])
+    return FileResponse(generate_stock_delivery_pdf(delivery), content_type="application/pdf", filename=f"{delivery.number}.pdf")
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def stock_delivery_signed_document_upload_view(request, pk):
+    delivery = get_object_or_404(StockDelivery, pk=pk, status__in=[StockDelivery.Status.PREPARED, StockDelivery.Status.PENDING_SIGNATURE, StockDelivery.Status.COMPLETED])
+    if delivery.signed_document:
+        raise PermissionDenied("La entrega ya posee un acta firmada; no puede reemplazarse silenciosamente.")
+    form = StockDeliverySignedDocumentForm(request.POST or None, request.FILES or None, instance=delivery)
+    if request.method == "POST" and form.is_valid():
+        uploaded = form.cleaned_data["signed_document"]
+        field = StockDelivery._meta.get_field("signed_document")
+        name = field.storage.save(field.generate_filename(delivery, uploaded.name), uploaded)
+        StockDelivery.objects.filter(pk=delivery.pk).update(signed_document=name, signed_document_verified=form.cleaned_data["signed_document_verified"], signed_document_uploaded_by=request.user, signed_document_uploaded_at=timezone.now())
+        return redirect("inventory:stock_delivery_detail", pk=delivery.pk)
+    return render(request, "inventory/stock_delivery_signed_form.html", {"form": form, "delivery": delivery})
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def stock_delivery_signed_document_download_view(request, pk):
+    delivery = get_object_or_404(StockDelivery, pk=pk)
+    if not delivery.signed_document:
+        raise PermissionDenied("La entrega no posee un acta firmada.")
+    return FileResponse(delivery.signed_document.open("rb"), as_attachment=True, filename=delivery.signed_document.name.rsplit("/", 1)[-1])

@@ -32,6 +32,18 @@ from .views import (
     documented_stock_entry_document_download_view,
     documented_stock_entry_confirm_view,
     documented_stock_entry_cancel_view,
+    stock_delivery_list_view,
+    stock_delivery_create_view,
+    stock_delivery_detail_view,
+    stock_delivery_update_view,
+    stock_delivery_add_line_view,
+    stock_delivery_delete_line_view,
+    stock_delivery_prepare_view,
+    stock_delivery_complete_view,
+    stock_delivery_cancel_view,
+    stock_delivery_pdf_view,
+    stock_delivery_signed_document_upload_view,
+    stock_delivery_signed_document_download_view,
 )
 
 
@@ -39,6 +51,18 @@ app_name = "inventory"
 
 
 urlpatterns = [
+    path("stock/entregas/", stock_delivery_list_view, name="stock_delivery_list"),
+    path("stock/entregas/nueva/", stock_delivery_create_view, name="stock_delivery_create"),
+    path("stock/entregas/<uuid:pk>/", stock_delivery_detail_view, name="stock_delivery_detail"),
+    path("stock/entregas/<uuid:pk>/editar/", stock_delivery_update_view, name="stock_delivery_update"),
+    path("stock/entregas/<uuid:pk>/lineas/agregar/", stock_delivery_add_line_view, name="stock_delivery_add_line"),
+    path("stock/entregas/<uuid:pk>/lineas/<uuid:line_pk>/eliminar/", stock_delivery_delete_line_view, name="stock_delivery_delete_line"),
+    path("stock/entregas/<uuid:pk>/preparar/", stock_delivery_prepare_view, name="stock_delivery_prepare"),
+    path("stock/entregas/<uuid:pk>/completar/", stock_delivery_complete_view, name="stock_delivery_complete"),
+    path("stock/entregas/<uuid:pk>/cancelar/", stock_delivery_cancel_view, name="stock_delivery_cancel"),
+    path("stock/entregas/<uuid:pk>/acta.pdf", stock_delivery_pdf_view, name="stock_delivery_pdf"),
+    path("stock/entregas/<uuid:pk>/acta-firmada/subir/", stock_delivery_signed_document_upload_view, name="stock_delivery_signed_upload"),
+    path("stock/entregas/<uuid:pk>/acta-firmada/descargar/", stock_delivery_signed_document_download_view, name="stock_delivery_signed_download"),
     path("stock/entradas-documentadas/", documented_stock_entry_list_view, name="documented_stock_entry_list"),
     path("stock/entradas-documentadas/nueva/", documented_stock_entry_create_view, name="documented_stock_entry_create"),
     path("stock/entradas-documentadas/<uuid:pk>/", documented_stock_entry_detail_view, name="documented_stock_entry_detail"),

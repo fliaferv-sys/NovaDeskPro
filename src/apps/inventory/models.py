@@ -1259,6 +1259,101 @@ class StockEntryDocument(models.Model):
         if self.entry_id and self.entry.status != StockEntryOperation.Status.DRAFT:
             raise ValidationError("Solo pueden adjuntarse documentos a un borrador.")
         return super().save(*args, **kwargs)
+
+
+class StockDelivery(models.Model):
+    class Status(models.TextChoices):
+        DRAFT = "DRAFT", "Borrador"
+        PREPARED = "PREPARED", "Preparado"
+        PENDING_SIGNATURE = "PENDING_SIGNATURE", "Pendiente de firma"
+        COMPLETED = "COMPLETED", "Entregado"
+        CANCELLED = "CANCELLED", "Cancelado"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    number = models.CharField("Número", max_length=30, unique=True, editable=False)
+    status = models.CharField("Estado", max_length=20, choices=Status.choices, default=Status.DRAFT)
+    recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="received_stock_deliveries")
+    recipient_name = models.CharField("Nombre histórico del receptor", max_length=180, blank=True)
+    recipient_document = models.CharField("Documento del receptor", max_length=50, blank=True)
+    department = models.ForeignKey("core.Department", on_delete=models.PROTECT, related_name="stock_deliveries")
+    department_name = models.CharField("Departamento histórico", max_length=180, blank=True)
+    branch = models.ForeignKey(Branch, on_delete=models.PROTECT, related_name="stock_deliveries")
+    location = models.ForeignKey(OrganizationalLocation, on_delete=models.PROTECT, related_name="stock_deliveries", blank=True, null=True)
+    delivery_responsible = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="responsible_stock_deliveries")
+    authorized_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="authorized_stock_deliveries", blank=True, null=True)
+    delivery_date = models.DateField("Fecha", default=timezone.localdate)
+    observations = models.TextField("Observaciones", blank=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="created_stock_deliveries")
+    completed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="completed_stock_deliveries", blank=True, null=True)
+    completed_at = models.DateTimeField(blank=True, null=True)
+    signed_document = models.FileField("Acta firmada", upload_to="inventory/stock_deliveries/signed/%Y/%m/", blank=True)
+    signed_document_uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="uploaded_stock_delivery_acts", blank=True, null=True)
+    signed_document_uploaded_at = models.DateTimeField(blank=True, null=True)
+    signed_document_verified = models.BooleanField("Acta verificada", default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-delivery_date", "-created_at"]
+        verbose_name = "Entrega de stock"
+        verbose_name_plural = "Entregas de stock"
+
+    def save(self, *args, **kwargs):
+        if self.pk and not self._state.adding:
+            previous = type(self).objects.filter(pk=self.pk).values("status").first()
+            if previous and previous["status"] == self.Status.COMPLETED:
+                raise ValidationError("Una entrega completada es inmutable.")
+        if not self.number:
+            self.number = f"STK-OUT-{next_business_number('stock-delivery'):06d}"
+        if self.location_id and self.location.branch_id != self.branch_id:
+            raise ValidationError({"location": "La ubicación no pertenece a la sede."})
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if self.status != self.Status.DRAFT:
+            raise ValidationError("Solo puede eliminarse una entrega en borrador.")
+        return super().delete(*args, **kwargs)
+
+    def __str__(self):
+        return self.number
+
+
+class StockDeliveryLine(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    delivery = models.ForeignKey(StockDelivery, on_delete=models.PROTECT, related_name="lines")
+    product = models.ForeignKey(StockProduct, on_delete=models.PROTECT, related_name="delivery_lines")
+    quantity = models.PositiveIntegerField("Cantidad")
+    source_branch = models.ForeignKey(Branch, on_delete=models.PROTECT, related_name="stock_delivery_lines")
+    source_location = models.ForeignKey(OrganizationalLocation, on_delete=models.PROTECT, related_name="stock_delivery_lines")
+    movement = models.OneToOneField(StockMovement, on_delete=models.PROTECT, related_name="stock_delivery_line", blank=True, null=True)
+    product_name = models.CharField("Producto histórico", max_length=200, blank=True)
+    product_sku = models.CharField("SKU histórico", max_length=100, blank=True)
+    product_unit = models.CharField("Unidad histórica", max_length=80, blank=True)
+    product_brand_model = models.CharField("Marca/modelo histórico", max_length=300, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["created_at"]
+        constraints = [models.CheckConstraint(condition=models.Q(quantity__gt=0), name="stock_delivery_line_quantity_positive")]
+
+    def clean(self):
+        super().clean()
+        if self.source_location_id and self.source_branch_id and self.source_location.branch_id != self.source_branch_id:
+            raise ValidationError({"source_location": "La ubicación no pertenece a la sede de origen."})
+        if self.product_id and not self.product.is_active:
+            raise ValidationError({"product": "El producto debe estar activo."})
+
+    def save(self, *args, **kwargs):
+        if self.delivery_id and self.delivery.status != StockDelivery.Status.DRAFT:
+            raise ValidationError("Las líneas solo pueden modificarse en borrador.")
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if self.delivery.status != StockDelivery.Status.DRAFT:
+            raise ValidationError("No puede eliminarse una línea de una entrega bloqueada.")
+        return super().delete(*args, **kwargs)
     
 
     

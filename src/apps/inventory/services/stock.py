@@ -14,6 +14,8 @@ from ..models import (
     StockProduct,
     StockEntryOperation,
     StockEntryLine,
+    StockDelivery,
+    StockDeliveryLine,
 )
 
 
@@ -348,3 +350,85 @@ def confirm_stock_entry(*, entry, confirmed_by):
     )
     locked_entry.refresh_from_db()
     return locked_entry
+
+
+@transaction.atomic
+def prepare_stock_delivery(*, delivery):
+    locked = StockDelivery.objects.select_for_update().get(pk=delivery.pk)
+    if locked.status != StockDelivery.Status.DRAFT:
+        raise ValidationError({"status": "Solo puede prepararse una entrega en borrador."})
+    lines = list(locked.lines.select_related("product"))
+    if not lines:
+        raise ValidationError({"lines": "Debe agregar al menos un producto."})
+    recipient_name = locked.recipient.get_full_name().strip() or locked.recipient.get_username()
+    StockDelivery.objects.filter(pk=locked.pk).update(
+        status=StockDelivery.Status.PREPARED,
+        recipient_name=recipient_name,
+        department_name=locked.department.name,
+        updated_at=timezone.now(),
+    )
+    for line in lines:
+        StockDeliveryLine.objects.filter(pk=line.pk).update(
+            product_name=line.product.name,
+            product_sku=line.product.reference_code,
+            product_unit=line.product.get_unit_of_measure_display(),
+            product_brand_model=" ".join(filter(None, [line.product.brand, line.product.model])),
+            updated_at=timezone.now(),
+        )
+    locked.refresh_from_db()
+    return locked
+
+
+@transaction.atomic
+def complete_stock_delivery(*, delivery, completed_by):
+    locked = StockDelivery.objects.select_for_update().select_related(
+        "recipient", "department"
+    ).get(pk=delivery.pk)
+    if locked.status not in {StockDelivery.Status.PREPARED, StockDelivery.Status.PENDING_SIGNATURE}:
+        raise ValidationError({"status": "La entrega debe estar preparada."})
+    if not locked.recipient_id:
+        raise ValidationError({"recipient": "Debe indicar el receptor."})
+    lines = list(locked.lines.select_related("product", "source_branch", "source_location"))
+    if not lines:
+        raise ValidationError({"lines": "Debe agregar al menos un producto."})
+
+    balance_keys = {(line.product_id, line.source_branch_id, line.source_location_id) for line in lines}
+    balances = StockBalance.objects.select_for_update().filter(
+        product_id__in={key[0] for key in balance_keys},
+        branch_id__in={key[1] for key in balance_keys},
+        organizational_location_id__in={key[2] for key in balance_keys},
+    ).order_by("pk")
+    balance_map = {(item.product_id, item.branch_id, item.organizational_location_id): item for item in balances}
+    requested = {}
+    for line in lines:
+        line.full_clean()
+        key = (line.product_id, line.source_branch_id, line.source_location_id)
+        requested[key] = requested.get(key, 0) + line.quantity
+    for key, quantity in requested.items():
+        balance = balance_map.get(key)
+        if not balance or balance.quantity < quantity:
+            raise ValidationError({"quantity": "Stock insuficiente para completar la entrega."})
+
+    for line in lines:
+        movement = register_stock_exit(
+            product=line.product,
+            branch=line.source_branch,
+            organizational_location=line.source_location,
+            quantity=line.quantity,
+            reason=StockMovement.Reason.DELIVERY,
+            performed_by=completed_by,
+            recipient=locked.recipient,
+            department=locked.department,
+            observation=locked.observations,
+            document_reference=locked.number,
+        )
+        StockDeliveryLine.objects.filter(pk=line.pk).update(movement=movement)
+    now = timezone.now()
+    StockDelivery.objects.filter(pk=locked.pk).update(
+        status=StockDelivery.Status.COMPLETED,
+        completed_by=completed_by,
+        completed_at=now,
+        updated_at=now,
+    )
+    locked.refresh_from_db()
+    return locked
