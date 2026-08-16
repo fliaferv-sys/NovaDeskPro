@@ -37,6 +37,7 @@ Inventario
                 Descargar plantilla
             </a>
 
+            {% if perms.deliveries.add_assetcustodymovement %}
             <button
                 type="submit"
                 id="send-to-custody-button"
@@ -48,6 +49,7 @@ Inventario
                 <span id="selected-count"></span>
 
             </button>
+            {% endif %}
 
         </div>
 
@@ -70,7 +72,7 @@ Inventario
             </article>
             {% endif %}
 
-            {% if request.user.is_superuser or request.user.role == "ADMIN" or request.user.role == "SUPERVISOR" or request.user.role == "AUDITOR" or request.user.role == "TECHNICIAN" %}
+            {% if perms.deliveries.view_assetcustodymovement %}
             <article class="inventory-module-access-card">
                 <div class="inventory-module-access-icon"><i class="bi bi-person-check"></i></div>
                 <div class="inventory-module-access-copy">
@@ -199,6 +201,7 @@ Inventario
 
                     <tr>
 
+                        {% if perms.deliveries.add_assetcustodymovement %}
                         <th class="selection-column">
 
                             <input
@@ -207,6 +210,7 @@ Inventario
                                 class="asset-checkbox">
 
                         </th>
+                        {% endif %}
 
                         <th>Código</th>
                         <th>Tipo</th>
@@ -233,6 +237,7 @@ Inventario
                         class="inventory-row"
                         data-detail-url="{% url 'inventory:asset_detail' asset.pk %}">
 
+                        {% if perms.deliveries.add_assetcustodymovement %}
                         <td
                             class="selection-column"
                             onclick="event.stopPropagation();">
@@ -244,6 +249,7 @@ Inventario
                                 class="asset-checkbox asset-selection">
 
                         </td>
+                        {% endif %}
 
                         <td>
                             <strong>{{ asset.internal_code }}</strong>
@@ -671,6 +677,10 @@ Inventario
 
         function updateSelectionState() {
 
+            if (!sendButton || !selectedCount || !selectAllCheckbox) {
+                return;
+            }
+
             const selectedAssets = assetCheckboxes.filter(
                 checkbox => checkbox.checked
             );
@@ -711,18 +721,20 @@ Inventario
 
         }
 
-        selectAllCheckbox.addEventListener(
-            "change",
-            function () {
+        if (selectAllCheckbox) {
+            selectAllCheckbox.addEventListener(
+                "change",
+                function () {
 
-                assetCheckboxes.forEach(function (checkbox) {
-                    checkbox.checked = selectAllCheckbox.checked;
-                });
+                    assetCheckboxes.forEach(function (checkbox) {
+                        checkbox.checked = selectAllCheckbox.checked;
+                    });
 
-                updateSelectionState();
+                    updateSelectionState();
 
-            }
-        );
+                }
+            );
+        }
 
         assetCheckboxes.forEach(function (checkbox) {
 

@@ -132,6 +132,20 @@
     <!-- ============================================= -->
 
     {% if request.user.role == "CLIENT" and not request.user.is_superuser %}
+
+        <a
+            href="{% url 'inventory:my_asset_list' %}"
+            class="sidebar-menu-link"
+            title="Mis equipos">
+
+            <i class="bi bi-pc-display"></i>
+
+            <span class="sidebar-menu-text">
+                Mis equipos
+            </span>
+
+        </a>
+
     {% else %}
 
 

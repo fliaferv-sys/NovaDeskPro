@@ -1,9 +1,8 @@
-from django.contrib.auth.decorators import login_required
+from django.contrib.auth.decorators import login_required, permission_required
 from django.http import FileResponse
 from django.shortcuts import get_object_or_404
 
 from .models import AssetCustodyMovement, DeliveryBatch
-from apps.accounts.access import roles_required
 from .pdf_generator_v2 import (
     
     generate_delivery_batch_pdf,
@@ -15,7 +14,7 @@ from .pdf_generator_v2 import (
 # ======================================================
 
 @login_required
-@roles_required("ADMIN", "SUPERVISOR", "AUDITOR", "TECHNICIAN")
+@permission_required("deliveries.view_deliverybatch", raise_exception=True)
 def delivery_batch_pdf_view(request, pk):
     batch = get_object_or_404(
         DeliveryBatch.objects.prefetch_related("movements__asset"),

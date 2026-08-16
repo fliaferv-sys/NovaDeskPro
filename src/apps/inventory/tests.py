@@ -3,6 +3,7 @@ import tempfile
 from io import StringIO
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
@@ -231,6 +232,11 @@ class InventoryPermissionsTests(TestCase):
         self.assertEqual(response.status_code, 302)
 
     def test_client_sees_only_assets_assigned_to_own_user(self):
+        other_user_asset = Asset.objects.create(
+            internal_code="ACT-OTHER-USER-001",
+            asset_type=Asset.AssetType.LAPTOP,
+            assigned_user=self.admin_user,
+        )
         self.client.force_login(self.client_user)
 
         response = self.client.get(reverse("inventory:my_asset_list"))
@@ -240,7 +246,15 @@ class InventoryPermissionsTests(TestCase):
         self.assertNotContains(response, self.asset.internal_code)
         self.assertNotContains(response, self.retired_client_asset.internal_code)
         self.assertNotContains(response, self.returned_client_asset.internal_code)
+        self.assertNotContains(response, other_user_asset.internal_code)
         self.assertEqual(list(response.context["assets"]), [self.client_asset])
+
+    def test_client_cannot_open_global_inventory_list(self):
+        self.client.force_login(self.client_user)
+
+        response = self.client.get(reverse("inventory:asset_list"))
+
+        self.assertEqual(response.status_code, 403)
 
     def test_client_cannot_change_asset_scope_with_query_parameters(self):
         self.client.force_login(self.client_user)
@@ -1743,12 +1757,19 @@ class EmptyInventoryViewsTests(TestCase):
 
 class InventoryNavigationTests(TestCase):
     def create_user(self, name, role):
-        return User.objects.create_user(
+        user = User.objects.create_user(
             username=name,
             email=f"{name}@example.test",
             password="test-password-123",
             role=role,
         )
+        user.user_permissions.add(
+            Permission.objects.get(
+                content_type__app_label="deliveries",
+                codename="view_assetcustodymovement",
+            )
+        )
+        return user
 
     def test_inventory_links_stock_and_custody_according_to_permissions(self):
         stock_url = reverse("inventory:stock_product_list")

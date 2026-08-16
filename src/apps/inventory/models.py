@@ -822,6 +822,8 @@ class AcquisitionBatch(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        verbose_name = "Lote de adquisición"
+        verbose_name_plural = "Lotes de adquisición"
         ordering = ["-date", "-created_at"]
 
     def __str__(self):
@@ -876,6 +878,8 @@ class AcquisitionBatchDocument(models.Model):
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        verbose_name = "Documento de lote de adquisición"
+        verbose_name_plural = "Documentos de lotes de adquisición"
         ordering = ["document_type", "-uploaded_at"]
 
     def __str__(self):
@@ -1232,6 +1236,8 @@ class StockEntryLine(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        verbose_name = "Línea de entrada de stock"
+        verbose_name_plural = "Líneas de entrada de stock"
         ordering = ["created_at"]
         constraints = [models.CheckConstraint(condition=models.Q(quantity__gt=0), name="stock_entry_line_quantity_positive")]
 
@@ -1275,6 +1281,8 @@ class StockEntryDocument(models.Model):
     verified = models.BooleanField("Verificado", default=False)
 
     class Meta:
+        verbose_name = "Documento de entrada de stock"
+        verbose_name_plural = "Documentos de entrada de stock"
         ordering = ["document_type", "-uploaded_at"]
 
     def save(self, *args, **kwargs):
@@ -1356,6 +1364,8 @@ class StockDeliveryLine(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        verbose_name = "Línea de entrega de stock"
+        verbose_name_plural = "Líneas de entrega de stock"
         ordering = ["created_at"]
         constraints = [models.CheckConstraint(condition=models.Q(quantity__gt=0), name="stock_delivery_line_quantity_positive")]
 
@@ -1431,6 +1441,8 @@ class TicketStockUsageLine(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        verbose_name = "Línea de consumo de stock por ticket"
+        verbose_name_plural = "Líneas de consumo de stock por ticket"
         ordering = ["created_at"]
         constraints = [models.CheckConstraint(condition=models.Q(quantity__gt=0), name="ticket_stock_usage_line_quantity_positive")]
 

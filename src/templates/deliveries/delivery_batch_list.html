@@ -18,7 +18,7 @@ Actas Agrupadas de Entrega
         </p>
     </div>
 
-    {% if can_manage_deliveries %}
+    {% if can_view_movements %}
         <div class="batch-header-actions">
             <a
                 href="{% url 'deliveries:custody_movement_list' %}"
@@ -184,7 +184,7 @@ Actas Agrupadas de Entrega
                                     Todavía no existen actas agrupadas de entrega.
                                 </p>
 
-                                {% if can_manage_deliveries %}
+                                {% if can_add_batch %}
                                     <a
                                         href="{% url 'inventory:asset_list' %}"
                                         class="btn-primary">

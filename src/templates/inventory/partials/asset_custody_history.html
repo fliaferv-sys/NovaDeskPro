@@ -27,7 +27,7 @@
     
                 </span>
     
-                {% if can_manage_deliveries %}
+                {% if perms.deliveries.add_assetcustodymovement %}
     
                     <a
                         href="{% url 'deliveries:custody_movement_create' %}?asset={{ asset.pk }}"

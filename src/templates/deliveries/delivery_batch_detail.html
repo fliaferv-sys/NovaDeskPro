@@ -221,7 +221,7 @@ DATOS GENERALES
                     <p>Acta interna de entrega DTI firmada por las autoridades correspondientes.</p>
                     {% if internal_delivery_uploaded %}
                         <strong class="document-ready-text">✅ Documento adjunto</strong>
-                    {% elif can_manage_deliveries and not is_locked and delivery_batch.status == "PENDING_SIGNATURE" %}
+                    {% elif can_upload_batch_documents and not is_locked and delivery_batch.status == "PENDING_SIGNATURE" %}
                         <strong class="document-pending-text">❌ Pendiente</strong>
                         <form method="post" enctype="multipart/form-data"
                               action="{% url 'deliveries:upload_delivery_batch_document' delivery_batch.pk %}">
@@ -245,7 +245,7 @@ DATOS GENERALES
                     <p>Movimiento de patrimonio firmado que respalda el cambio de custodio.</p>
                     {% if patrimonial_movement_uploaded %}
                         <strong class="document-ready-text">✅ Documento adjunto</strong>
-                    {% elif can_manage_deliveries and not is_locked and delivery_batch.status == "PENDING_SIGNATURE" %}
+                    {% elif can_upload_batch_documents and not is_locked and delivery_batch.status == "PENDING_SIGNATURE" %}
                         <strong class="document-pending-text">❌ Pendiente</strong>
                         <form method="post" enctype="multipart/form-data"
                               action="{% url 'deliveries:upload_delivery_batch_document' delivery_batch.pk %}">
@@ -272,7 +272,7 @@ DATOS GENERALES
                     {% for document in batch_documents %}
                         <tr>
                             <td>{{ document.get_document_type_display }}</td>
-                            <td><a href="{% url 'deliveries:delivery_batch_document_download' delivery_batch.pk document.pk %}" target="_blank" rel="noopener">Abrir</a></td>
+                            <td>{% if can_view_batch_documents %}<a href="{% url 'deliveries:delivery_batch_document_download' delivery_batch.pk document.pk %}" target="_blank" rel="noopener">Abrir</a>{% else %}Sin permiso de descarga{% endif %}</td>
                             <td>{% if document.signatures_verified %}✅ Firmas verificadas{% else %}Pendiente{% endif %}</td>
                             <td>{{ document.uploaded_by.get_full_name|default:document.uploaded_by.username }}</td>
                             <td>{{ document.uploaded_at|date:"d/m/Y H:i" }}</td>

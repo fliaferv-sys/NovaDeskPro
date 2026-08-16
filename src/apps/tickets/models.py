@@ -799,6 +799,8 @@ class AccessIdentityDocument(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        verbose_name = "Documento de identidad para acceso"
+        verbose_name_plural = "Documentos de identidad para acceso"
         ordering = ["-version", "-created_at"]
         constraints = [
             models.UniqueConstraint(

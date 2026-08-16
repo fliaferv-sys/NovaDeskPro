@@ -307,6 +307,8 @@ class DeliveryBatchDocument(models.Model):
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        verbose_name = "Documento de acta agrupada"
+        verbose_name_plural = "Documentos de actas agrupadas"
         ordering = ["document_type", "-uploaded_at"]
         constraints = [
             models.UniqueConstraint(

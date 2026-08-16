@@ -178,7 +178,7 @@ Dashboard Ejecutivo
                     </a>
 
 
-                    <a
+                    {% if perms.deliveries.view_assetcustodymovement %}<a
                         href="{% url 'deliveries:custody_movement_list' %}"
                         class="executive-kpi-card">
 
@@ -192,10 +192,10 @@ Dashboard Ejecutivo
                             <small>{{ available_assets }} disponibles</small>
                         </div>
 
-                    </a>
+                    </a>{% endif %}
 
 
-                    <a
+                    {% if perms.deliveries.view_assetcustodymovement %}<a
                         href="{% url 'deliveries:custody_movement_list' %}"
                         class="executive-kpi-card">
 
@@ -209,7 +209,7 @@ Dashboard Ejecutivo
                             <small>{{ completed_movements }} completados</small>
                         </div>
 
-                    </a>
+                    </a>{% endif %}
 
 
                     <div class="executive-kpi-card">

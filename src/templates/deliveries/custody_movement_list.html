@@ -90,7 +90,7 @@ TABLA DE MOVIMIENTOS
 
         </div>
 
-        {% if can_manage_deliveries and movements %}
+        {% if can_group_movements and movements %}
             {% if status_filter == "por_agrupar" %}
                 <div class="custody-group-toolbar">
                     <span>Seleccione los equipos que pertenecerán a la misma acta.</span>
@@ -152,27 +152,30 @@ TABLA DE MOVIMIENTOS
                                     {% if status_filter == "firma" %}
                                     <a href="{% url 'deliveries:delivery_batch_detail' group.grouper.pk %}"
                                        class="btn-secondary grouped-detail-button">
-                                        👁 Ver detalle y documentación
+                                        Abrir documentación
                                     </a>
                                     {% elif status_filter == "preparados" %}
+                                    {% if can_manage_deliveries %}
                                     <button type="submit"
                                             formaction="{% url 'deliveries:delivery_batch_send_to_signature' group.grouper.pk %}"
                                             formmethod="post"
                                             class="btn-warning batch-prepare-button">
                                         ✍️ Autorizar entrega — Director DTI
                                     </button>
+                                    {% endif %}
                                     <a href="{% url 'deliveries:delivery_batch_detail' group.grouper.pk %}"
                                        class="btn-secondary grouped-detail-button">
-                                        👁 Ver detalle del acta
+                                        Abrir acta
                                     </a>
                                     {% else %}
+                                    {% if can_manage_deliveries %}
                                     <a href="{% url 'deliveries:delivery_batch_configure' group.grouper.pk %}"
                                        class="document-detail-link">
                                         {% if group.list.0.batch_configured %}Editar configuración{% else %}Configurar acta y equipos{% endif %}
                                     </a>
                                     <a href="{% url 'deliveries:delivery_batch_detail' group.grouper.pk %}"
                                        class="btn-secondary grouped-detail-button">
-                                        👁 Ver detalle del acta
+                                        Abrir acta
                                     </a>
                                     {% if group.list.0.batch_configured %}
                                         <button type="submit"
@@ -181,6 +184,7 @@ TABLA DE MOVIMIENTOS
                                                 class="btn-prepare batch-prepare-button">
                                             Confirmar equipos preparados
                                         </button>
+                                    {% endif %}
                                     {% endif %}
                                     {% endif %}
                                 </div>
@@ -219,9 +223,13 @@ TABLA DE MOVIMIENTOS
 
                     {% for movement in movements %}
 
-                        <tr>
+                        <tr
+                            class="custody-movement-row"
+                            data-detail-url="{% url 'deliveries:custody_movement_detail' movement.pk %}"
+                            tabindex="0">
 
                             <td>
+                                {% if can_group_movements %}
                                 {% if not movement.delivery_batch %}
                                     <input
                                         type="checkbox"
@@ -232,21 +240,16 @@ TABLA DE MOVIMIENTOS
                                 {% else %}
                                     <span title="Este equipo ya pertenece a un acta">—</span>
                                 {% endif %}
+                                {% else %}—{% endif %}
                             </td>
 
                             <td>
                                 <strong>
-                                    <a
-                                        href="{% if movement.delivery_batch %}{% url 'deliveries:delivery_batch_detail' movement.delivery_batch.pk %}{% else %}{% url 'deliveries:custody_movement_detail' movement.pk %}{% endif %}"
-                                        class="movement-detail-link">
-
-                                        {% if movement.delivery_batch %}
-                                            {{ movement.delivery_batch.batch_number }}
-                                        {% else %}
-                                            {{ movement.movement_number }}
-                                        {% endif %}
-
-                                    </a>
+                                    {% if movement.delivery_batch %}
+                                        {{ movement.delivery_batch.batch_number }}
+                                    {% else %}
+                                        {{ movement.movement_number }}
+                                    {% endif %}
                                 </strong>
                                 {% if movement.delivery_batch %}
                                     <div class="table-secondary-text">{{ movement.movement_number }}</div>
@@ -318,6 +321,7 @@ TABLA DE MOVIMIENTOS
 
                                     {% if status_filter == "agrupados" and movement.delivery_batch %}
                                         {% ifchanged movement.delivery_batch_id %}
+                                            {% if can_manage_deliveries %}
                                             {% if movement.batch_configured %}
                                                 <a href="{% url 'deliveries:delivery_batch_configure' movement.delivery_batch.pk %}"
                                                    class="document-detail-link">Editar configuración</a>
@@ -333,6 +337,10 @@ TABLA DE MOVIMIENTOS
                                                    class="btn-prepare batch-prepare-button">
                                                     Configurar acta y equipos
                                                 </a>
+                                            {% endif %}
+                                            {% else %}
+                                                <a href="{% url 'deliveries:delivery_batch_detail' movement.delivery_batch.pk %}"
+                                                   class="document-detail-link">Abrir acta</a>
                                             {% endif %}
                                         {% else %}
                                             <span class="table-muted">Misma acta agrupada</span>
@@ -364,18 +372,6 @@ TABLA DE MOVIMIENTOS
                                         </span>
 
                                     {% endif %}
-
-                                    <a
-                                        href="{% url 'deliveries:custody_movement_detail' movement.pk %}"
-                                        class="document-detail-link">
-
-                                        {% if movement.status == "PENDING_SIGNATURE" %}
-                                            📎 Ver / adjuntar
-                                        {% else %}
-                                            👁 Ver detalle
-                                        {% endif %}
-
-                                    </a>
 
                                     {% endif %}
 
@@ -409,7 +405,7 @@ TABLA DE MOVIMIENTOS
                                         y envíelos a un acta agrupada.
                                     </p>
 
-                                    {% if can_manage_deliveries %}
+                                    {% if can_add_movement %}
 
                                         <a
                                             href="{% url 'inventory:asset_list' %}"
@@ -451,6 +447,26 @@ SELECCIONAR TODOS
 
 <script>
 document.addEventListener("DOMContentLoaded", function () {
+    const interactiveSelector = "a, button, input, select, textarea, label, details, summary, [contenteditable='true']";
+
+    document.querySelectorAll(".custody-movement-row").forEach(function (row) {
+        function openDetail() {
+            const detailUrl = row.dataset.detailUrl;
+            if (detailUrl) window.location.assign(detailUrl);
+        }
+
+        row.addEventListener("click", function (event) {
+            if (event.target.closest(interactiveSelector)) return;
+            openDetail();
+        });
+
+        row.addEventListener("keydown", function (event) {
+            if (event.target !== row || (event.key !== "Enter" && event.key !== " ")) return;
+            event.preventDefault();
+            openDetail();
+        });
+    });
+
     const selectAll = document.getElementById("select-all");
     const checkboxes = document.querySelectorAll(".row-checkbox");
     const groupButton = document.getElementById("group-selected-button");
@@ -752,15 +768,8 @@ document.addEventListener("DOMContentLoaded", function () {
         white-space: normal;
     }
 
-    .movement-detail-link {
-        color: #2563eb;
-        font-weight: 700;
-        text-decoration: none;
-    }
-
-    .movement-detail-link:hover {
-        color: #1d4ed8;
-        text-decoration: underline;
+    .custody-movement-row {
+        cursor: pointer;
     }
 
     .table-secondary-text {

@@ -289,10 +289,32 @@ class GlobalNavigationTests(TestCase):
         client = self.create_user("lean-sidebar-client", User.Role.CLIENT)
         self.client.force_login(client)
         sidebar = self.sidebar_html(self.client.get(reverse("inventory:my_asset_list")))
-        self.assertNotIn(
+        self.assertIn(
             f'href="{reverse("inventory:my_asset_list")}',
             sidebar,
         )
+
+    def test_my_assets_sidebar_link_is_client_only(self):
+        destination = reverse("inventory:my_asset_list")
+
+        for role in (
+            User.Role.CLIENT,
+            User.Role.TECHNICIAN,
+            User.Role.ADMIN,
+            User.Role.SUPERVISOR,
+            User.Role.AUDITOR,
+        ):
+            with self.subTest(role=role):
+                user = self.create_user(f"my-assets-sidebar-{role.lower()}", role)
+                self.client.force_login(user)
+                sidebar = self.sidebar_html(self.client.get(destination))
+
+                if role == User.Role.CLIENT:
+                    self.assertIn(f'href="{destination}"', sidebar)
+                    self.assertIn("Mis equipos", sidebar)
+                else:
+                    self.assertNotIn(f'href="{destination}"', sidebar)
+                    self.assertNotIn("Mis equipos", sidebar)
 
     def test_client_and_technician_home_flows_are_unchanged(self):
         client = self.create_user("navigation-client", User.Role.CLIENT)

@@ -1,5 +1,5 @@
 from django.contrib import messages
-from django.contrib.auth.decorators import login_required
+from django.contrib.auth.decorators import login_required, permission_required
 from django.views.decorators.http import require_POST
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
@@ -13,9 +13,7 @@ from .constants import ACTA_CERRADA_ERROR
 
 from apps.activity.models import ActivityLog
 from apps.activity.services import register_activity
-from apps.accounts.access import roles_required
 from apps.inventory.models import Asset
-from apps.accounts.access import can_manage_deliveries
 
 
 from .forms import (
@@ -34,7 +32,10 @@ from .models import (
 
 
 @login_required
-@roles_required("ADMIN", "SUPERVISOR", "AUDITOR", "TECHNICIAN")
+@permission_required(
+    ("deliveries.view_assetcustodymovement", "deliveries.view_deliverydocument"),
+    raise_exception=True,
+)
 def delivery_document_download_view(request, pk, document_id):
     document = get_object_or_404(DeliveryDocument, pk=document_id, movement_id=pk)
     return FileResponse(
@@ -45,7 +46,10 @@ def delivery_document_download_view(request, pk, document_id):
 
 
 @login_required
-@roles_required("ADMIN", "SUPERVISOR", "AUDITOR", "TECHNICIAN")
+@permission_required(
+    ("deliveries.view_deliverybatch", "deliveries.view_deliverybatchdocument"),
+    raise_exception=True,
+)
 def delivery_batch_document_download_view(request, pk, document_id):
     document = get_object_or_404(
         DeliveryBatchDocument, pk=document_id, delivery_batch_id=pk
@@ -58,7 +62,7 @@ def delivery_batch_document_download_view(request, pk, document_id):
 
 
 @login_required
-@roles_required("ADMIN", "SUPERVISOR", "AUDITOR", "TECHNICIAN")
+@permission_required("deliveries.view_assetcustodymovement", raise_exception=True)
 def movement_private_file_view(request, pk, file_kind):
     movement = get_object_or_404(AssetCustodyMovement, pk=pk)
     field_name = {
@@ -86,16 +90,6 @@ def validar_acta_no_cerrada(movement):
         raise PermissionDenied(ACTA_CERRADA_ERROR)
 
 # ==========================================================
-# PERMISOS
-# ==========================================================
-
-
-
-def require_delivery_management(user):
-    if not can_manage_deliveries(user):
-        raise PermissionDenied("No tiene permisos para gestionar entregas.")
-
-
 def require_movement_status(movement, expected_status):
     if movement.status != expected_status:
         raise PermissionDenied("La transicion de estado solicitada no es valida.")
@@ -154,6 +148,7 @@ def update_asset_custody(movement):
 # ==========================================================
 
 @login_required
+@permission_required("deliveries.view_assetcustodymovement", raise_exception=True)
 def custody_movement_list_view(request):
 
     active_statuses = get_active_delivery_statuses()
@@ -292,7 +287,22 @@ def custody_movement_list_view(request):
         "deliveries/custody_movement_list.html",
         {
             "movements": movements,
-            "can_manage_deliveries": can_manage_deliveries(request.user),
+            "can_manage_deliveries": request.user.has_perms(
+                (
+                    "deliveries.change_assetcustodymovement",
+                    "deliveries.change_deliverybatch",
+                )
+            ),
+            "can_group_movements": request.user.has_perms(
+                (
+                    "deliveries.change_assetcustodymovement",
+                    "deliveries.add_deliverybatch",
+                )
+            ),
+            "can_add_movement": request.user.has_perm(
+                "deliveries.add_assetcustodymovement"
+            ),
+            "can_view_batches": request.user.has_perm("deliveries.view_deliverybatch"),
 
             "total_equipos": total_equipos,
             "equipos_preparados": equipos_preparados,
@@ -309,6 +319,7 @@ def custody_movement_list_view(request):
 # ==========================================================
 
 @login_required
+@permission_required("deliveries.view_assetcustodymovement", raise_exception=True)
 def custody_movement_detail_view(request, pk):
 
     movement = get_object_or_404(
@@ -396,12 +407,25 @@ def custody_movement_detail_view(request, pk):
             "recipient_signed": (
                 documents_complete if uses_batch_documents else bool(movement.recipient_signature)
             ),
-            "can_manage_deliveries": can_manage_deliveries(request.user),
+            "can_manage_deliveries": request.user.has_perm(
+                "deliveries.change_assetcustodymovement"
+            ),
+            "can_delete_documents": request.user.has_perm(
+                "deliveries.delete_deliverydocument"
+            ),
+            "can_replace_documents": request.user.has_perm(
+                "deliveries.change_deliverydocument"
+            ),
+            "can_view_documents": request.user.has_perm(
+                "deliveries.view_deliverybatchdocument"
+                if uses_batch_documents
+                else "deliveries.view_deliverydocument"
+            ),
             "is_locked": is_locked,
             "can_upload_documents": (
                 not uses_batch_documents
                 and
-                can_manage_deliveries(request.user)
+                request.user.has_perm("deliveries.add_deliverydocument")
                 and can_edit_movement_documents(movement)
             ),
         },
@@ -412,9 +436,8 @@ def custody_movement_detail_view(request, pk):
 # ==========================================================
 
 @login_required
+@permission_required("deliveries.change_assetcustodymovement", raise_exception=True)
 def custody_movement_update_view(request, pk):
-
-    require_delivery_management(request.user)
 
     movement = get_object_or_404(AssetCustodyMovement, pk=pk)
 
@@ -452,10 +475,9 @@ def custody_movement_update_view(request, pk):
 # ==========================================================
 
 @login_required
+@permission_required("deliveries.add_deliverydocument", raise_exception=True)
 @require_POST
 def upload_delivery_document_view(request, pk):
-
-    require_delivery_management(request.user)
 
     movement = get_object_or_404(AssetCustodyMovement, pk=pk)
 
@@ -485,10 +507,9 @@ def upload_delivery_document_view(request, pk):
     return redirect("deliveries:custody_movement_detail", pk=pk)
 
 @login_required
+@permission_required("deliveries.change_deliverydocument", raise_exception=True)
 @require_POST
 def replace_delivery_document_view(request, pk, document_id):
-
-    require_delivery_management(request.user)
 
     movement = get_object_or_404(AssetCustodyMovement, pk=pk)
     document = get_object_or_404(
@@ -519,10 +540,9 @@ def replace_delivery_document_view(request, pk, document_id):
     return redirect("deliveries:custody_movement_detail", pk=pk)
 
 @login_required
+@permission_required("deliveries.delete_deliverydocument", raise_exception=True)
 @require_POST
 def delete_delivery_document_view(request, pk, document_id):
-
-    require_delivery_management(request.user)
 
     movement = get_object_or_404(AssetCustodyMovement, pk=pk)
     document = get_object_or_404(
@@ -547,11 +567,10 @@ def delete_delivery_document_view(request, pk, document_id):
 # ==========================================================
 
 @login_required
+@permission_required("deliveries.change_assetcustodymovement", raise_exception=True)
 @require_POST
 @transaction.atomic
 def mark_movement_delivered_view(request, pk):
-
-    require_delivery_management(request.user)
 
     movement = get_object_or_404(AssetCustodyMovement, pk=pk)
 
@@ -619,10 +638,9 @@ def mark_movement_delivered_view(request, pk):
 # ==========================================================
 
 @login_required
+@permission_required("deliveries.change_assetcustodymovement", raise_exception=True)
 @require_POST
 def marcar_preparado(request, pk):
-
-    require_delivery_management(request.user)
 
     movement = get_object_or_404(AssetCustodyMovement, pk=pk)
 
@@ -656,10 +674,9 @@ def marcar_preparado(request, pk):
 # ==========================================================
 
 @login_required
+@permission_required("deliveries.change_assetcustodymovement", raise_exception=True)
 @require_POST
 def enviar_a_firma(request, pk):
-
-    require_delivery_management(request.user)
 
     movement = get_object_or_404(AssetCustodyMovement, pk=pk)
 
@@ -682,10 +699,9 @@ def enviar_a_firma(request, pk):
 # ==========================================================
 
 @login_required
+@permission_required("deliveries.change_assetcustodymovement", raise_exception=True)
 @require_POST
 def revert_movement(request, pk):
-
-    require_delivery_management(request.user)
 
     movement = get_object_or_404(AssetCustodyMovement, pk=pk)
 
@@ -702,6 +718,7 @@ def revert_movement(request, pk):
 # ==========================================================
 
 @login_required
+@permission_required("deliveries.view_deliverybatch", raise_exception=True)
 def delivery_batch_list_view(request):
 
     batches = DeliveryBatch.objects.all().order_by("-created_at")
@@ -711,11 +728,21 @@ def delivery_batch_list_view(request):
         "deliveries/delivery_batch_list.html",
         {
             "batches": batches,
-            "can_manage_deliveries": can_manage_deliveries(request.user),
+            "can_manage_deliveries": request.user.has_perms(
+                (
+                    "deliveries.change_deliverybatch",
+                    "deliveries.change_assetcustodymovement",
+                )
+            ),
+            "can_add_batch": request.user.has_perm("deliveries.add_deliverybatch"),
+            "can_view_movements": request.user.has_perm(
+                "deliveries.view_assetcustodymovement"
+            ),
         },
     )
 
 @login_required
+@permission_required("deliveries.view_deliverybatch", raise_exception=True)
 def delivery_batch_detail_view(request, pk):
 
     delivery_batch = get_object_or_404(
@@ -793,7 +820,18 @@ def delivery_batch_detail_view(request, pk):
             "movements": movements,
             "asset_count": movements.count(),
             "is_locked": is_locked,
-            "can_manage_deliveries": can_manage_deliveries(request.user),
+            "can_manage_deliveries": request.user.has_perms(
+                (
+                    "deliveries.change_deliverybatch",
+                    "deliveries.change_assetcustodymovement",
+                )
+            ),
+            "can_upload_batch_documents": request.user.has_perm(
+                "deliveries.add_deliverybatchdocument"
+            ),
+            "can_view_batch_documents": request.user.has_perm(
+                "deliveries.view_deliverybatchdocument"
+            ),
             "batch_documents": batch_documents,
             "batch_document_form": document_form,
             "documents_complete": documents_complete,
@@ -807,9 +845,9 @@ def delivery_batch_detail_view(request, pk):
 
 
 @login_required
+@permission_required("deliveries.add_deliverybatchdocument", raise_exception=True)
 @require_POST
 def upload_delivery_batch_document_view(request, pk):
-    require_delivery_management(request.user)
     batch = get_object_or_404(DeliveryBatch, pk=pk)
     if batch.status in {DeliveryBatch.BatchStatus.DELIVERED, DeliveryBatch.BatchStatus.CANCELLED}:
         raise PermissionDenied("El acta está cerrada y su documentación no puede modificarse.")
@@ -835,10 +873,13 @@ def upload_delivery_batch_document_view(request, pk):
 
 
 @login_required
+@permission_required(
+    ("deliveries.change_deliverybatch", "deliveries.change_assetcustodymovement"),
+    raise_exception=True,
+)
 @require_POST
 @transaction.atomic
 def delivery_batch_prepare_view(request, pk):
-    require_delivery_management(request.user)
     batch = get_object_or_404(DeliveryBatch.objects.prefetch_related("movements"), pk=pk)
     if batch.status != DeliveryBatch.BatchStatus.DRAFT:
         raise PermissionDenied("Solo un acta en borrador puede marcarse como preparada.")
@@ -860,10 +901,13 @@ def delivery_batch_prepare_view(request, pk):
 
 
 @login_required
+@permission_required(
+    ("deliveries.change_deliverybatch", "deliveries.change_assetcustodymovement"),
+    raise_exception=True,
+)
 @require_POST
 @transaction.atomic
 def delivery_batch_send_to_signature_view(request, pk):
-    require_delivery_management(request.user)
     batch = get_object_or_404(DeliveryBatch, pk=pk)
     if batch.status != DeliveryBatch.BatchStatus.PREPARED:
         raise PermissionDenied("El acta debe estar preparada antes de la autorización.")
@@ -882,10 +926,13 @@ def delivery_batch_send_to_signature_view(request, pk):
 
 
 @login_required
+@permission_required(
+    ("deliveries.change_deliverybatch", "deliveries.change_assetcustodymovement"),
+    raise_exception=True,
+)
 @require_POST
 @transaction.atomic
 def delivery_batch_complete_view(request, pk):
-    require_delivery_management(request.user)
     batch = get_object_or_404(
         DeliveryBatch.objects.prefetch_related("movements__asset", "audit_documents"),
         pk=pk,
@@ -954,10 +1001,12 @@ def delivery_batch_complete_view(request, pk):
 # ==========================================================
 
 @login_required
+@permission_required(
+    ("deliveries.add_deliverybatch", "deliveries.add_assetcustodymovement"),
+    raise_exception=True,
+)
 @transaction.atomic
 def delivery_batch_create_view(request):
-
-    require_delivery_management(request.user)
 
     selected_asset_ids = (
         request.POST.getlist("assets")
@@ -1069,10 +1118,9 @@ def delivery_batch_create_view(request):
 # ==========================================================
 
 @login_required
+@permission_required("deliveries.add_assetcustodymovement", raise_exception=True)
 @transaction.atomic
 def custody_movement_create_view(request):
-
-    require_delivery_management(request.user)
 
     if request.method == "POST":
         form = AssetCustodyMovementForm(
@@ -1108,7 +1156,10 @@ from django.http import HttpResponse
 from .pdf_generator import generate_delivery_batch_pdf
 
 @login_required
-@roles_required("ADMIN", "SUPERVISOR", "AUDITOR", "TECHNICIAN")
+@permission_required(
+    ("deliveries.view_assetcustodymovement", "deliveries.view_deliverybatch"),
+    raise_exception=True,
+)
 def custody_movement_pdf_view(request, pk):
     movement = get_object_or_404(AssetCustodyMovement, pk=pk)
 
@@ -1132,9 +1183,9 @@ def custody_movement_pdf_view(request, pk):
 
 @require_POST
 @login_required
+@permission_required("deliveries.add_assetcustodymovement", raise_exception=True)
 @transaction.atomic
 def send_selected_assets_to_custody_view(request):
-    require_delivery_management(request.user)
     asset_ids = request.POST.getlist("selected_assets")
 
     if not asset_ids:
@@ -1174,9 +1225,12 @@ def send_selected_assets_to_custody_view(request):
 
 @require_POST
 @login_required
+@permission_required(
+    ("deliveries.change_assetcustodymovement", "deliveries.add_deliverybatch"),
+    raise_exception=True,
+)
 @transaction.atomic
 def group_selected_custody_movements_view(request):
-    require_delivery_management(request.user)
     asset_ids = request.POST.getlist("selected_ids")
     staged_asset_ids = list(
         AssetCustodyMovement.objects.filter(
@@ -1209,9 +1263,12 @@ def group_selected_custody_movements_view(request):
 
 
 @login_required
+@permission_required(
+    ("deliveries.change_deliverybatch", "deliveries.change_assetcustodymovement"),
+    raise_exception=True,
+)
 @transaction.atomic
 def delivery_batch_configure_view(request, pk):
-    require_delivery_management(request.user)
     batch = get_object_or_404(
         DeliveryBatch.objects.prefetch_related("movements__asset"),
         pk=pk,

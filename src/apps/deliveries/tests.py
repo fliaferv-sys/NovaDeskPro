@@ -2,6 +2,7 @@ import uuid
 from datetime import date
 
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.contrib.auth.models import Permission
 from django.contrib.messages import get_messages
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -17,6 +18,19 @@ from .models import (
 )
 
 
+def grant_delivery_permissions(user, *codenames):
+    permissions = Permission.objects.filter(
+        content_type__app_label="deliveries",
+        codename__in=codenames,
+    )
+    user.user_permissions.add(*permissions)
+
+
+def grant_all_delivery_permissions(user):
+    permissions = Permission.objects.filter(content_type__app_label="deliveries")
+    user.user_permissions.add(*permissions)
+
+
 class DeliveryAuthorizationTests(TestCase):
     def setUp(self):
         self.client_user = User.objects.create_user(
@@ -28,14 +42,14 @@ class DeliveryAuthorizationTests(TestCase):
         self.client.force_login(self.client_user)
         self.unknown_movement_id = uuid.uuid4()
 
-    def test_state_change_rejects_get(self):
+    def test_state_change_rejects_unauthorized_get(self):
         response = self.client.get(
             reverse(
                 "deliveries:marcar_preparado",
                 args=[self.unknown_movement_id],
             )
         )
-        self.assertEqual(response.status_code, 405)
+        self.assertEqual(response.status_code, 403)
 
     def test_client_cannot_change_delivery_state(self):
         response = self.client.post(
@@ -72,6 +86,7 @@ class DeliveryDocumentTests(TestCase):
             password="test-password",
             role=User.Role.SUPERVISOR,
         )
+        grant_all_delivery_permissions(self.manager)
         self.asset = Asset.objects.create(internal_code="TEST-ASSET-001")
         self.movement = AssetCustodyMovement.objects.create(
             asset=self.asset,
@@ -202,6 +217,7 @@ class GroupedDeliveryWorkflowTests(TestCase):
             password="test-password",
             role=User.Role.SUPERVISOR,
         )
+        grant_all_delivery_permissions(self.manager)
         self.recipient = User.objects.create_user(
             username="batch-recipient",
             email="batch-recipient@example.com",
@@ -327,3 +343,154 @@ class GroupedDeliveryWorkflowTests(TestCase):
         self.assertEqual(delivery_batch.status, DeliveryBatch.BatchStatus.DELIVERED)
 
 # Create your tests here.
+
+
+class ConfigurableDeliveryPermissionTests(TestCase):
+    def setUp(self):
+        self.branch = Branch.objects.create(code="PERM-HQ", name="Sede permisos")
+        self.recipient = User.objects.create_user(
+            username="custody-recipient",
+            email="custody-recipient@example.com",
+            password="test-password",
+            role=User.Role.CLIENT,
+        )
+        self.owner = User.objects.create_user(
+            username="custody-owner",
+            email="custody-owner@example.com",
+            password="test-password",
+            role=User.Role.SUPERVISOR,
+        )
+        self.asset = Asset.objects.create(internal_code="PERM-ASSET-001")
+        self.movement = AssetCustodyMovement.objects.create(
+            asset=self.asset,
+            recipient=self.recipient,
+            delivery_responsible=self.owner,
+            destination_branch=self.branch,
+            department="Tecnología",
+            location="Mesa técnica",
+            created_by=self.owner,
+        )
+        self.batch = DeliveryBatch.objects.create(
+            recipient=self.recipient,
+            delivery_responsible=self.owner,
+            destination_branch=self.branch,
+            department="Tecnología",
+            location="Mesa técnica",
+            created_by=self.owner,
+        )
+
+    def create_user(self, name, role):
+        return User.objects.create_user(
+            username=name,
+            email=f"{name}@example.com",
+            password="test-password",
+            role=role,
+        )
+
+    def read_urls(self):
+        return (
+            reverse("deliveries:custody_movement_list"),
+            reverse("deliveries:custody_movement_detail", args=[self.movement.pk]),
+            reverse("deliveries:delivery_batch_list"),
+            reverse("deliveries:delivery_batch_detail", args=[self.batch.pk]),
+        )
+
+    def test_client_without_permissions_cannot_access_global_custody(self):
+        self.client.force_login(self.recipient)
+        for url in self.read_urls():
+            with self.subTest(url=url):
+                self.assertEqual(self.client.get(url).status_code, 403)
+
+    def test_authenticated_role_without_permissions_has_no_implicit_access(self):
+        user = self.create_user("custody-no-perms", User.Role.ADMIN)
+        self.client.force_login(user)
+        for url in self.read_urls():
+            with self.subTest(url=url):
+                self.assertEqual(self.client.get(url).status_code, 403)
+
+    def test_auditor_with_view_permissions_is_read_only(self):
+        auditor = self.create_user("custody-auditor", User.Role.AUDITOR)
+        grant_delivery_permissions(
+            auditor,
+            "view_assetcustodymovement",
+            "view_deliverybatch",
+            "view_deliverydocument",
+            "view_deliverybatchdocument",
+        )
+        self.client.force_login(auditor)
+
+        for url in self.read_urls():
+            with self.subTest(url=url):
+                self.assertEqual(self.client.get(url).status_code, 200)
+
+        blocked_requests = (
+            ("get", reverse("deliveries:custody_movement_create")),
+            ("get", reverse("deliveries:custody_movement_update", args=[self.movement.pk])),
+            ("post", reverse("deliveries:marcar_preparado", args=[self.movement.pk])),
+            ("post", reverse("deliveries:revert_movement", args=[self.movement.pk])),
+        )
+        for method, url in blocked_requests:
+            with self.subTest(method=method, url=url):
+                self.assertEqual(getattr(self.client, method)(url).status_code, 403)
+
+    def test_technician_with_operational_permissions_can_work_without_delete(self):
+        technician = self.create_user("custody-technician", User.Role.TECHNICIAN)
+        grant_delivery_permissions(
+            technician,
+            "view_assetcustodymovement",
+            "add_assetcustodymovement",
+            "change_assetcustodymovement",
+            "view_deliverybatch",
+            "add_deliverybatch",
+            "change_deliverybatch",
+            "view_deliverydocument",
+            "add_deliverydocument",
+            "change_deliverydocument",
+            "view_deliverybatchdocument",
+            "add_deliverybatchdocument",
+            "change_deliverybatchdocument",
+        )
+        document = DeliveryDocument.objects.create(
+            movement=self.movement,
+            document_type=DeliveryDocument.DocumentType.OTHER,
+            file="deliveries/audit_documents/note.pdf",
+            uploaded_by=self.owner,
+        )
+        self.client.force_login(technician)
+
+        self.assertEqual(self.client.get(reverse("deliveries:custody_movement_list")).status_code, 200)
+        self.assertEqual(
+            self.client.get(reverse("deliveries:custody_movement_detail", args=[self.movement.pk])).status_code,
+            200,
+        )
+        self.assertEqual(self.client.get(reverse("deliveries:custody_movement_create")).status_code, 200)
+        self.assertEqual(
+            self.client.post(reverse("deliveries:marcar_preparado", args=[self.movement.pk])).status_code,
+            302,
+        )
+        self.movement.refresh_from_db()
+        self.assertEqual(self.movement.status, AssetCustodyMovement.MovementStatus.PREPARED)
+        self.assertEqual(
+            self.client.post(
+                reverse("deliveries:delete_delivery_document", args=[self.movement.pk, document.pk])
+            ).status_code,
+            403,
+        )
+        self.assertTrue(DeliveryDocument.objects.filter(pk=document.pk).exists())
+
+    def test_admin_and_supervisor_with_full_permissions_keep_operational_access(self):
+        for role in (User.Role.ADMIN, User.Role.SUPERVISOR):
+            with self.subTest(role=role):
+                user = self.create_user(f"custody-full-{role.lower()}", role)
+                grant_all_delivery_permissions(user)
+                self.client.force_login(user)
+                self.assertEqual(
+                    self.client.get(reverse("deliveries:custody_movement_list")).status_code,
+                    200,
+                )
+                self.assertEqual(
+                    self.client.get(
+                        reverse("deliveries:custody_movement_update", args=[self.movement.pk])
+                    ).status_code,
+                    200,
+                )

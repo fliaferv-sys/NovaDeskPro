@@ -756,7 +756,7 @@ Detalle del Movimiento
 
                                     <td>
 
-                                        <a
+                                        {% if can_view_documents %}<a
                                             href="{% if uses_batch_documents %}{% url 'deliveries:delivery_batch_document_download' movement.delivery_batch.pk document.pk %}{% else %}{% url 'deliveries:delivery_document_download' movement.pk document.pk %}{% endif %}"
                                             target="_blank"
                                             rel="noopener"
@@ -764,7 +764,7 @@ Detalle del Movimiento
 
                                             📄 Abrir / descargar
 
-                                        </a>
+                                        </a>{% else %}<span class="document-locked-text">Sin permiso de descarga</span>{% endif %}
 
                                     </td>
 
@@ -793,7 +793,7 @@ Detalle del Movimiento
 
                                     <td>
 
-                                        {% if can_upload_documents %}
+                                        {% if can_replace_documents %}
 
                                             <details class="document-replace-box">
 
@@ -845,6 +845,9 @@ Detalle del Movimiento
 
                                             </details>
 
+                                        {% endif %}
+
+                                        {% if can_delete_documents %}
                                             <form
                                                 method="post"
                                                 action="{% url 'deliveries:delete_delivery_document' movement.pk document.pk %}"
@@ -864,8 +867,9 @@ Detalle del Movimiento
                                                 </button>
 
                                             </form>
+                                        {% endif %}
 
-                                        {% else %}
+                                        {% if not can_replace_documents and not can_delete_documents %}
 
                                             <span class="document-locked-text">
                                                 🔒 Sin edición
