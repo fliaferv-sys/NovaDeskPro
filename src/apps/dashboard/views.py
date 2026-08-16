@@ -129,7 +129,7 @@ def executive_dashboard_view(request):
             status=(
                 AssetCustodyMovement
                 .MovementStatus
-                .DELIVERED 
+                .PENDING_SIGNATURE
             )
         )
         .count()
