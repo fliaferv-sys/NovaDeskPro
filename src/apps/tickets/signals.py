@@ -4,6 +4,7 @@ from django.utils import timezone
 from datetime import timedelta
 
 from apps.notifications.models import Notification
+from apps.notifications.services import create_or_update_notification
 from .models import Ticket
 
 
@@ -44,18 +45,6 @@ def create_sla_notification(sender, instance, created, **kwargs):
     if not recipient:
         return
 
-    # Verificar si ya existe una notificación similar (evitar duplicados)
-    existing = Notification.objects.filter(
-        recipient=recipient,
-        object_type="Ticket",
-        object_id=str(instance.pk),
-        is_active=True,
-    ).first()
-
-    # Si ya existe una notificación activa, no crear otra
-    if existing:
-        return
-
     # Crear la notificación según el estado
     if instance.sla_status == "WARNING":
         title = f"⚠️ Ticket por vencer: {instance.ticket_number}"
@@ -73,7 +62,7 @@ def create_sla_notification(sender, instance, created, **kwargs):
         )
 
     # Crear la notificación
-    Notification.objects.create(
+    create_or_update_notification(
         recipient=recipient,
         notification_type=Notification.TYPE_GENERAL,
         level=level,
@@ -82,5 +71,5 @@ def create_sla_notification(sender, instance, created, **kwargs):
         link=f"/tickets/{instance.pk}/",
         object_type="Ticket",
         object_id=str(instance.pk),
-        unique_key=f"sla_{instance.pk}_{instance.sla_status}",
+        unique_key=f"sla_{instance.pk}_{instance.sla_status}_{recipient.pk}",
     )

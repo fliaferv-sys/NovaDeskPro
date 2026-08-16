@@ -686,8 +686,84 @@ class TechnicianWorkday(models.Model):
             and self.ended_at is None
         )
 
-    
+
+class TechnicianAvailabilityRequest(models.Model):
+    class RequestType(models.TextChoices):
+        UNAVAILABLE = "UNAVAILABLE", "No disponible"
+        EARLY_WORKDAY_END = "EARLY_WORKDAY_END", "Fin de jornada anticipada"
+
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "Pendiente"
+        APPROVED = "APPROVED", "Aprobada"
+        REJECTED = "REJECTED", "Rechazada"
+
+    technician = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name="availability_requests",
+        limit_choices_to={"role": User.Role.TECHNICIAN},
+        verbose_name="Técnico",
+    )
+    workday = models.ForeignKey(
+        TechnicianWorkday,
+        on_delete=models.PROTECT,
+        related_name="availability_requests",
+        verbose_name="Jornada",
+    )
+    request_type = models.CharField(
+        max_length=30,
+        choices=RequestType.choices,
+        verbose_name="Tipo de solicitud",
+    )
+    reason = models.TextField(verbose_name="Motivo")
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+        verbose_name="Estado",
+    )
+    requested_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Fecha y hora de solicitud",
+    )
+    resolved_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Fecha y hora de resolución",
+    )
+    resolved_by = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name="resolved_availability_requests",
+        null=True,
+        blank=True,
+        verbose_name="Resuelta por",
+    )
+    resolution_note = models.TextField(
+        blank=True,
+        verbose_name="Observación de resolución",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Solicitud de disponibilidad de técnico"
+        verbose_name_plural = "Solicitudes de disponibilidad de técnicos"
+        ordering = ["-requested_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["technician", "workday", "request_type"],
+                condition=models.Q(status="PENDING"),
+                name="unique_pending_technician_availability_request",
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.technician.get_full_name() or self.technician.username} - "
+            f"{self.get_request_type_display()} - {self.get_status_display()}"
+        )
 
     
 
-        
+    
+

@@ -6,13 +6,20 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from apps.accounts.models import TechnicianWorkday, User, WorkShift
+from apps.accounts.models import (
+    TechnicianAvailabilityRequest,
+    TechnicianWorkday,
+    User,
+    WorkShift,
+)
 from apps.accounts.services import (
     close_expired_workdays,
     finish_technician_workday,
+    resolve_technician_availability_request,
 )
 from apps.activity.models import ActivityLog
 from apps.core.models import Department
+from apps.notifications.models import Notification
 
 from .models import (
     AccessIdentityDocument,
@@ -792,6 +799,272 @@ class TicketAuthorizationTests(TestCase):
         self.assertNotIn(self.support_technician, choices)
 
 
+class TechnicianAvailabilityDashboardTests(TestCase):
+    def setUp(self):
+        self.department = Department.objects.create(
+            code="AVAILABILITY-UI",
+            name="Disponibilidad UI",
+        )
+        self.technician = User.objects.create_user(
+            username="availability-ui-technician",
+            email="availability-ui-technician@example.test",
+            password="test-password",
+            role=User.Role.TECHNICIAN,
+            department=self.department,
+            availability_status=User.AvailabilityStatus.AVAILABLE,
+        )
+        self.admin = User.objects.create_user(
+            username="availability-ui-admin",
+            email="availability-ui-admin@example.test",
+            password="test-password",
+            role=User.Role.ADMIN,
+        )
+        now = timezone.now()
+        shift = WorkShift.objects.create(
+            name="Turno UI",
+            start_time=(now - timedelta(hours=1)).time(),
+            end_time=(now + timedelta(hours=7)).time(),
+        )
+        self.workday = TechnicianWorkday.objects.create(
+            technician=self.technician,
+            date=timezone.localdate(),
+            shift=shift,
+            started_at=now,
+            scheduled_end_at=now + timedelta(hours=7),
+        )
+        self.client.force_login(self.technician)
+
+    def post_request(self, request_type, reason):
+        return self.client.post(
+            reverse("tickets:dashboard"),
+            {
+                "form_type": "availability_request",
+                "request_type": request_type,
+                "reason": reason,
+            },
+            follow=True,
+        )
+
+    def test_early_end_pending_survives_refresh_and_hides_equivalent_form(self):
+        reason = "Necesito retirarme por una gestión personal."
+        response = self.post_request(
+            TechnicianAvailabilityRequest.RequestType.EARLY_WORKDAY_END,
+            reason,
+        )
+        availability_request = TechnicianAvailabilityRequest.objects.get()
+        self.assertEqual(
+            availability_request.status,
+            TechnicianAvailabilityRequest.Status.PENDING,
+        )
+        self.assertEqual(availability_request.workday, self.workday)
+        self.assertContains(
+            response,
+            "Solicitud de salida anticipada pendiente de aprobación",
+        )
+        self.assertContains(response, reason)
+        self.assertNotContains(response, 'value="EARLY_WORKDAY_END"')
+        pending_state = self.client.get(
+            reverse("tickets:technician_availability_status")
+        ).json()
+        self.assertEqual(
+            pending_state["request_status"],
+            TechnicianAvailabilityRequest.Status.PENDING,
+        )
+        self.assertEqual(
+            pending_state["workday_status"],
+            TechnicianWorkday.Status.ACTIVE,
+        )
+
+        response = self.client.get(reverse("tickets:dashboard"))
+        self.assertContains(
+            response,
+            "Solicitud de salida anticipada pendiente de aprobación",
+        )
+        self.assertNotContains(response, 'value="EARLY_WORKDAY_END"')
+
+        resolve_technician_availability_request(
+            availability_request,
+            self.admin,
+            approve=False,
+        )
+        response = self.client.get(reverse("tickets:dashboard"))
+        self.assertNotContains(
+            response,
+            "Solicitud de salida anticipada pendiente de aprobación",
+        )
+        self.assertContains(response, 'value="EARLY_WORKDAY_END"')
+        rejected_state = self.client.get(
+            reverse("tickets:technician_availability_status")
+        ).json()
+        self.assertNotEqual(rejected_state["revision"], pending_state["revision"])
+        self.assertEqual(
+            rejected_state["request_status"],
+            TechnicianAvailabilityRequest.Status.REJECTED,
+        )
+        self.assertEqual(
+            rejected_state["availability_status"],
+            User.AvailabilityStatus.AVAILABLE,
+        )
+        self.assertEqual(
+            rejected_state["workday_status"],
+            TechnicianWorkday.Status.ACTIVE,
+        )
+
+    def test_unavailable_pending_and_approved_states_are_rendered(self):
+        reason = "Atención médica dentro de la jornada."
+        response = self.post_request(
+            TechnicianAvailabilityRequest.RequestType.UNAVAILABLE,
+            reason,
+        )
+        availability_request = TechnicianAvailabilityRequest.objects.get()
+        self.assertEqual(
+            availability_request.status,
+            TechnicianAvailabilityRequest.Status.PENDING,
+        )
+        self.assertContains(
+            response,
+            "Solicitud de No disponible pendiente de aprobación",
+        )
+        self.assertContains(response, reason)
+        self.assertNotContains(response, 'value="UNAVAILABLE"')
+
+        resolve_technician_availability_request(
+            availability_request,
+            self.admin,
+            approve=True,
+        )
+        response = self.client.get(reverse("tickets:dashboard"))
+        self.assertNotContains(
+            response,
+            "Solicitud de No disponible pendiente de aprobación",
+        )
+        self.assertNotContains(response, 'value="UNAVAILABLE"')
+        self.technician.refresh_from_db()
+        self.assertEqual(
+            self.technician.availability_status,
+            User.AvailabilityStatus.UNAVAILABLE,
+        )
+        approved_state = self.client.get(
+            reverse("tickets:technician_availability_status")
+        ).json()
+        self.assertEqual(
+            approved_state["request_status"],
+            TechnicianAvailabilityRequest.Status.APPROVED,
+        )
+        self.assertEqual(
+            approved_state["availability_status"],
+            User.AvailabilityStatus.UNAVAILABLE,
+        )
+        self.assertEqual(
+            approved_state["workday_status"],
+            TechnicianWorkday.Status.ACTIVE,
+        )
+
+    def test_early_end_approval_snapshot_reports_finished_workday(self):
+        self.post_request(
+            TechnicianAvailabilityRequest.RequestType.EARLY_WORKDAY_END,
+            "Salida anticipada autorizable.",
+        )
+        availability_request = TechnicianAvailabilityRequest.objects.get()
+        resolve_technician_availability_request(
+            availability_request,
+            self.admin,
+            approve=True,
+        )
+
+        response = self.client.get(
+            reverse("tickets:technician_availability_status")
+        )
+        self.assertEqual(response.status_code, 200)
+        state = response.json()
+        self.assertEqual(
+            state["request_status"],
+            TechnicianAvailabilityRequest.Status.APPROVED,
+        )
+        self.assertEqual(
+            state["availability_status"],
+            User.AvailabilityStatus.UNAVAILABLE,
+        )
+        self.assertEqual(
+            state["workday_status"],
+            TechnicianWorkday.Status.FINISHED,
+        )
+
+    def test_start_new_workday_with_historical_sla_key_is_idempotent(self):
+        finish_technician_workday(self.technician, authorized=True)
+        ticket = Ticket.objects.create(
+            title="SLA próximo a vencer",
+            description="Debe asignarse al iniciar la nueva jornada.",
+            requester=self.admin,
+            department=self.department,
+            due_date=timezone.now() + timedelta(hours=1),
+        )
+        Notification.objects.filter(
+            object_type="Ticket",
+            object_id=str(ticket.pk),
+        ).delete()
+        legacy_key = f"sla_{ticket.pk}_WARNING"
+        Notification.objects.create(
+            recipient=self.admin,
+            notification_type=Notification.TYPE_GENERAL,
+            level=Notification.LEVEL_WARNING,
+            title="Notificación histórica de SLA",
+            message="Registro creado con la clave anterior.",
+            link=f"/tickets/{ticket.pk}/",
+            object_type="Ticket",
+            object_id=str(ticket.pk),
+            unique_key=legacy_key,
+        )
+
+        response = self.client.post(
+            reverse("tickets:dashboard"),
+            {"form_type": "start_workday"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.technician.refresh_from_db()
+        ticket.refresh_from_db()
+        self.assertEqual(
+            self.technician.availability_status,
+            User.AvailabilityStatus.AVAILABLE,
+        )
+        self.assertEqual(ticket.assigned_to, self.technician)
+        self.assertEqual(
+            TechnicianWorkday.objects.filter(
+                technician=self.technician,
+                status=TechnicianWorkday.Status.ACTIVE,
+                ended_at__isnull=True,
+            ).count(),
+            1,
+        )
+        technician_key = (
+            f"sla_{ticket.pk}_WARNING_{self.technician.pk}"
+        )
+        self.assertTrue(Notification.objects.filter(unique_key=legacy_key).exists())
+        self.assertEqual(
+            Notification.objects.filter(unique_key=technician_key).count(),
+            1,
+        )
+
+        repeated_response = self.client.post(
+            reverse("tickets:dashboard"),
+            {"form_type": "start_workday"},
+        )
+        self.assertEqual(repeated_response.status_code, 302)
+        self.assertEqual(
+            Notification.objects.filter(unique_key=technician_key).count(),
+            1,
+        )
+        self.assertEqual(
+            TechnicianWorkday.objects.filter(
+                technician=self.technician,
+                status=TechnicianWorkday.Status.ACTIVE,
+                ended_at__isnull=True,
+            ).count(),
+            1,
+        )
+
+
 class TicketAutoRebalanceTests(TestCase):
     def setUp(self):
         self.department = Department.objects.create(
@@ -1502,7 +1775,7 @@ class TicketAutoRebalanceTests(TestCase):
                 queued.refresh_from_db()
                 self.assertEqual(queued.assigned_to, technician)
 
-    def test_manual_and_automatic_workday_finish_release_safe_ticket(self):
+    def test_authorized_and_automatic_workday_finish_keep_assigned_ticket(self):
         technician = self.technicians[0]
 
         for automatically in [False, True]:
@@ -1517,22 +1790,23 @@ class TicketAutoRebalanceTests(TestCase):
                 finish_technician_workday(
                     technician,
                     automatically=automatically,
+                    authorized=not automatically,
                 )
 
                 ticket.refresh_from_db()
                 technician.refresh_from_db()
-                self.assertIsNone(ticket.assigned_to)
+                self.assertEqual(ticket.assigned_to, technician)
                 self.assertEqual(ticket.status, Ticket.Status.OPEN)
                 self.assertEqual(
                     ticket.assignment_origin,
-                    Ticket.AssignmentOrigin.UNKNOWN,
+                    Ticket.AssignmentOrigin.AUTO,
                 )
                 self.assertEqual(
                     technician.availability_status,
                     User.AvailabilityStatus.UNAVAILABLE,
                 )
 
-    def test_close_expired_workdays_releases_safe_ticket(self):
+    def test_close_expired_workdays_keeps_assigned_ticket(self):
         technician = self.technicians[0]
         workday = self.start_workday(technician)
         workday.scheduled_end_at = timezone.now() - timedelta(minutes=1)
@@ -1542,10 +1816,10 @@ class TicketAutoRebalanceTests(TestCase):
         self.assertEqual(close_expired_workdays(), 1)
 
         ticket.refresh_from_db()
-        self.assertIsNone(ticket.assigned_to)
+        self.assertEqual(ticket.assigned_to, technician)
         self.assertEqual(ticket.status, Ticket.Status.OPEN)
 
-    def test_unavailable_releases_safe_ticket_but_busy_does_not(self):
+    def test_busy_and_unavailable_cannot_be_selected_directly(self):
         technician = self.technicians[0]
         self.start_workday(technician)
         ticket = self.create_auto_ticket(technician, 1)
@@ -1560,7 +1834,12 @@ class TicketAutoRebalanceTests(TestCase):
         )
         self.assertEqual(busy_response.status_code, 302)
         ticket.refresh_from_db()
+        technician.refresh_from_db()
         self.assertEqual(ticket.assigned_to, technician)
+        self.assertEqual(
+            technician.availability_status,
+            User.AvailabilityStatus.AVAILABLE,
+        )
 
         unavailable_response = self.client.post(
             reverse("tickets:dashboard"),
@@ -1571,7 +1850,12 @@ class TicketAutoRebalanceTests(TestCase):
         )
         self.assertEqual(unavailable_response.status_code, 302)
         ticket.refresh_from_db()
-        self.assertIsNone(ticket.assigned_to)
+        technician.refresh_from_db()
+        self.assertEqual(ticket.assigned_to, technician)
+        self.assertEqual(
+            technician.availability_status,
+            User.AvailabilityStatus.AVAILABLE,
+        )
 
     def test_inactive_policy_keeps_all_protected_assignment_types(self):
         technician = self.technicians[0]

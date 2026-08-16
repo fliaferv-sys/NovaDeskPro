@@ -1043,18 +1043,29 @@ Dashboard - Sistema de Tickets
                     </div>
 
 
+                    {% if pending_early_workday_end_request %}
+                    <div style="margin-top:16px; padding:14px 16px; border-radius:10px; background:#fff3cd; color:#664d03;">
+                        <strong>Solicitud de salida anticipada pendiente de aprobación</strong>
+                        <div style="margin-top:6px; font-size:13px;">
+                            Motivo: {{ pending_early_workday_end_request.reason }}<br>
+                            Fecha: {{ pending_early_workday_end_request.requested_at|date:"d/m/Y H:i" }}<br>
+                            Estado: {{ pending_early_workday_end_request.get_status_display }}
+                        </div>
+                    </div>
+                    {% else %}
                     <form
                         method="post"
                         style="margin-top: 16px;"
-                        onsubmit="return confirm('¿Confirma que desea finalizar su jornada laboral? Su disponibilidad cambiará a No disponible.');"
                     >
                         {% csrf_token %}
 
                         <input
                             type="hidden"
                             name="form_type"
-                            value="finish_workday"
+                            value="availability_request"
                         >
+                        <input type="hidden" name="request_type" value="EARLY_WORKDAY_END">
+                        <textarea name="reason" required placeholder="Motivo obligatorio" style="width:100%; min-height:72px; margin-bottom:10px;"></textarea>
 
                         <button
                             type="submit"
@@ -1068,9 +1079,10 @@ Dashboard - Sistema de Tickets
                                 cursor: pointer;
                             "
                         >
-                            🔴 Finalizar jornada
+                            Solicitar salida anticipada
                         </button>
                     </form>
+                    {% endif %}
 
                                         <form
                         id="auto-finish-workday-form"
@@ -1287,19 +1299,6 @@ Dashboard - Sistema de Tickets
                                 🟢 Disponible
                             </option>
 
-                            <option
-                                value="BUSY"
-                                {% if request.user.availability_status == "BUSY" %}selected{% endif %}
-                            >
-                                🟡 Ocupado
-                            </option>
-
-                            <option
-                                value="UNAVAILABLE"
-                                {% if request.user.availability_status == "UNAVAILABLE" %}selected{% endif %}
-                            >
-                                🔴 No disponible
-                            </option>
                         </select>
 
                         <button
@@ -1329,6 +1328,26 @@ Dashboard - Sistema de Tickets
                         </strong>
                     </div>
                 </form>
+
+                {% if pending_unavailable_request %}
+                <div style="margin-top:14px; padding:14px 16px; border-radius:10px; background:#fff3cd; color:#664d03;">
+                    <strong>Solicitud de No disponible pendiente de aprobación</strong>
+                    <div style="margin-top:6px; font-size:13px;">
+                        Motivo: {{ pending_unavailable_request.reason }}<br>
+                        Fecha: {{ pending_unavailable_request.requested_at|date:"d/m/Y H:i" }}<br>
+                        Estado: {{ pending_unavailable_request.get_status_display }}
+                    </div>
+                </div>
+                {% elif today_workday and today_workday.status == "ACTIVE" and request.user.availability_status != "UNAVAILABLE" %}
+                <form method="post" style="margin-top: 14px;">
+                    {% csrf_token %}
+                    <input type="hidden" name="form_type" value="availability_request">
+                    <input type="hidden" name="request_type" value="UNAVAILABLE">
+                    <textarea name="reason" required placeholder="Motivo obligatorio para solicitar No disponible" style="width:100%; min-height:72px; margin-bottom:10px;"></textarea>
+                    <button type="submit" class="btn-secondary">Solicitar No disponible</button>
+                </form>
+                {% endif %}
+
             </div>
         {% endif %}
 
@@ -1575,5 +1594,41 @@ document.addEventListener("DOMContentLoaded", function () {
     }, 1000);
 });
 </script>
+
+{% if is_technician %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    let availabilityRevision = "{{ technician_availability_revision|escapejs }}";
+    let availabilityRequestInFlight = false;
+
+    async function refreshTechnicianAvailability() {
+        if (availabilityRequestInFlight || document.hidden) {
+            return;
+        }
+        availabilityRequestInFlight = true;
+        try {
+            const response = await fetch(
+                "{% url 'tickets:technician_availability_status' %}",
+                {
+                    headers: {"X-Requested-With": "XMLHttpRequest"},
+                    cache: "no-store"
+                }
+            );
+            if (!response.ok) {
+                return;
+            }
+            const state = await response.json();
+            if (state.revision && state.revision !== availabilityRevision) {
+                window.location.reload();
+            }
+        } finally {
+            availabilityRequestInFlight = false;
+        }
+    }
+
+    window.setInterval(refreshTechnicianAvailability, 5000);
+});
+</script>
+{% endif %}
 
 {% endblock %}

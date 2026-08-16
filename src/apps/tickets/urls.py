@@ -7,6 +7,7 @@ from .views import (
     ticket_delete_view,
     ticket_detail_view,
     ticket_conversation_status_view,
+    technician_availability_status_view,
     ticket_list_view,
     ticket_update_view,
     validate_access_request_view,
@@ -46,4 +47,9 @@ urlpatterns = [
     ),
 
     path("dashboard/", dashboard_view, name="dashboard"),
+    path(
+        "dashboard/availability-status/",
+        technician_availability_status_view,
+        name="technician_availability_status",
+    ),
 ]

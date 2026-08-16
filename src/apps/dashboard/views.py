@@ -5,13 +5,21 @@
 
 from datetime import timedelta
 
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.db.models import Count, Q
+from django.core.exceptions import ValidationError
+from django.db.models import Count, Exists, OuterRef, Q
 from django.db.models.functions import TruncMonth
-from django.shortcuts import render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from django.views.decorators.http import require_POST
 
-from apps.accounts.models import User
+from apps.accounts.models import (
+    TechnicianAvailabilityRequest,
+    TechnicianWorkday,
+    User,
+)
+from apps.accounts.services import resolve_technician_availability_request
 from apps.deliveries.models import AssetCustodyMovement
 from apps.inventory.models import Asset
 from apps.tickets.models import Ticket
@@ -602,3 +610,75 @@ def department_dashboard_view(request):
         "dashboard/department_dashboard.html",
         context,
     )
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR", "AUDITOR")
+def technician_control_view(request):
+    active_ticket = Ticket.objects.filter(
+        assigned_to_id=OuterRef("technician_id"),
+        status__in=[Ticket.Status.OPEN, Ticket.Status.IN_PROGRESS],
+    )
+    active_workdays = (
+        TechnicianWorkday.objects
+        .filter(
+            status=TechnicianWorkday.Status.ACTIVE,
+            ended_at__isnull=True,
+            scheduled_end_at__gt=timezone.now(),
+        )
+        .select_related("technician", "technician__department", "shift")
+        .annotate(has_active_ticket=Exists(active_ticket))
+        .order_by("technician__first_name", "technician__last_name")
+    )
+    requests = (
+        TechnicianAvailabilityRequest.objects
+        .select_related("technician", "technician__department", "workday", "resolved_by")
+        .order_by("-requested_at")
+    )
+    pending_requests = requests.filter(
+        status=TechnicianAvailabilityRequest.Status.PENDING,
+    )
+    active_workday_list = list(active_workdays)
+    context = {
+        "pending_requests": pending_requests,
+        "recent_requests": requests.exclude(
+            status=TechnicianAvailabilityRequest.Status.PENDING,
+        )[:20],
+        "active_workdays": active_workday_list,
+        "pending_count": pending_requests.count(),
+        "active_count": len(active_workday_list),
+        "available_count": sum(
+            item.technician.availability_status == User.AvailabilityStatus.AVAILABLE
+            and not item.has_active_ticket
+            for item in active_workday_list
+        ),
+        "unavailable_count": sum(
+            item.technician.availability_status == User.AvailabilityStatus.UNAVAILABLE
+            for item in active_workday_list
+        ),
+        "busy_count": sum(item.has_active_ticket for item in active_workday_list),
+        "can_resolve": request.user.role in {User.Role.ADMIN, User.Role.SUPERVISOR},
+    }
+    return render(request, "dashboard/technician_control.html", context)
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+@require_POST
+def resolve_technician_request_view(request, pk):
+    availability_request = get_object_or_404(TechnicianAvailabilityRequest, pk=pk)
+    decision = request.POST.get("decision")
+    if decision not in {"approve", "reject"}:
+        messages.error(request, "La decisión indicada no es válida.")
+        return redirect("dashboard:technician_control")
+    try:
+        resolve_technician_availability_request(
+            availability_request,
+            request.user,
+            approve=decision == "approve",
+            resolution_note=request.POST.get("resolution_note", ""),
+        )
+        messages.success(request, "La solicitud fue resuelta correctamente.")
+    except ValidationError as error:
+        messages.error(request, "; ".join(error.messages))
+    return redirect("dashboard:technician_control")

@@ -7,6 +7,8 @@ from .preference_views import (
 from .views import (
     executive_dashboard_view,
     department_dashboard_view,  # ⬅️ NUEVA IMPORTACIÓN
+    resolve_technician_request_view,
+    technician_control_view,
 )
 
 
@@ -24,6 +26,16 @@ urlpatterns = [
         "departamento/",  # ⬅️ NUEVA URL
         department_dashboard_view,
         name="department_dashboard",
+    ),
+    path(
+        "control-tecnicos/",
+        technician_control_view,
+        name="technician_control",
+    ),
+    path(
+        "control-tecnicos/solicitudes/<int:pk>/resolver/",
+        resolve_technician_request_view,
+        name="resolve_technician_request",
     ),
 
     path(

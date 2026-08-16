@@ -3,7 +3,7 @@ from django.contrib.auth.decorators import (
     permission_required,
 )
 from django.contrib import messages
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 
 from django.shortcuts import (
     get_object_or_404,
@@ -32,12 +32,12 @@ from apps.tickets.services import (
     auto_assign_ticket,
     lock_ticket_from_auto_rebalancing,
     rebalance_unworked_auto_assigned_tickets,
-    release_safe_tickets_for_inactive_technician,
     request_waiting_reactivation,
     technician_has_effective_ticket,
 )
 
 from apps.accounts.models import (
+    TechnicianAvailabilityRequest,
     TechnicianWorkday,
     User,
 )
@@ -45,6 +45,7 @@ from apps.accounts.models import (
 
 from apps.accounts.services import (
     close_expired_workdays,
+    create_technician_availability_request,
     finish_technician_workday,
     get_user_department,
     start_technician_workday,
@@ -1489,6 +1490,56 @@ def ticket_conversation_status_view(request, pk):
     return response
 
 
+def _technician_availability_snapshot(technician):
+    workday = (
+        TechnicianWorkday.objects
+        .filter(technician=technician)
+        .order_by("-started_at")
+        .first()
+    )
+    latest_request = None
+    if workday:
+        latest_request = (
+            TechnicianAvailabilityRequest.objects
+            .filter(technician=technician, workday=workday)
+            .order_by("-requested_at")
+            .first()
+        )
+    revision_parts = [
+        technician.availability_status,
+        str(workday.pk) if workday else "none",
+        workday.status if workday else "none",
+        workday.updated_at.isoformat() if workday else "none",
+        str(latest_request.pk) if latest_request else "none",
+        latest_request.status if latest_request else "none",
+        latest_request.updated_at.isoformat() if latest_request else "none",
+    ]
+    return {
+        "revision": ":".join(revision_parts),
+        "availability_status": technician.availability_status,
+        "availability_display": technician.get_availability_status_display(),
+        "workday_status": workday.status if workday else None,
+        "workday_ended_at": (
+            workday.ended_at.isoformat()
+            if workday and workday.ended_at
+            else None
+        ),
+        "request_status": latest_request.status if latest_request else None,
+        "request_type": latest_request.request_type if latest_request else None,
+    }
+
+
+@login_required
+def technician_availability_status_view(request):
+    if request.user.role != User.Role.TECHNICIAN:
+        raise PermissionDenied("Solo los técnicos pueden consultar este estado.")
+    close_expired_workdays()
+    request.user.refresh_from_db(fields=["availability_status"])
+    response = JsonResponse(_technician_availability_snapshot(request.user))
+    response["Cache-Control"] = "no-store"
+    return response
+
+
 # ==========================================================
 # VISTA DEL DASHBOARD
 # ==========================================================
@@ -1565,32 +1616,39 @@ def dashboard_view(request):
         and request.POST.get("form_type") == "finish_workday"
     ):
         try:
-            automatic = request.POST.get("automatic") == "1"
+            active_workday = (
+                TechnicianWorkday.objects
+                .filter(
+                    technician=user,
+                    status=TechnicianWorkday.Status.ACTIVE,
+                    ended_at__isnull=True,
+                )
+                .order_by("-started_at")
+                .first()
+            )
+            if active_workday is None:
+                messages.info(request, "La jornada ya se encuentra finalizada.")
+                return redirect("tickets:dashboard")
+            if active_workday and timezone.now() < active_workday.scheduled_end_at:
+                messages.error(
+                    request,
+                    "Para finalizar la jornada anticipadamente necesita autorización del responsable.",
+                )
+                return redirect("tickets:dashboard")
 
             workday = finish_technician_workday(
                 user,
-                automatically=automatic,
+                automatically=True,
             )
 
-            if automatic:
-                messages.success(
-                    request,
-                    (
-                        "La jornada finalizó automáticamente "
-                        "al cumplirse la hora programada. "
-                        "Hora de salida: "
-                        f"{timezone.localtime(workday.ended_at):%H:%M}."
-                    ),
-                )
-            else:
-                messages.success(
-                    request,
-                    (
-                        "Jornada finalizada correctamente. "
-                        "Hora de salida: "
-                        f"{timezone.localtime(workday.ended_at):%H:%M}."
-                    ),
-                )
+            messages.success(
+                request,
+                (
+                    "La jornada finalizó al cumplirse la hora programada. "
+                    "Hora de salida: "
+                    f"{timezone.localtime(workday.ended_at):%H:%M}."
+                ),
+            )
 
         except ValueError as error:
             messages.error(
@@ -1607,29 +1665,21 @@ def dashboard_view(request):
     ):
         new_status = request.POST.get("availability_status")
 
-        valid_statuses = {
-            User.AvailabilityStatus.AVAILABLE,
-            User.AvailabilityStatus.BUSY,
-            User.AvailabilityStatus.UNAVAILABLE,
-        }
-
-        if new_status in valid_statuses:
+        if new_status == User.AvailabilityStatus.AVAILABLE:
+            active_workday = TechnicianWorkday.objects.filter(
+                technician=user,
+                status=TechnicianWorkday.Status.ACTIVE,
+                ended_at__isnull=True,
+                scheduled_end_at__gt=timezone.now(),
+            ).exists()
+            if not active_workday:
+                messages.error(request, "Debe iniciar su jornada antes de marcarse Disponible.")
+                return redirect("tickets:dashboard")
             user.availability_status = new_status
             user.save(update_fields=["availability_status"])
 
-            if new_status == User.AvailabilityStatus.AVAILABLE:
-                assign_next_ticket_for_technician(
-                    user.department,
-                    user,
-                )
-                rebalance_unworked_auto_assigned_tickets(
-                    user.department
-                )
-            elif new_status == User.AvailabilityStatus.UNAVAILABLE:
-                release_safe_tickets_for_inactive_technician(
-                    user,
-                    reason="el técnico cambió su disponibilidad a No disponible",
-                )
+            assign_next_ticket_for_technician(user.department, user)
+            rebalance_unworked_auto_assigned_tickets(user.department)
 
             messages.success(
                 request,
@@ -1641,9 +1691,25 @@ def dashboard_view(request):
         else:
             messages.error(
                 request,
-                "El estado de disponibilidad seleccionado no es válido.",
+                "Para cambiar a No disponible necesita autorización del responsable. El estado Ocupado no puede seleccionarse manualmente.",
             )
 
+        return redirect("tickets:dashboard")
+
+    if (
+        request.method == "POST"
+        and user.role == User.Role.TECHNICIAN
+        and request.POST.get("form_type") == "availability_request"
+    ):
+        try:
+            create_technician_availability_request(
+                user,
+                request.POST.get("request_type"),
+                request.POST.get("reason"),
+            )
+            messages.success(request, "La solicitud fue enviada al responsable.")
+        except ValidationError as error:
+            messages.error(request, "; ".join(error.messages))
         return redirect("tickets:dashboard")
     
 
@@ -1709,6 +1775,32 @@ def dashboard_view(request):
                 .order_by("-started_at")
                 .first()
             )
+    pending_availability_requests = TechnicianAvailabilityRequest.objects.none()
+    pending_early_workday_end_request = None
+    pending_unavailable_request = None
+    if (
+        is_technician
+        and today_workday
+        and today_workday.status == TechnicianWorkday.Status.ACTIVE
+    ):
+        pending_availability_requests = (
+            TechnicianAvailabilityRequest.objects
+            .filter(
+                technician=user,
+                workday=today_workday,
+                status=TechnicianAvailabilityRequest.Status.PENDING,
+            )
+            .order_by("requested_at")
+        )
+        pending_early_workday_end_request = pending_availability_requests.filter(
+            request_type=(
+                TechnicianAvailabilityRequest.RequestType.EARLY_WORKDAY_END
+            ),
+        ).first()
+        pending_unavailable_request = pending_availability_requests.filter(
+            request_type=TechnicianAvailabilityRequest.RequestType.UNAVAILABLE,
+        ).first()
+
     context = {
         'queue_data': queue_data,
         'stats': stats,
@@ -1721,6 +1813,13 @@ def dashboard_view(request):
         'department': department,
         'today_workday': today_workday,
         'technician_capacity': technician_capacity,
+        'pending_availability_requests': pending_availability_requests,
+        'pending_early_workday_end_request': pending_early_workday_end_request,
+        'pending_unavailable_request': pending_unavailable_request,
+        'technician_availability_revision': (
+            _technician_availability_snapshot(user)["revision"]
+            if is_technician else ""
+        ),
     }
 
     return render(

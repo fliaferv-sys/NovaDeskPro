@@ -4,7 +4,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.views import LoginView
 from django.shortcuts import redirect, render
 
-from apps.accounts.models import User
+from apps.accounts.models import TechnicianAvailabilityRequest, User
 from apps.activity.models import ActivityLog
 from apps.institution.models import InstitutionSettings
 from apps.printing.models import Consumable
@@ -157,6 +157,9 @@ def home_view(request):
         "consumables_low_stock": consumables_low_stock,
         "consumables_overstock": consumables_overstock,
         "total_reorder_cost": total_reorder_cost,
+        "pending_technician_requests": TechnicianAvailabilityRequest.objects.filter(
+            status=TechnicianAvailabilityRequest.Status.PENDING,
+        ).count(),
     }
 
     return render(

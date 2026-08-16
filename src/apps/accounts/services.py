@@ -1,9 +1,13 @@
 from datetime import datetime, time, timedelta
 
+from django.core.exceptions import ValidationError
+from django.db import transaction
+from django.urls import reverse
 from django.utils import timezone
 
 from .models import (
     Department,
+    TechnicianAvailabilityRequest,
     TechnicianWorkday,
     User,
     WorkShift,
@@ -125,8 +129,8 @@ def start_technician_workday(technician):
     - Fuera del rango 06:00 a 09:00.
     - Dura 8 horas desde el momento de inicio.
 
-    El técnico puede finalizar cualquier jornada
-    manualmente antes de la hora programada.
+    Una salida antes de la hora programada requiere
+    una solicitud aprobada.
 
     Si ya existe una jornada activa, no crea otra.
     """
@@ -261,6 +265,7 @@ def start_technician_workday(technician):
 def finish_technician_workday(
     technician,
     automatically=False,
+    authorized=False,
 ):
     """
     Finaliza la jornada activa del técnico.
@@ -286,6 +291,15 @@ def finish_technician_workday(
     if workday is None:
         raise ValueError(
             "No existe una jornada activa para finalizar."
+        )
+
+    if (
+        not automatically
+        and not authorized
+        and workday.scheduled_end_at > timezone.now()
+    ):
+        raise ValidationError(
+            "La salida anticipada requiere una solicitud aprobada."
         )
 
     if automatically:
@@ -314,19 +328,6 @@ def finish_technician_workday(
         update_fields=[
             "availability_status",
         ]
-    )
-
-    from apps.tickets.services import (
-        release_safe_tickets_for_inactive_technician,
-    )
-
-    release_safe_tickets_for_inactive_technician(
-        technician,
-        reason=(
-            "la jornada finalizó automáticamente"
-            if automatically
-            else "el técnico finalizó manualmente su jornada"
-        ),
     )
 
     return workday
@@ -396,15 +397,216 @@ def close_expired_workdays():
             ]
         )
 
-        from apps.tickets.services import (
-            release_safe_tickets_for_inactive_technician,
-        )
-
-        release_safe_tickets_for_inactive_technician(
-            technician,
-            reason="la jornada vencida fue cerrada automáticamente",
-        )
-
         closed_count += 1
 
     return closed_count
+
+
+def get_active_technician_workday(technician):
+    return (
+        TechnicianWorkday.objects
+        .filter(
+            technician=technician,
+            status=TechnicianWorkday.Status.ACTIVE,
+            ended_at__isnull=True,
+            scheduled_end_at__gt=timezone.now(),
+        )
+        .order_by("-started_at")
+        .first()
+    )
+
+
+def _user_display_name(user):
+    return user.get_full_name().strip() or user.email
+
+
+def _request_action_display(availability_request):
+    if (
+        availability_request.request_type
+        == TechnicianAvailabilityRequest.RequestType.EARLY_WORKDAY_END
+    ):
+        return "salida anticipada"
+    return "quedar No disponible"
+
+
+def _notify_availability_request_created(availability_request):
+    from apps.notifications.models import Notification
+    from apps.notifications.services import (
+        create_or_update_notification,
+        send_web_push_to_user,
+    )
+
+    recipients = User.objects.filter(
+        role__in=[User.Role.ADMIN, User.Role.SUPERVISOR],
+        is_active=True,
+    )
+    link = reverse("dashboard:technician_control")
+    message = (
+        f"{_user_display_name(availability_request.technician)} solicita "
+        f"{_request_action_display(availability_request)}."
+    )
+    for recipient in recipients.iterator():
+        unique_key = (
+            f"technician-availability-request-{availability_request.pk}-"
+            f"created-{recipient.pk}"
+        )
+        _, created = create_or_update_notification(
+            recipient=recipient,
+            notification_type=Notification.TYPE_GENERAL,
+            level=Notification.LEVEL_WARNING,
+            title="Solicitud de técnico pendiente",
+            message=message,
+            link=link,
+            object_type="TechnicianAvailabilityRequest",
+            object_id=availability_request.pk,
+            unique_key=unique_key,
+        )
+        if created:
+            transaction.on_commit(
+                lambda recipient=recipient, unique_key=unique_key: (
+                    send_web_push_to_user(
+                        user=recipient,
+                        title="Solicitud de técnico pendiente",
+                        body=message,
+                        url=link,
+                        tag=unique_key,
+                    )
+                )
+            )
+
+
+def _notify_availability_request_resolved(availability_request):
+    from apps.notifications.models import Notification
+    from apps.notifications.services import (
+        create_or_update_notification,
+        send_web_push_to_user,
+    )
+
+    approved = (
+        availability_request.status
+        == TechnicianAvailabilityRequest.Status.APPROVED
+    )
+    resolution = "aprobada" if approved else "rechazada"
+    title = f"Solicitud de técnico {resolution}"
+    message = (
+        f"Tu solicitud de {_request_action_display(availability_request)} "
+        f"fue {resolution}."
+    )
+    recipient = availability_request.technician
+    link = reverse("tickets:dashboard")
+    unique_key = (
+        f"technician-availability-request-{availability_request.pk}-"
+        f"{availability_request.status.lower()}-{recipient.pk}"
+    )
+    _, created = create_or_update_notification(
+        recipient=recipient,
+        notification_type=Notification.TYPE_GENERAL,
+        level=(
+            Notification.LEVEL_SUCCESS
+            if approved
+            else Notification.LEVEL_INFO
+        ),
+        title=title,
+        message=message,
+        link=link,
+        object_type="TechnicianAvailabilityRequest",
+        object_id=availability_request.pk,
+        unique_key=unique_key,
+    )
+    if created:
+        transaction.on_commit(
+            lambda: send_web_push_to_user(
+                user=recipient,
+                title=title,
+                body=message,
+                url=link,
+                tag=unique_key,
+            )
+        )
+
+
+@transaction.atomic
+def create_technician_availability_request(technician, request_type, reason):
+    reason = (reason or "").strip()
+    if technician.role != User.Role.TECHNICIAN:
+        raise ValidationError("Solo los técnicos pueden crear esta solicitud.")
+    if request_type not in TechnicianAvailabilityRequest.RequestType.values:
+        raise ValidationError("El tipo de solicitud no es válido.")
+    if not reason:
+        raise ValidationError("Debe indicar el motivo de la solicitud.")
+
+    workday = get_active_technician_workday(technician)
+    if workday is None:
+        raise ValidationError("Debe tener una jornada activa para enviar la solicitud.")
+    if TechnicianAvailabilityRequest.objects.filter(
+        technician=technician,
+        workday=workday,
+        request_type=request_type,
+        status=TechnicianAvailabilityRequest.Status.PENDING,
+    ).exists():
+        raise ValidationError("Ya existe una solicitud pendiente del mismo tipo.")
+
+    availability_request = TechnicianAvailabilityRequest.objects.create(
+        technician=technician,
+        workday=workday,
+        request_type=request_type,
+        reason=reason,
+    )
+    _notify_availability_request_created(availability_request)
+    return availability_request
+
+
+@transaction.atomic
+def resolve_technician_availability_request(
+    availability_request,
+    resolved_by,
+    approve,
+    resolution_note="",
+):
+    if resolved_by.role not in {User.Role.ADMIN, User.Role.SUPERVISOR}:
+        raise ValidationError("No tiene autorización para resolver solicitudes.")
+
+    availability_request = (
+        TechnicianAvailabilityRequest.objects
+        .select_for_update()
+        .select_related("technician", "workday")
+        .get(pk=availability_request.pk)
+    )
+    if availability_request.technician_id == resolved_by.pk:
+        raise ValidationError("El técnico no puede resolver su propia solicitud.")
+    if availability_request.status != TechnicianAvailabilityRequest.Status.PENDING:
+        raise ValidationError("La solicitud ya fue resuelta.")
+
+    if approve:
+        if (
+            not availability_request.workday.is_active_workday
+            or availability_request.workday.scheduled_end_at <= timezone.now()
+        ):
+            raise ValidationError("La jornada relacionada ya no está activa.")
+        if availability_request.request_type == TechnicianAvailabilityRequest.RequestType.UNAVAILABLE:
+            technician = availability_request.technician
+            technician.availability_status = User.AvailabilityStatus.UNAVAILABLE
+            technician.save(update_fields=["availability_status"])
+        else:
+            finish_technician_workday(
+                availability_request.technician,
+                authorized=True,
+            )
+        availability_request.status = TechnicianAvailabilityRequest.Status.APPROVED
+    else:
+        availability_request.status = TechnicianAvailabilityRequest.Status.REJECTED
+
+    availability_request.resolved_at = timezone.now()
+    availability_request.resolved_by = resolved_by
+    availability_request.resolution_note = (resolution_note or "").strip()
+    availability_request.save(
+        update_fields=[
+            "status",
+            "resolved_at",
+            "resolved_by",
+            "resolution_note",
+            "updated_at",
+        ]
+    )
+    _notify_availability_request_resolved(availability_request)
+    return availability_request

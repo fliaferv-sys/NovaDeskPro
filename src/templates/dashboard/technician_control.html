@@ -1,0 +1,79 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}Control de técnicos | NovaDesk Pro{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>Control de técnicos</h1>
+        <p class="page-subtitle">Disponibilidad, jornadas activas y solicitudes recientes.</p>
+    </div>
+    <a href="{% url 'home' %}" class="btn-secondary">Volver</a>
+</div>
+
+<div class="kpi-grid">
+    <div class="kpi-card"><h3>Solicitudes pendientes</h3><h1>{{ pending_count }}</h1></div>
+    <div class="kpi-card"><h3>En jornada</h3><h1>{{ active_count }}</h1></div>
+    <div class="kpi-card"><h3>Disponibles</h3><h1>{{ available_count }}</h1></div>
+    <div class="kpi-card"><h3>Ocupados</h3><h1>{{ busy_count }}</h1></div>
+    <div class="kpi-card"><h3>No disponibles</h3><h1>{{ unavailable_count }}</h1></div>
+</div>
+
+<div class="table-card">
+    <h2>Solicitudes pendientes</h2>
+    <div class="table-responsive">
+        <table class="table">
+            <thead><tr><th>Técnico</th><th>Departamento</th><th>Jornada</th><th>Solicitud</th><th>Motivo</th><th>Solicitada</th><th>Acción</th></tr></thead>
+            <tbody>
+            {% for item in pending_requests %}
+                <tr>
+                    <td>{{ item.technician.get_full_name|default:item.technician.username }}</td>
+                    <td>{{ item.technician.department|default:"—" }}</td>
+                    <td>{{ item.workday.started_at|date:"d/m/Y H:i" }} – {{ item.workday.scheduled_end_at|date:"H:i" }}</td>
+                    <td>{{ item.get_request_type_display }}</td>
+                    <td>{{ item.reason }}</td>
+                    <td>{{ item.requested_at|date:"d/m/Y H:i" }}</td>
+                    <td>
+                        {% if can_resolve %}
+                        <form method="post" action="{% url 'dashboard:resolve_technician_request' item.pk %}">
+                            {% csrf_token %}
+                            <input type="text" name="resolution_note" placeholder="Observación">
+                            <button class="btn-primary" name="decision" value="approve">Aprobar</button>
+                            <button class="btn-secondary" name="decision" value="reject">Rechazar</button>
+                        </form>
+                        {% else %}<span>Solo lectura</span>{% endif %}
+                    </td>
+                </tr>
+            {% empty %}<tr><td colspan="7">No hay solicitudes pendientes.</td></tr>{% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="table-card">
+    <h2>Jornadas activas</h2>
+    <div class="table-responsive">
+        <table class="table">
+            <thead><tr><th>Técnico</th><th>Departamento</th><th>Inicio</th><th>Fin programado</th><th>Estado efectivo</th></tr></thead>
+            <tbody>
+            {% for item in active_workdays %}
+                <tr><td>{{ item.technician.get_full_name|default:item.technician.username }}</td><td>{{ item.technician.department|default:"—" }}</td><td>{{ item.started_at|date:"d/m/Y H:i" }}</td><td>{{ item.scheduled_end_at|date:"d/m/Y H:i" }}</td><td>{% if item.has_active_ticket %}Ocupado{% else %}{{ item.technician.get_availability_status_display }}{% endif %}</td></tr>
+            {% empty %}<tr><td colspan="5">No hay técnicos en jornada.</td></tr>{% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="table-card">
+    <h2>Solicitudes recientes</h2>
+    <div class="table-responsive">
+        <table class="table">
+            <thead><tr><th>Técnico</th><th>Tipo</th><th>Estado</th><th>Solicitada</th><th>Resuelta</th><th>Responsable</th></tr></thead>
+            <tbody>
+            {% for item in recent_requests %}<tr><td>{{ item.technician.get_full_name|default:item.technician.username }}</td><td>{{ item.get_request_type_display }}</td><td>{{ item.get_status_display }}</td><td>{{ item.requested_at|date:"d/m/Y H:i" }}</td><td>{{ item.resolved_at|date:"d/m/Y H:i"|default:"—" }}</td><td>{{ item.resolved_by|default:"—" }}</td></tr>
+            {% empty %}<tr><td colspan="6">No hay solicitudes resueltas.</td></tr>{% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

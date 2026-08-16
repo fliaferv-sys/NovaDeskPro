@@ -849,6 +849,14 @@ NovaDesk Pro
         <p>Herramientas de consulta y seguimiento de uso frecuente.</p>
     </div>
     <div class="staff-quick-access-grid">
+        {% if request.user.is_superuser or request.user.role == "ADMIN" or request.user.role == "SUPERVISOR" %}
+        <article class="staff-quick-access-card">
+            <div class="staff-quick-access-icon"><i class="bi bi-person-check"></i></div>
+            <h3>Control de técnicos</h3>
+            <p>Solicitudes pendientes: <strong>{{ pending_technician_requests }}</strong>. Disponibilidad y jornadas activas.</p>
+            <a href="{% url 'dashboard:technician_control' %}" class="staff-quick-access-link">Abrir control <i class="bi bi-arrow-right"></i></a>
+        </article>
+        {% endif %}
         {% if request.user.is_superuser or request.user.role == "ADMIN" or request.user.role == "SUPERVISOR" or request.user.role == "AUDITOR" %}
         <article class="staff-quick-access-card">
             <div class="staff-quick-access-icon"><i class="bi bi-bar-chart-line"></i></div>

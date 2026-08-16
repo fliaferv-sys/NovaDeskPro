@@ -1,6 +1,7 @@
 from datetime import timedelta
 import re
 
+from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -11,8 +12,209 @@ from .access import (
     can_register_intervention,
 )
 
-from .models import User
+from .models import (
+    TechnicianAvailabilityRequest,
+    TechnicianWorkday,
+    User,
+    WorkShift,
+)
+from .services import (
+    create_technician_availability_request,
+    finish_technician_workday,
+    resolve_technician_availability_request,
+)
 from apps.tickets.models import Ticket
+from apps.notifications.models import Notification
+
+
+class TechnicianAvailabilityRequestServiceTests(TestCase):
+    def setUp(self):
+        self.technician = User.objects.create_user(
+            username="availability-technician",
+            email="availability-technician@example.test",
+            password="test-password",
+            role=User.Role.TECHNICIAN,
+            availability_status=User.AvailabilityStatus.AVAILABLE,
+        )
+        self.admin = User.objects.create_user(
+            username="availability-admin",
+            email="availability-admin@example.test",
+            password="test-password",
+            role=User.Role.ADMIN,
+        )
+        self.supervisor = User.objects.create_user(
+            username="availability-supervisor",
+            email="availability-supervisor@example.test",
+            password="test-password",
+            role=User.Role.SUPERVISOR,
+        )
+        self.client_user = User.objects.create_user(
+            username="availability-client",
+            email="availability-client@example.test",
+            password="test-password",
+            role=User.Role.CLIENT,
+        )
+        self.shift = WorkShift.objects.create(
+            name="Turno de prueba",
+            start_time="08:00",
+            end_time="16:00",
+        )
+        now = timezone.now()
+        self.workday = TechnicianWorkday.objects.create(
+            technician=self.technician,
+            date=timezone.localdate(),
+            shift=self.shift,
+            started_at=now,
+            scheduled_end_at=now + timedelta(hours=4),
+        )
+
+    def create_request(self, request_type):
+        return create_technician_availability_request(
+            self.technician,
+            request_type,
+            "Motivo operativo justificado.",
+        )
+
+    def test_request_requires_reason_active_workday_and_is_unique(self):
+        with self.assertRaises(ValidationError):
+            create_technician_availability_request(
+                self.technician,
+                TechnicianAvailabilityRequest.RequestType.UNAVAILABLE,
+                "",
+            )
+        self.create_request(TechnicianAvailabilityRequest.RequestType.UNAVAILABLE)
+        with self.assertRaises(ValidationError):
+            self.create_request(TechnicianAvailabilityRequest.RequestType.UNAVAILABLE)
+        self.workday.status = TechnicianWorkday.Status.FINISHED
+        self.workday.ended_at = timezone.now()
+        self.workday.save(update_fields=["status", "ended_at"])
+        with self.assertRaises(ValidationError):
+            self.create_request(
+                TechnicianAvailabilityRequest.RequestType.EARLY_WORKDAY_END
+            )
+
+    def test_creation_notifications_are_idempotent_and_recipient_specific(self):
+        availability_request = self.create_request(
+            TechnicianAvailabilityRequest.RequestType.EARLY_WORKDAY_END
+        )
+        notifications = Notification.objects.filter(
+            object_type="TechnicianAvailabilityRequest",
+            object_id=str(availability_request.pk),
+        )
+        self.assertEqual(notifications.count(), 2)
+        self.assertSetEqual(
+            set(notifications.values_list("recipient_id", flat=True)),
+            {self.admin.pk, self.supervisor.pk},
+        )
+        self.assertFalse(notifications.filter(is_read=True).exists())
+        self.assertFalse(notifications.filter(recipient=self.client_user).exists())
+        for notification in notifications:
+            self.assertEqual(
+                notification.link,
+                reverse("dashboard:technician_control"),
+            )
+            self.assertIn(str(notification.recipient_id), notification.unique_key)
+
+        with self.assertRaises(ValidationError):
+            self.create_request(
+                TechnicianAvailabilityRequest.RequestType.EARLY_WORKDAY_END
+            )
+        self.assertEqual(notifications.count(), 2)
+
+    def test_direct_early_finish_is_rejected(self):
+        with self.assertRaises(ValidationError):
+            finish_technician_workday(self.technician)
+        self.workday.refresh_from_db()
+        self.assertTrue(self.workday.is_active_workday)
+
+    def test_admin_approval_sets_unavailable_without_finishing_workday(self):
+        availability_request = self.create_request(
+            TechnicianAvailabilityRequest.RequestType.UNAVAILABLE
+        )
+        resolve_technician_availability_request(
+            availability_request, self.admin, approve=True
+        )
+        availability_request.refresh_from_db()
+        self.technician.refresh_from_db()
+        self.workday.refresh_from_db()
+        self.assertEqual(
+            availability_request.status,
+            TechnicianAvailabilityRequest.Status.APPROVED,
+        )
+        self.assertEqual(availability_request.resolved_by, self.admin)
+        self.assertEqual(
+            self.technician.availability_status,
+            User.AvailabilityStatus.UNAVAILABLE,
+        )
+        self.assertTrue(self.workday.is_active_workday)
+        notification = Notification.objects.get(
+            recipient=self.technician,
+            object_type="TechnicianAvailabilityRequest",
+            object_id=str(availability_request.pk),
+        )
+        self.assertIn("aprobada", notification.message)
+        self.assertFalse(notification.is_read)
+        self.assertEqual(notification.link, reverse("tickets:dashboard"))
+        with self.assertRaises(ValidationError):
+            resolve_technician_availability_request(
+                availability_request, self.admin, approve=True
+            )
+        self.assertEqual(
+            Notification.objects.filter(
+                recipient=self.technician,
+                object_id=str(availability_request.pk),
+            ).count(),
+            1,
+        )
+
+    def test_supervisor_approval_finishes_workday_without_releasing_ticket(self):
+        ticket = Ticket.objects.create(
+            title="Ticket asignado",
+            description="Debe conservar responsable.",
+            requester=self.admin,
+            assigned_to=self.technician,
+            status=Ticket.Status.IN_PROGRESS,
+        )
+        availability_request = self.create_request(
+            TechnicianAvailabilityRequest.RequestType.EARLY_WORKDAY_END
+        )
+        resolve_technician_availability_request(
+            availability_request,
+            self.supervisor,
+            approve=True,
+            resolution_note="Salida autorizada.",
+        )
+        ticket.refresh_from_db()
+        self.workday.refresh_from_db()
+        self.assertEqual(ticket.assigned_to, self.technician)
+        self.assertEqual(self.workday.status, TechnicianWorkday.Status.FINISHED)
+        self.assertFalse(self.workday.ended_automatically)
+
+    def test_rejection_preserves_workday_and_availability(self):
+        availability_request = self.create_request(
+            TechnicianAvailabilityRequest.RequestType.EARLY_WORKDAY_END
+        )
+        resolve_technician_availability_request(
+            availability_request, self.admin, approve=False
+        )
+        availability_request.refresh_from_db()
+        self.technician.refresh_from_db()
+        self.workday.refresh_from_db()
+        self.assertEqual(
+            availability_request.status,
+            TechnicianAvailabilityRequest.Status.REJECTED,
+        )
+        self.assertEqual(
+            self.technician.availability_status,
+            User.AvailabilityStatus.AVAILABLE,
+        )
+        self.assertTrue(self.workday.is_active_workday)
+        notification = Notification.objects.get(
+            recipient=self.technician,
+            object_type="TechnicianAvailabilityRequest",
+            object_id=str(availability_request.pk),
+        )
+        self.assertIn("rechazada", notification.message)
 
 
 class AccountAccessTests(TestCase):
