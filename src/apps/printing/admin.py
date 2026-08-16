@@ -37,7 +37,7 @@ class PrintingDeviceAdmin(admin.ModelAdmin):
     )
     
     search_fields = (
-        "asset__asset_code",
+        "asset__internal_code",
         "asset__brand",
         "asset__model",
         "asset__serial_number",
@@ -535,7 +535,7 @@ class ConsumableCompatibilityAdmin(admin.ModelAdmin):
     )
 
     search_fields = (
-        "printing_device__asset__asset_code",
+        "printing_device__asset__internal_code",
         "printing_device__asset__brand",
         "printing_device__asset__model",
         "printing_device__asset__serial_number",
@@ -614,7 +614,7 @@ class StockMovementAdmin(admin.ModelAdmin):
         "consumable__name",
         "consumable__manufacturer",
         "consumable__model",
-        "printing_device__asset__asset_code",
+        "printing_device__asset__internal_code",
         "printing_device__asset__serial_number",
         "printing_device__asset__brand",
         "printing_device__asset__model",
@@ -799,7 +799,7 @@ class MeterReadingAdmin(admin.ModelAdmin):
     )
 
     search_fields = (
-        "printing_device__asset__asset_code",
+        "printing_device__asset__internal_code",
         "printing_device__asset__brand",
         "printing_device__asset__model",
         "printing_device__asset__serial_number",
@@ -992,7 +992,7 @@ class MaintenanceRecordAdmin(admin.ModelAdmin):
     )
 
     search_fields = (
-        "printing_device__asset__asset_code",
+        "printing_device__asset__internal_code",
         "printing_device__asset__brand",
         "printing_device__asset__model",
         "printing_device__asset__serial_number",

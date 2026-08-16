@@ -266,7 +266,7 @@ def printing_device_detail(request, pk):
             "responsible_user",
             "asset__assigned_user",
             "asset__branch",
-            "asset__location_detail",
+            "asset__physical_location",
         ),
         pk=pk,
     )

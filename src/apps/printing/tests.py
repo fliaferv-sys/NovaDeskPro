@@ -1,3 +1,5 @@
+from django.contrib import admin
+from django.core.exceptions import FieldDoesNotExist
 from django.test import TestCase
 from django.urls import reverse
 
@@ -43,6 +45,60 @@ class PrintingDashboardAccessTests(TestCase):
         response = self.client.get(reverse("printing:dashboard"))
 
         self.assertEqual(response.status_code, 403)
+
+
+class PrintingDeviceDetailTests(TestCase):
+    def test_detail_uses_existing_asset_location_relation(self):
+        from apps.inventory.models import Asset
+        from .models import PrintingDevice
+
+        user = User.objects.create_user(
+            username="printing-detail-admin",
+            email="printing-detail-admin@example.test",
+            password="test-password-123",
+            role=User.Role.ADMIN,
+        )
+        asset = Asset.objects.create(
+            internal_code="PRINT-DETAIL-001",
+            asset_type=Asset.AssetType.PRINTER,
+            brand="Test",
+            model="DetailPrinter",
+        )
+        printing_device = PrintingDevice.objects.create(asset=asset)
+        self.client.force_login(user)
+
+        response = self.client.get(
+            reverse("printing:device_detail", kwargs={"pk": printing_device.pk})
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["device"], printing_device)
+
+
+class PrintingAdminSearchFieldsTests(TestCase):
+    def test_all_printing_admin_search_fields_resolve_to_existing_fields(self):
+        printing_admins = (
+            model_admin
+            for model, model_admin in admin.site._registry.items()
+            if model._meta.app_label == "printing"
+        )
+
+        for model_admin in printing_admins:
+            for search_field in model_admin.search_fields:
+                model = model_admin.model
+                field_path = search_field.lstrip("^=@")
+
+                with self.subTest(
+                    model=model._meta.label,
+                    search_field=search_field,
+                ):
+                    for field_name in field_path.split("__"):
+                        try:
+                            field = model._meta.get_field(field_name)
+                        except FieldDoesNotExist as error:
+                            self.fail(str(error))
+                        if field.is_relation:
+                            model = field.related_model
 
 class ConsumableStockTests(TestCase):
     def setUp(self):
@@ -191,7 +247,7 @@ class ConsumableStockTests(TestCase):
 
         movement.full_clean()
 
-class MeterReadingTests(TestCase):
+class MeterReadingValidationTests(TestCase):
     def setUp(self):
         from apps.inventory.models import Asset
         from .models import PrintingDevice
@@ -247,7 +303,7 @@ class MeterReadingTests(TestCase):
         with self.assertRaises(ValidationError):
             new_reading.full_clean()
 
-class MeterReadingTests(TestCase):
+class MeterReadingHistoricalRegressionTests(TestCase):
     def setUp(self):
         from apps.inventory.models import Asset
         from .models import PrintingDevice
