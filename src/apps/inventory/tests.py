@@ -1858,6 +1858,28 @@ class AssetQrTests(TestCase):
         self.assertTrue(response.content.startswith(b"\x89PNG"))
         qr_class.return_value.add_data.assert_called_once_with(expected_url)
 
+    @override_settings(ALLOWED_HOSTS=["qr-example.trycloudflare.com"])
+    def test_qr_uses_public_host_and_scheme_forwarded_by_tunnel(self):
+        self.client.force_login(self.admin)
+        expected_url = (
+            "https://qr-example.trycloudflare.com"
+            + reverse("inventory:asset_detail", args=[self.asset.pk])
+        )
+        with patch("apps.inventory.views.qrcode.QRCode") as qr_class:
+            qr_image = qr_class.return_value.make_image.return_value
+            qr_image.save.side_effect = (
+                lambda output, format: output.write(b"\x89PNG\r\n\x1a\n")
+            )
+            response = self.client.get(
+                reverse("inventory:asset_qr_image", args=[self.asset.pk]),
+                HTTP_HOST="127.0.0.1:8000",
+                HTTP_X_FORWARDED_HOST="qr-example.trycloudflare.com",
+                HTTP_X_FORWARDED_PROTO="https",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        qr_class.return_value.add_data.assert_called_once_with(expected_url)
+
     def test_label_uses_asset_detail_url_and_is_linked_from_detail(self):
         self.client.force_login(self.admin)
         label_url = reverse("inventory:asset_qr_label", args=[self.asset.pk])

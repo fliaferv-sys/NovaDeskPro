@@ -56,6 +56,11 @@ CSRF_TRUSTED_ORIGINS = [
     if origin.strip()
 ]
 
+# Preserve the public URL when Django is served behind Cloudflare or another
+# trusted reverse proxy. ALLOWED_HOSTS continues validating the forwarded host.
+USE_X_FORWARDED_HOST = True
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
 
 # ==========================================================
 # APLICACIONES INSTALADAS

@@ -322,13 +322,13 @@ class AuthorizationDocumentForm(forms.ModelForm):
         }
 
         labels = {
-            "file": "Tres formularios firmados (PDF unico)",
+            "file": "Planilla oficial firmada (PDF)",
         }
 
         error_messages = {
             "file": {
                 "required": (
-                    "Debe adjuntar el PDF con los tres formularios firmados."
+                    "Debe adjuntar el PDF con la planilla oficial firmada."
                 ),
             },
         }
@@ -356,7 +356,7 @@ class AuthorizationDocumentForm(forms.ModelForm):
         )
         if not uploaded_file.name.lower().endswith(".pdf"):
             raise forms.ValidationError(
-                "Los tres formularios firmados deben adjuntarse en un unico PDF."
+                "La planilla oficial firmada debe adjuntarse en formato PDF."
             )
         return uploaded_file
 
@@ -365,6 +365,98 @@ class AuthorizationDocumentForm(forms.ModelForm):
             self.cleaned_data.get("identity_file"),
             "la fotocopia de cedula",
         )
+
+
+class CorreoWindowsDocumentForm(forms.Form):
+    """Documentos oficiales requeridos para un alta de Correo y Windows."""
+
+    form_01 = forms.FileField(
+        label="FORMULARIO 01 firmado",
+        widget=forms.ClearableFileInput(
+            attrs={"class": "form-control", "accept": ".pdf"}
+        ),
+    )
+    form_02 = forms.FileField(
+        label="FORMULARIO 02 firmado",
+        widget=forms.ClearableFileInput(
+            attrs={"class": "form-control", "accept": ".pdf"}
+        ),
+    )
+    form_03 = forms.FileField(
+        label="FORMULARIO 03 firmado",
+        widget=forms.ClearableFileInput(
+            attrs={"class": "form-control", "accept": ".pdf"}
+        ),
+    )
+    identity_file = forms.FileField(
+        label="Fotocopia de cedula",
+        widget=forms.ClearableFileInput(
+            attrs={"class": "form-control", "accept": ".pdf"}
+        ),
+    )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        labels = {
+            "form_01": "FORMULARIO 01 firmado",
+            "form_02": "FORMULARIO 02 firmado",
+            "form_03": "FORMULARIO 03 firmado",
+            "identity_file": "fotocopia de cedula",
+        }
+        for field_name, label in labels.items():
+            uploaded_file = cleaned_data.get(field_name)
+            if not uploaded_file:
+                continue
+            if not uploaded_file.name.lower().endswith(".pdf"):
+                self.add_error(
+                    field_name,
+                    f"{label} debe estar en formato PDF.",
+                )
+            elif uploaded_file.size > 10 * 1024 * 1024:
+                self.add_error(
+                    field_name,
+                    f"{label} no puede superar los 10 MB.",
+                )
+        return cleaned_data
+
+
+class GestionExpedientesDocumentForm(forms.Form):
+    """Documentos requeridos para el alta en Gestion de Expedientes."""
+
+    request_form = forms.FileField(
+        label="Formulario de Gestión de Expedientes firmado",
+        widget=forms.ClearableFileInput(
+            attrs={"class": "form-control", "accept": ".pdf"}
+        ),
+    )
+    identity_file = forms.FileField(
+        label="Fotocopia de cedula",
+        widget=forms.ClearableFileInput(
+            attrs={"class": "form-control", "accept": ".pdf"}
+        ),
+    )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        labels = {
+            "request_form": "El formulario de Gestión de Expedientes firmado",
+            "identity_file": "La fotocopia de cedula",
+        }
+        for field_name, label in labels.items():
+            uploaded_file = cleaned_data.get(field_name)
+            if not uploaded_file:
+                continue
+            if not uploaded_file.name.lower().endswith(".pdf"):
+                self.add_error(
+                    field_name,
+                    f"{label} debe estar en formato PDF.",
+                )
+            elif uploaded_file.size > 10 * 1024 * 1024:
+                self.add_error(
+                    field_name,
+                    f"{label} no puede superar los 10 MB.",
+                )
+        return cleaned_data
 
 # ==========================================================
 # FORMULARIO DE COMENTARIOS

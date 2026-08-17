@@ -39,6 +39,9 @@
                 <div class="col-12 col-sm-auto">
                     <button class="btn btn-primary asset-qr-action" type="submit"><i class="bi bi-search me-1"></i> Buscar</button>
                 </div>
+                <div class="col-12 col-sm-auto">
+                    <a class="btn btn-outline-primary asset-qr-action" href="{% url 'inventory:asset_list' %}"><i class="bi bi-list-ul me-1"></i> Ver todos los activos</a>
+                </div>
                 {% if search %}
                 <div class="col-12 col-sm-auto">
                     <a class="btn btn-outline-secondary asset-qr-action" href="{% url 'inventory:asset_qr_center' %}">Limpiar</a>

@@ -25,6 +25,7 @@ from .models import (
     AccessIdentityDocument,
     AuthorizationDocument,
     GeneratedAuthorizationForm,
+    QuickAction,
     SystemAccessRequest,
     Ticket,
     TicketComment,
@@ -2028,10 +2029,10 @@ class UserCreationRequestWorkflowTests(TestCase):
                 "priority": Ticket.Priority.MEDIUM,
                 "category": Ticket.Category.SOFTWARE,
                 "request_flow": "AUTHORIZATION",
-                "request_kind": "USER_CREATION_DOCUMENTS",
+                "request_kind": "SAP_USER_CREATION_DOCUMENTS",
                 "authorization-file": SimpleUploadedFile(
-                    "three-signed-forms.pdf",
-                    b"%PDF signed forms",
+                    "sap-request-form.pdf",
+                    b"%PDF signed SAP request form",
                     content_type="application/pdf",
                 ),
                 "authorization-identity_file": SimpleUploadedFile(
@@ -2047,7 +2048,7 @@ class UserCreationRequestWorkflowTests(TestCase):
             ticket__description="Alta de cuenta institucional",
         )
         self.assertEqual(created_request.requested_email, self.requester.email)
-        self.assertEqual(created_request.requested_system, "CORREO_WINDOWS")
+        self.assertEqual(created_request.requested_system, "SAP")
         self.assertEqual(
             created_request.authorization_status,
             SystemAccessRequest.AuthorizationStatus.FORM_ATTACHED,
@@ -2065,24 +2066,263 @@ class UserCreationRequestWorkflowTests(TestCase):
                 "priority": Ticket.Priority.MEDIUM,
                 "category": Ticket.Category.SOFTWARE,
                 "request_flow": "AUTHORIZATION",
-                "request_kind": "USER_CREATION_DOCUMENTS",
+                "request_kind": "SAP_USER_CREATION_DOCUMENTS",
             },
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(Ticket.objects.count(), ticket_count)
         self.assertContains(response, "Debe adjuntar")
 
-    def test_ticket_form_exposes_user_creation_shortcut(self):
+    def test_ticket_form_exposes_sap_user_creation_shortcut(self):
         response = self.client.get(reverse("tickets:ticket_create"))
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Crear nuevo usuario corporativo")
-        self.assertContains(
-            response,
-            "Formularios para creación de usuario para Correo y Windows",
-        )
+        self.assertContains(response, "Alta y Baja de usuario SAP")
+        self.assertContains(response, "planilla oficial de solicitud")
+        self.assertContains(response, "Complétela y fírmela")
+        self.assertContains(response, "fotocopia de cédula")
+        self.assertContains(response, "data-dept=\"SYSTEMS\"")
         self.assertContains(
             response,
             "https://intranet.petropar.gov.py/?page_id=3309",
+        )
+
+    def test_other_quick_actions_are_still_rendered(self):
+        QuickAction.objects.create(
+            title="Error del sistema",
+            description="Reportar un error operativo",
+            department=self.systems_department,
+            label="Sistemas",
+            order=10,
+        )
+
+        response = self.client.get(reverse("tickets:ticket_create"))
+
+        self.assertContains(response, "Alta y Baja de usuario SAP")
+        self.assertContains(response, "Error del sistema")
+
+    def correo_windows_payload(self):
+        return {
+            "title": "Nuevo usuario de Correo y Windows",
+            "description": "Alta de cuenta institucional",
+            "priority": Ticket.Priority.MEDIUM,
+            "category": Ticket.Category.HARDWARE,
+            "request_flow": "AUTHORIZATION",
+            "request_kind": "CORREO_WINDOWS_USER_CREATION_DOCUMENTS",
+            "correo_windows-form_01": SimpleUploadedFile(
+                "formulario-01.pdf", b"%PDF form 01", content_type="application/pdf"
+            ),
+            "correo_windows-form_02": SimpleUploadedFile(
+                "formulario-02.pdf", b"%PDF form 02", content_type="application/pdf"
+            ),
+            "correo_windows-form_03": SimpleUploadedFile(
+                "formulario-03.pdf", b"%PDF form 03", content_type="application/pdf"
+            ),
+            "correo_windows-identity_file": SimpleUploadedFile(
+                "cedula.pdf", b"%PDF identity", content_type="application/pdf"
+            ),
+        }
+
+    def test_correo_windows_shortcut_and_instructions_are_rendered(self):
+        response = self.client.get(reverse("tickets:ticket_create"))
+
+        self.assertContains(response, "Nuevo usuario de Correo y Windows")
+        self.assertContains(response, "Alta y Baja de usuario SAP")
+        self.assertContains(response, "Soporte DTI")
+        self.assertContains(response, "FORMULARIO 01")
+        self.assertContains(response, "FORMULARIO 02")
+        self.assertContains(response, "FORMULARIO 03")
+        self.assertContains(response, "fotocopia de cédula")
+        self.assertContains(
+            response,
+            "https://intranet.petropar.gov.py/?page_id=3309",
+        )
+
+    def test_correo_windows_requires_each_document(self):
+        required_fields = (
+            "correo_windows-form_01",
+            "correo_windows-form_02",
+            "correo_windows-form_03",
+            "correo_windows-identity_file",
+        )
+        for missing_field in required_fields:
+            with self.subTest(missing_field=missing_field):
+                payload = self.correo_windows_payload()
+                payload.pop(missing_field)
+                ticket_count = Ticket.objects.count()
+
+                response = self.client.post(
+                    reverse("tickets:ticket_create"),
+                    payload,
+                )
+
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(Ticket.objects.count(), ticket_count)
+                self.assertFormError(
+                    response.context["correo_windows_document_form"],
+                    missing_field.removeprefix("correo_windows-"),
+                    "Este campo es obligatorio.",
+                )
+
+    def test_correo_windows_rejects_non_pdf_document(self):
+        payload = self.correo_windows_payload()
+        payload["correo_windows-form_02"] = SimpleUploadedFile(
+            "formulario-02.jpg",
+            b"image",
+            content_type="image/jpeg",
+        )
+        ticket_count = Ticket.objects.count()
+
+        response = self.client.post(reverse("tickets:ticket_create"), payload)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Ticket.objects.count(), ticket_count)
+        self.assertFormError(
+            response.context["correo_windows_document_form"],
+            "form_02",
+            "FORMULARIO 02 firmado debe estar en formato PDF.",
+        )
+
+    def test_correo_windows_creates_ticket_request_and_four_documents(self):
+        response = self.client.post(
+            reverse("tickets:ticket_create"),
+            self.correo_windows_payload(),
+        )
+
+        self.assertEqual(response.status_code, 302)
+        ticket = Ticket.objects.get(title="Nuevo usuario de Correo y Windows")
+        access_request = ticket.system_access_request
+        self.assertEqual(access_request.requested_system, "CORREO_WINDOWS")
+        self.assertEqual(
+            access_request.operation,
+            SystemAccessRequest.RequestOperation.USER_CREATION,
+        )
+        self.assertEqual(access_request.authorization_documents.count(), 3)
+        self.assertEqual(
+            list(
+                access_request.authorization_documents.order_by("version")
+                .values_list("version", "original_name")
+            ),
+            [
+                (1, "formulario-01.pdf"),
+                (2, "formulario-02.pdf"),
+                (3, "formulario-03.pdf"),
+            ],
+        )
+        self.assertEqual(access_request.identity_documents.count(), 1)
+        self.assertEqual(
+            access_request.identity_documents.get().original_name,
+            "cedula.pdf",
+        )
+
+    def gestion_expedientes_payload(self):
+        return {
+            "title": "Usuario de Gestión de Expedientes",
+            "description": "Alta de usuario para Gestión de Expedientes",
+            "priority": Ticket.Priority.MEDIUM,
+            "category": Ticket.Category.SOFTWARE,
+            "request_flow": "AUTHORIZATION",
+            "request_kind": "GESTION_EXPEDIENTES_USER_CREATION_DOCUMENTS",
+            "gestion_expedientes-request_form": SimpleUploadedFile(
+                "solicitud-expedientes.pdf",
+                b"%PDF signed request",
+                content_type="application/pdf",
+            ),
+            "gestion_expedientes-identity_file": SimpleUploadedFile(
+                "cedula.pdf",
+                b"%PDF identity",
+                content_type="application/pdf",
+            ),
+        }
+
+    def test_gestion_expedientes_replaces_generic_systems_shortcut(self):
+        QuickAction.objects.create(
+            title="Alta o baja de usuario",
+            description="Acceso genérico redundante",
+            department=self.systems_department,
+            label="Sistemas",
+            order=5,
+        )
+
+        response = self.client.get(reverse("tickets:ticket_create"))
+
+        self.assertNotContains(response, '<span class="qa-title">Alta o baja de usuario</span>')
+        self.assertContains(response, "Alta y Baja de usuario SAP")
+        self.assertContains(response, "Usuario de Gestión de Expedientes")
+        self.assertContains(
+            response,
+            "https://intranet.petropar.gov.py/proxy-media/2025/01/"
+            "SOLICITUD-SISTEMA-EXPEDIENTES.pdf",
+        )
+        self.assertContains(response, "complételo")
+        self.assertContains(response, "fírmelo")
+        self.assertContains(response, "escanéelo")
+        self.assertContains(response, "fotocopia de cédula")
+
+    def test_gestion_expedientes_requires_form_and_identity(self):
+        for missing_field in (
+            "gestion_expedientes-request_form",
+            "gestion_expedientes-identity_file",
+        ):
+            with self.subTest(missing_field=missing_field):
+                payload = self.gestion_expedientes_payload()
+                payload.pop(missing_field)
+                ticket_count = Ticket.objects.count()
+
+                response = self.client.post(
+                    reverse("tickets:ticket_create"),
+                    payload,
+                )
+
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(Ticket.objects.count(), ticket_count)
+                self.assertFormError(
+                    response.context["gestion_expedientes_document_form"],
+                    missing_field.removeprefix("gestion_expedientes-"),
+                    "Este campo es obligatorio.",
+                )
+
+    def test_gestion_expedientes_rejects_non_pdf(self):
+        payload = self.gestion_expedientes_payload()
+        payload["gestion_expedientes-request_form"] = SimpleUploadedFile(
+            "solicitud-expedientes.jpg",
+            b"image",
+            content_type="image/jpeg",
+        )
+        ticket_count = Ticket.objects.count()
+
+        response = self.client.post(reverse("tickets:ticket_create"), payload)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Ticket.objects.count(), ticket_count)
+        self.assertFormError(
+            response.context["gestion_expedientes_document_form"],
+            "request_form",
+            "El formulario de Gestión de Expedientes firmado debe estar en formato PDF.",
+        )
+
+    def test_gestion_expedientes_creates_linked_request_and_documents(self):
+        response = self.client.post(
+            reverse("tickets:ticket_create"),
+            self.gestion_expedientes_payload(),
+        )
+
+        self.assertEqual(response.status_code, 302)
+        ticket = Ticket.objects.get(title="Usuario de Gestión de Expedientes")
+        access_request = ticket.system_access_request
+        self.assertEqual(access_request.requested_system, "GESTOR_EXPEDIENTES")
+        self.assertEqual(
+            access_request.operation,
+            SystemAccessRequest.RequestOperation.USER_CREATION,
+        )
+        self.assertEqual(access_request.authorization_documents.count(), 1)
+        self.assertEqual(
+            access_request.authorization_documents.get().original_name,
+            "solicitud-expedientes.pdf",
+        )
+        self.assertEqual(access_request.identity_documents.count(), 1)
+        self.assertEqual(
+            access_request.identity_documents.get().original_name,
+            "cedula.pdf",
         )
 
     def test_requester_can_generate_prefilled_pdf(self):

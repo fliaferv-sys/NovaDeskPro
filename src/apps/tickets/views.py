@@ -55,6 +55,8 @@ from .authorization_pdf import generate_authorization_pdf
 
 from .forms import (
     AuthorizationDocumentForm,
+    CorreoWindowsDocumentForm,
+    GestionExpedientesDocumentForm,
     SystemAccessRequestForm,
     TicketAssignForm,
     TicketAttachmentForm,
@@ -290,21 +292,30 @@ def ticket_create_view(request):
         is_active=True
     ).select_related('department').order_by('department', 'order'))
 
-    support_department = departments.filter(code="SUPPORT").first()
-    if support_department and not any(
-        action.department_id == support_department.pk
-        for action in quick_actions
-    ):
-        quick_actions.append(
-            QuickAction(
-                title="Alta o baja de usuario",
-                description="Solicitud formal de usuario",
-                department=support_department,
-                label="Soporte DTI",
-                icon="bi-person-plus",
-                order=0,
+    special_quick_actions = (
+        ("SYSTEMS", "Alta y Baja de usuario SAP", "Sistemas"),
+        (
+            "SUPPORT",
+            "Nuevo usuario de Correo y Windows",
+            "Soporte DTI",
+        ),
+    )
+    for department_code, title, label in special_quick_actions:
+        target_department = departments.filter(code=department_code).first()
+        if target_department and not any(
+            action.department_id == target_department.pk
+            for action in quick_actions
+        ):
+            quick_actions.append(
+                QuickAction(
+                    title=title,
+                    description=f"Solicitud de alta: {title}",
+                    department=target_department,
+                    label=label,
+                    icon="bi-person-plus",
+                    order=0,
+                )
             )
-        )
 
     quick_actions.sort(
         key=lambda action: (action.department.name, action.order, action.title)
@@ -332,17 +343,46 @@ def ticket_create_view(request):
             request.FILES,
             prefix="authorization",
         )
+        correo_windows_document_form = CorreoWindowsDocumentForm(
+            request.POST,
+            request.FILES,
+            prefix="correo_windows",
+        )
+        gestion_expedientes_document_form = GestionExpedientesDocumentForm(
+            request.POST,
+            request.FILES,
+            prefix="gestion_expedientes",
+        )
 
         request_flow = request.POST.get("request_flow")
         request_kind = request.POST.get("request_kind", "")
+        is_sap_user_creation = request_kind == "SAP_USER_CREATION_DOCUMENTS"
+        is_correo_windows_user_creation = (
+            request_kind == "CORREO_WINDOWS_USER_CREATION_DOCUMENTS"
+        )
+        is_gestion_expedientes_user_creation = (
+            request_kind == "GESTION_EXPEDIENTES_USER_CREATION_DOCUMENTS"
+        )
+        is_document_based_user_creation = (
+            is_sap_user_creation
+            or is_correo_windows_user_creation
+            or is_gestion_expedientes_user_creation
+        )
         access_form_is_valid = (
             request_flow != "AUTHORIZATION"
-            or request_kind == "USER_CREATION_DOCUMENTS"
+            or is_document_based_user_creation
             or access_request_form.is_valid()
         )
         document_form_is_valid = (
-            request_kind != "USER_CREATION_DOCUMENTS"
-            or authorization_document_form.is_valid()
+            (not is_sap_user_creation or authorization_document_form.is_valid())
+            and (
+                not is_correo_windows_user_creation
+                or correo_windows_document_form.is_valid()
+            )
+            and (
+                not is_gestion_expedientes_user_creation
+                or gestion_expedientes_document_form.is_valid()
+            )
         )
 
         if (
@@ -432,17 +472,17 @@ def ticket_create_view(request):
 
             if request_flow == "AUTHORIZATION":
 
-                is_document_based_user_creation = (
-                    request_kind == "USER_CREATION_DOCUMENTS"
-                )
-
                 access_request = SystemAccessRequest.objects.create(
 
                     ticket=ticket,
 
                     requested_system=(
-                        "CORREO_WINDOWS"
-                        if is_document_based_user_creation
+                        "GESTOR_EXPEDIENTES"
+                        if is_gestion_expedientes_user_creation
+                        else "CORREO_WINDOWS"
+                        if is_correo_windows_user_creation
+                        else "SAP"
+                        if is_sap_user_creation
                         else request.POST.get("access-requested_system", "")
                     ),
 
@@ -491,8 +531,12 @@ def ticket_create_view(request):
                     ),
 
                     requested_permissions=(
-                        "Creacion de usuario para Correo y Windows"
-                        if is_document_based_user_creation
+                        "Creacion de usuario de Gestion de Expedientes"
+                        if is_gestion_expedientes_user_creation
+                        else "Creacion de usuario para Correo y Windows"
+                        if is_correo_windows_user_creation
+                        else "Creacion de usuario de SAP"
+                        if is_sap_user_creation
                         else request.POST.get("access-requested_permissions", "")
                     ),
 
@@ -520,7 +564,7 @@ def ticket_create_view(request):
                     )
                 )
 
-                if is_document_based_user_creation:
+                if is_sap_user_creation:
                     signed_file = request.FILES["authorization-file"]
                     identity_file = request.FILES[
                         "authorization-identity_file"
@@ -549,6 +593,73 @@ def ticket_create_view(request):
                         uploaded_by=request.user,
                     )
 
+                elif is_correo_windows_user_creation:
+                    for version, field_name in enumerate(
+                        ("form_01", "form_02", "form_03"),
+                        start=1,
+                    ):
+                        signed_file = correo_windows_document_form.cleaned_data[
+                            field_name
+                        ]
+                        AuthorizationDocument.objects.create(
+                            access_request=access_request,
+                            file=signed_file,
+                            original_name=signed_file.name,
+                            content_type=signed_file.content_type or "",
+                            size=signed_file.size,
+                            version=version,
+                            validation_status=(
+                                AuthorizationDocument.ValidationStatus.PENDING
+                            ),
+                            uploaded_by=request.user,
+                        )
+
+                    identity_file = correo_windows_document_form.cleaned_data[
+                        "identity_file"
+                    ]
+                    AccessIdentityDocument.objects.create(
+                        access_request=access_request,
+                        file=identity_file,
+                        original_name=identity_file.name,
+                        content_type=identity_file.content_type or "",
+                        size=identity_file.size,
+                        version=1,
+                        uploaded_by=request.user,
+                    )
+
+                elif is_gestion_expedientes_user_creation:
+                    signed_file = (
+                        gestion_expedientes_document_form.cleaned_data[
+                            "request_form"
+                        ]
+                    )
+                    identity_file = (
+                        gestion_expedientes_document_form.cleaned_data[
+                            "identity_file"
+                        ]
+                    )
+                    AuthorizationDocument.objects.create(
+                        access_request=access_request,
+                        file=signed_file,
+                        original_name=signed_file.name,
+                        content_type=signed_file.content_type or "",
+                        size=signed_file.size,
+                        version=1,
+                        validation_status=(
+                            AuthorizationDocument.ValidationStatus.PENDING
+                        ),
+                        uploaded_by=request.user,
+                    )
+                    AccessIdentityDocument.objects.create(
+                        access_request=access_request,
+                        file=identity_file,
+                        original_name=identity_file.name,
+                        content_type=identity_file.content_type or "",
+                        size=identity_file.size,
+                        version=1,
+                        uploaded_by=request.user,
+                    )
+
                                 # ==========================================================
                 # GUARDAR DOCUMENTO FIRMADO DE AUTORIZACIÓN
                 # ==========================================================
@@ -559,8 +670,8 @@ def ticket_create_view(request):
                     module="Tickets",
                     description=(
                         "Se registro la solicitud de acceso para "
-                        f"{access_request.affected_employee} con los tres "
-                        "formularios firmados y la fotocopia de cedula."
+                        f"{access_request.affected_employee} con la planilla "
+                        "firmada y la fotocopia de cedula."
                     ),
                     object_type="SystemAccessRequest",
                     object_id=str(access_request.pk),
@@ -593,6 +704,12 @@ def ticket_create_view(request):
         authorization_document_form = AuthorizationDocumentForm(
             prefix="authorization",
         )
+        correo_windows_document_form = CorreoWindowsDocumentForm(
+            prefix="correo_windows",
+        )
+        gestion_expedientes_document_form = GestionExpedientesDocumentForm(
+            prefix="gestion_expedientes",
+        )
 
     # ==========================================================
     # DEPURACIÓN - ENVIANDO AL TEMPLATE
@@ -605,6 +722,10 @@ def ticket_create_view(request):
             "form": form,
             "access_request_form": access_request_form,
             "authorization_document_form": authorization_document_form,
+            "correo_windows_document_form": correo_windows_document_form,
+            "gestion_expedientes_document_form": (
+                gestion_expedientes_document_form
+            ),
             "department": department,
             "departments": departments,
             "quick_actions": quick_actions,

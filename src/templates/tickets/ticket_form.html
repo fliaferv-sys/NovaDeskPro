@@ -812,7 +812,11 @@
         .authorization-warning > div,
         .authorization-warning span,
         #userCreationUploadSection,
-        #userCreationUploadSection > div {
+        #userCreationUploadSection > div,
+        #correoWindowsUploadSection,
+        #correoWindowsUploadSection > div,
+        #gestionExpedientesUploadSection,
+        #gestionExpedientesUploadSection > div {
             min-width: 0;
             max-width: 100%;
             overflow-wrap: anywhere;
@@ -939,19 +943,39 @@
                 {% for group in action_groups %}
                     <div id="qa-{{ group.grouper.code }}" class="qa-group {% if forloop.first %}active{% endif %}">
                         <div class="quick-actions-grid">
-                            {% if group.grouper.code == "SUPPORT" %}
+                            {% if group.grouper.code == "SYSTEMS" %}
                                 <button type="button" class="quick-action-btn"
-                                        onclick="precargarCreacionUsuario()">
+                                        onclick="precargarCreacionUsuarioSAP()">
                                     <span class="qa-icon"><i class="bi bi-person-plus"></i></span>
                                     <span class="qa-content">
-                                        <span class="qa-title">Crear nuevo usuario corporativo</span>
+                                        <span class="qa-title">Alta y Baja de usuario SAP</span>
+                                        <span class="qa-label">Sistemas</span>
+                                    </span>
+                                    <span class="qa-arrow">›</span>
+                                </button>
+                                <button type="button" class="quick-action-btn"
+                                        onclick="precargarGestionExpedientes()">
+                                    <span class="qa-icon"><i class="bi bi-file-earmark-person"></i></span>
+                                    <span class="qa-content">
+                                        <span class="qa-title">Usuario de Gestión de Expedientes</span>
+                                        <span class="qa-label">Sistemas</span>
+                                    </span>
+                                    <span class="qa-arrow">›</span>
+                                </button>
+                            {% endif %}
+                            {% if group.grouper.code == "SUPPORT" %}
+                                <button type="button" class="quick-action-btn"
+                                        onclick="precargarCreacionCorreoWindows()">
+                                    <span class="qa-icon"><i class="bi bi-person-plus"></i></span>
+                                    <span class="qa-content">
+                                        <span class="qa-title">Nuevo usuario de Correo y Windows</span>
                                         <span class="qa-label">Soporte DTI</span>
                                     </span>
                                     <span class="qa-arrow">›</span>
                                 </button>
                             {% endif %}
                             {% for action in group.list %}
-                                {% if action.title != "Alta o baja de usuario" %}
+                                {% if action.title != "Alta o baja de usuario" and action.title != "Alta y Baja de usuario SAP" and action.title != "Nuevo usuario de Correo y Windows" and action.title != "Usuario de Gestión de Expedientes" %}
                                 <button class="quick-action-btn" onclick="precargarTicket(
                                     '{{ action.title|escapejs }}',
                                     '{{ action.description|escapejs }}',
@@ -968,29 +992,70 @@
                             {% endfor %}
                         </div>
 
-                        {% if group.grouper.code == "SUPPORT" %}
+                        {% if group.grouper.code == "SYSTEMS" %}
                             <div id="userCreationInstructions"
                                  style="display:none; margin-top:14px; padding:16px;
                                         border:1px solid #93c5fd; border-radius:10px;
                                         background:#eff6ff; color:#1e3a5f;">
                                 <strong style="display:block; margin-bottom:8px;">
-                                    Formularios obligatorios para crear un usuario
+                                    Documentos obligatorios para crear un usuario de SAP
                                 </strong>
                                 <p style="margin:0 0 8px; font-size:13px;">
-                                    Ingrese al enlace institucional y descargue el paquete llamado
-                                    <strong>“Formularios para creación de usuario para Correo y Windows”</strong>.
-                                    El paquete contiene <strong>tres formularios</strong> y deben completarse todos.
+                                    Ingrese a la página de Petropar y descargue la
+                                    <strong>planilla oficial de solicitud</strong>. Complétela y fírmela.
                                 </p>
                                 <p style="margin:0 0 10px; font-size:13px;">
-                                    Una vez firmados por las autoridades directivas, escanee los tres
-                                    en un único PDF y adjúntelo al ticket junto con la fotocopia de
-                                    cédula para su aprobación.
+                                    Adjunte la planilla firmada y la fotocopia de cédula, escaneadas,
+                                    antes de realizar el ticket.
                                 </p>
                                 <a href="https://intranet.petropar.gov.py/?page_id=3309"
                                    target="_blank" rel="noopener noreferrer"
                                    class="btn-primary"
                                    style="display:inline-block; padding:8px 12px; text-decoration:none;">
-                                    Abrir formularios en la intranet
+                                    Abrir página de Petropar
+                                </a>
+                            </div>
+                            <div id="gestionExpedientesInstructions"
+                                 style="display:none; margin-top:14px; padding:16px;
+                                        border:1px solid #93c5fd; border-radius:10px;
+                                        background:#eff6ff; color:#1e3a5f;">
+                                <strong style="display:block; margin-bottom:8px;">
+                                    FORMULARIO DE SOLICITUD PARA USUARIO DE GESTIÓN DE EXPEDIENTES
+                                </strong>
+                                <p style="margin:0 0 10px; font-size:13px;">
+                                    Descargue el formulario oficial, complételo, fírmelo y escanéelo en PDF.
+                                    Adjunte también la fotocopia de cédula en PDF.
+                                </p>
+                                <a href="https://intranet.petropar.gov.py/proxy-media/2025/01/SOLICITUD-SISTEMA-EXPEDIENTES.pdf"
+                                   target="_blank" rel="noopener noreferrer"
+                                   class="btn-primary"
+                                   style="display:inline-block; padding:8px 12px; text-decoration:none;">
+                                    Descargar formulario de Gestión de Expedientes
+                                </a>
+                            </div>
+                        {% endif %}
+                        {% if group.grouper.code == "SUPPORT" %}
+                            <div id="correoWindowsInstructions"
+                                 style="display:none; margin-top:14px; padding:16px;
+                                        border:1px solid #93c5fd; border-radius:10px;
+                                        background:#eff6ff; color:#1e3a5f;">
+                                <strong style="display:block; margin-bottom:8px;">
+                                    Documentos obligatorios para Correo y Windows
+                                </strong>
+                                <p style="margin:0 0 8px; font-size:13px;">
+                                    Ingrese a la página de Petropar y busque la sección
+                                    <strong>“Formularios para creación de usuario para Correo y Windows”</strong>.
+                                    Descargue FORMULARIO 01, FORMULARIO 02 y FORMULARIO 03.
+                                </p>
+                                <p style="margin:0 0 10px; font-size:13px;">
+                                    Complete y firme los tres formularios. Escanee cada uno en PDF
+                                    y adjunte también la fotocopia de cédula en PDF.
+                                </p>
+                                <a href="https://intranet.petropar.gov.py/?page_id=3309"
+                                   target="_blank" rel="noopener noreferrer"
+                                   class="btn-primary"
+                                   style="display:inline-block; padding:8px 12px; text-decoration:none;">
+                                    Abrir página de Petropar
                                 </a>
                             </div>
                         {% endif %}
@@ -1068,16 +1133,14 @@
                                     border:1px solid #93c5fd; border-radius:10px;
                                     background:#eff6ff; color:#1e3a5f;">
                             <strong style="display:block; margin-bottom:8px;">
-                                Formularios obligatorios para crear un usuario
+                                Documentos obligatorios para crear un usuario de SAP
                             </strong>
                             <p style="margin:0 0 8px; font-size:13px;">
-                                Ingrese al enlace institucional y descargue el paquete
-                                <strong>“Formularios para creación de usuario para Correo y Windows”</strong>.
-                                El paquete contiene <strong>tres formularios</strong> y deben completarse todos.
+                                Ingrese a la página de Petropar y descargue la
+                                <strong>planilla oficial de solicitud</strong>. Complétela y fírmela.
                             </p>
                             <p style="margin:0 0 12px; font-size:13px;">
-                                Una vez firmados por las autoridades directivas, escanee los tres
-                                en un único PDF y adjúntelo junto con la fotocopia de cédula.
+                                Adjunte la planilla firmada y la fotocopia de cédula, escaneadas.
                                 El ticket se creará solamente cuando ambos archivos sean válidos.
                             </p>
                             <a href="https://intranet.petropar.gov.py/?page_id=3309"
@@ -1085,12 +1148,12 @@
                                class="btn-primary"
                                style="display:inline-block; padding:8px 12px;
                                       margin-bottom:16px; text-decoration:none;">
-                                Abrir formularios en la intranet
+                                Abrir página de Petropar
                             </a>
 
                             <div class="form-group" style="margin-top:8px;">
                                 <label for="{{ authorization_document_form.file.id_for_label }}">
-                                    Tres formularios firmados (PDF único)
+                                    Planilla oficial firmada (PDF)
                                     <span class="required">*</span>
                                 </label>
                                 {{ authorization_document_form.file }}
@@ -1113,6 +1176,82 @@
                                     </div>
                                 {% endif %}
                             </div>
+                        </div>
+                    </div>
+
+                    <div id="correoWindowsUploadSection" style="display:none;">
+                        <div style="padding:16px; margin-bottom:16px;
+                                    border:1px solid #93c5fd; border-radius:10px;
+                                    background:#eff6ff; color:#1e3a5f;">
+                            <strong style="display:block; margin-bottom:8px;">
+                                Cuatro documentos PDF obligatorios
+                            </strong>
+                            <p style="margin:0 0 8px; font-size:13px;">
+                                Abra la página de Petropar y busque
+                                <strong>“Formularios para creación de usuario para Correo y Windows”</strong>.
+                                Descargue, complete, firme y escanee por separado los formularios 01, 02 y 03.
+                            </p>
+                            <p style="margin:0 0 12px; font-size:13px;">
+                                Adjunte también la fotocopia de cédula. Los cuatro archivos deben ser PDF;
+                                el ticket no se creará si falta alguno.
+                            </p>
+                            <a href="https://intranet.petropar.gov.py/?page_id=3309"
+                               target="_blank" rel="noopener noreferrer"
+                               class="btn-primary"
+                               style="display:inline-block; padding:8px 12px;
+                                      margin-bottom:16px; text-decoration:none;">
+                                Abrir página de Petropar
+                            </a>
+
+                            {% for field in correo_windows_document_form %}
+                                <div class="form-group" style="margin-top:12px;">
+                                    <label for="{{ field.id_for_label }}">
+                                        {{ field.label }} — PDF <span class="required">*</span>
+                                    </label>
+                                    {{ field }}
+                                    {% if field.errors %}
+                                        <div style="color:#dc3545; font-size:12px; margin-top:4px;">
+                                            {{ field.errors }}
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <div id="gestionExpedientesUploadSection" style="display:none;">
+                        <div style="padding:16px; margin-bottom:16px;
+                                    border:1px solid #93c5fd; border-radius:10px;
+                                    background:#eff6ff; color:#1e3a5f;">
+                            <strong style="display:block; margin-bottom:8px;">
+                                FORMULARIO DE SOLICITUD PARA USUARIO DE GESTIÓN DE EXPEDIENTES
+                            </strong>
+                            <p style="margin:0 0 12px; font-size:13px;">
+                                Descargue el formulario oficial, complételo, fírmelo y escanéelo en PDF.
+                                Adjunte el formulario firmado y la fotocopia de cédula, ambos en PDF.
+                                El ticket no se creará si falta alguno.
+                            </p>
+                            <a href="https://intranet.petropar.gov.py/proxy-media/2025/01/SOLICITUD-SISTEMA-EXPEDIENTES.pdf"
+                               target="_blank" rel="noopener noreferrer"
+                               class="btn-primary"
+                               style="display:inline-block; padding:8px 12px;
+                                      margin-bottom:16px; text-decoration:none;">
+                                Descargar formulario de Gestión de Expedientes
+                            </a>
+
+                            {% for field in gestion_expedientes_document_form %}
+                                <div class="form-group" style="margin-top:12px;">
+                                    <label for="{{ field.id_for_label }}">
+                                        {{ field.label }} — PDF <span class="required">*</span>
+                                    </label>
+                                    {{ field }}
+                                    {% if field.errors %}
+                                        <div style="color:#dc3545; font-size:12px; margin-top:4px;">
+                                            {{ field.errors }}
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            {% endfor %}
                         </div>
                     </div>
 
@@ -1359,7 +1498,7 @@
         });
     }
 
-            function ocultarFormularioAutorizacion() {
+    function ocultarFormularioAutorizacion() {
         const authorizationSection = document.getElementById(
             'authorizationSection'
         );
@@ -1387,6 +1526,17 @@
             operationSelect.disabled = false;
             operationSelect.value = '';
         }
+
+        [
+            'userCreationUploadSection',
+            'correoWindowsUploadSection',
+            'gestionExpedientesUploadSection'
+        ].forEach(
+            function(sectionId) {
+                const section = document.getElementById(sectionId);
+                if (section) section.style.display = 'none';
+            }
+        );
     }
 
 
@@ -1476,12 +1626,12 @@
     }
 
 
-    function precargarCreacionUsuario() {
+    function precargarCreacionUsuarioSAP() {
         precargarTicket(
-            'Alta o baja de usuario',
-            'Solicitud de creación de usuario para Correo y Windows. ' +
-            'Se adjuntarán los tres formularios institucionales firmados y la fotocopia de cédula.',
-            'SUPPORT'
+            'Alta y Baja de usuario SAP',
+            'Solicitud de creación de usuario de SAP. ' +
+            'Se adjuntarán la planilla oficial firmada y la fotocopia de cédula.',
+            'SYSTEMS'
         );
 
         const operationSelect = document.querySelector(
@@ -1495,12 +1645,12 @@
             'select[name="access-requested_system"]'
         );
         if (systemSelect) {
-            systemSelect.value = 'CORREO_WINDOWS';
+            systemSelect.value = 'SAP';
         }
 
         const requestKind = document.getElementById('requestKind');
         if (requestKind) {
-            requestKind.value = 'USER_CREATION_DOCUMENTS';
+            requestKind.value = 'SAP_USER_CREATION_DOCUMENTS';
         }
 
         const authorizationSection = document.getElementById(
@@ -1519,14 +1669,124 @@
         const uploadSection = document.getElementById(
             'userCreationUploadSection'
         );
+        const correoWindowsUploadSection = document.getElementById(
+            'correoWindowsUploadSection'
+        );
+        const gestionExpedientesUploadSection = document.getElementById(
+            'gestionExpedientesUploadSection'
+        );
         if (accessWarning) accessWarning.style.display = 'none';
         if (accessFields) accessFields.style.display = 'none';
         if (uploadSection) uploadSection.style.display = 'block';
+        if (correoWindowsUploadSection) {
+            correoWindowsUploadSection.style.display = 'none';
+        }
+        if (gestionExpedientesUploadSection) {
+            gestionExpedientesUploadSection.style.display = 'none';
+        }
 
         const titleInput = document.querySelector('input[name="title"]');
         if (titleInput) {
-            titleInput.value = 'Creación de nuevo usuario corporativo';
+            titleInput.value = 'Alta y Baja de usuario SAP';
         }
+    }
+
+
+    function precargarCreacionCorreoWindows() {
+        precargarTicket(
+            'Nuevo usuario de Correo y Windows',
+            'Solicitud de creación de usuario para Correo y Windows. ' +
+            'Se adjuntarán los formularios 01, 02 y 03 firmados y la fotocopia de cédula, todos en PDF.',
+            'SUPPORT'
+        );
+
+        const requestFlow = document.getElementById('requestFlow');
+        const requestKind = document.getElementById('requestKind');
+        if (requestFlow) requestFlow.value = 'AUTHORIZATION';
+        if (requestKind) {
+            requestKind.value = 'CORREO_WINDOWS_USER_CREATION_DOCUMENTS';
+        }
+
+        const systemSelect = document.querySelector(
+            'select[name="access-requested_system"]'
+        );
+        if (systemSelect) systemSelect.value = 'CORREO_WINDOWS';
+
+        const authorizationSection = document.getElementById(
+            'authorizationSection'
+        );
+        const accessWarning = document.getElementById(
+            'accessAuthorizationWarning'
+        );
+        const accessFields = document.getElementById(
+            'accessAuthorizationFields'
+        );
+        const sapUploadSection = document.getElementById(
+            'userCreationUploadSection'
+        );
+        const uploadSection = document.getElementById(
+            'correoWindowsUploadSection'
+        );
+        const gestionExpedientesUploadSection = document.getElementById(
+            'gestionExpedientesUploadSection'
+        );
+        if (authorizationSection) authorizationSection.classList.add('active');
+        if (accessWarning) accessWarning.style.display = 'none';
+        if (accessFields) accessFields.style.display = 'none';
+        if (sapUploadSection) sapUploadSection.style.display = 'none';
+        if (uploadSection) uploadSection.style.display = 'block';
+        if (gestionExpedientesUploadSection) {
+            gestionExpedientesUploadSection.style.display = 'none';
+        }
+    }
+
+
+    function precargarGestionExpedientes() {
+        precargarTicket(
+            'Usuario de Gestión de Expedientes',
+            'Solicitud de alta de usuario de Gestión de Expedientes. ' +
+            'Se adjuntarán el formulario oficial firmado y la fotocopia de cédula, ambos en PDF.',
+            'SYSTEMS'
+        );
+
+        const requestFlow = document.getElementById('requestFlow');
+        const requestKind = document.getElementById('requestKind');
+        if (requestFlow) requestFlow.value = 'AUTHORIZATION';
+        if (requestKind) {
+            requestKind.value = 'GESTION_EXPEDIENTES_USER_CREATION_DOCUMENTS';
+        }
+
+        const systemSelect = document.querySelector(
+            'select[name="access-requested_system"]'
+        );
+        if (systemSelect) systemSelect.value = 'GESTOR_EXPEDIENTES';
+
+        const authorizationSection = document.getElementById(
+            'authorizationSection'
+        );
+        const accessWarning = document.getElementById(
+            'accessAuthorizationWarning'
+        );
+        const accessFields = document.getElementById(
+            'accessAuthorizationFields'
+        );
+        const sapUploadSection = document.getElementById(
+            'userCreationUploadSection'
+        );
+        const correoWindowsUploadSection = document.getElementById(
+            'correoWindowsUploadSection'
+        );
+        const uploadSection = document.getElementById(
+            'gestionExpedientesUploadSection'
+        );
+        if (authorizationSection) authorizationSection.classList.add('active');
+        if (accessWarning) accessWarning.style.display = 'none';
+        if (accessFields) accessFields.style.display = 'none';
+        if (sapUploadSection) sapUploadSection.style.display = 'none';
+        if (correoWindowsUploadSection) {
+            correoWindowsUploadSection.style.display = 'none';
+        }
+        if (uploadSection) uploadSection.style.display = 'block';
     }
 
 
@@ -1622,7 +1882,11 @@
         }
 
         const initialRequestKind = '{{ request_kind|default:""|escapejs }}';
-        if (initialRequestKind === 'USER_CREATION_DOCUMENTS') {
+        if (
+            initialRequestKind === 'SAP_USER_CREATION_DOCUMENTS' ||
+            initialRequestKind === 'CORREO_WINDOWS_USER_CREATION_DOCUMENTS' ||
+            initialRequestKind === 'GESTION_EXPEDIENTES_USER_CREATION_DOCUMENTS'
+        ) {
             const authorizationSection = document.getElementById(
                 'authorizationSection'
             );
@@ -1635,12 +1899,38 @@
             const uploadSection = document.getElementById(
                 'userCreationUploadSection'
             );
+            const correoWindowsUploadSection = document.getElementById(
+                'correoWindowsUploadSection'
+            );
+            const gestionExpedientesUploadSection = document.getElementById(
+                'gestionExpedientesUploadSection'
+            );
             if (authorizationSection) {
                 authorizationSection.classList.add('active');
             }
             if (accessWarning) accessWarning.style.display = 'none';
             if (accessFields) accessFields.style.display = 'none';
-            if (uploadSection) uploadSection.style.display = 'block';
+            if (uploadSection) {
+                uploadSection.style.display = (
+                    initialRequestKind === 'SAP_USER_CREATION_DOCUMENTS'
+                    ? 'block'
+                    : 'none'
+                );
+            }
+            if (correoWindowsUploadSection) {
+                correoWindowsUploadSection.style.display = (
+                    initialRequestKind === 'CORREO_WINDOWS_USER_CREATION_DOCUMENTS'
+                    ? 'block'
+                    : 'none'
+                );
+            }
+            if (gestionExpedientesUploadSection) {
+                gestionExpedientesUploadSection.style.display = (
+                    initialRequestKind === 'GESTION_EXPEDIENTES_USER_CREATION_DOCUMENTS'
+                    ? 'block'
+                    : 'none'
+                );
+            }
         }
     });
  

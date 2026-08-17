@@ -597,6 +597,41 @@ Dashboard - Sistema de Tickets
         font-size: 14px;
     }
 
+    /* Columnas independientes del dashboard técnico en escritorio. */
+    @media (min-width: 1025px) {
+        .dashboard-grid.technician-dashboard {
+            display: flex !important;
+            align-items: flex-start;
+            gap: 24px;
+        }
+
+        .dashboard-grid.technician-dashboard > .dashboard-left {
+            display: flex !important;
+            flex: 0 0 380px;
+            flex-direction: column;
+            align-self: flex-start;
+            gap: 20px;
+            min-width: 0;
+        }
+
+        .dashboard-grid.technician-dashboard > .dashboard-right {
+            display: flex !important;
+            flex: 1 1 0;
+            flex-direction: column;
+            align-self: flex-start;
+            justify-content: flex-start !important;
+            gap: 20px;
+            height: auto !important;
+            min-height: 0 !important;
+            min-width: 0;
+        }
+
+        .dashboard-grid.technician-dashboard > .dashboard-right > * {
+            flex-grow: 0 !important;
+            flex-shrink: 0;
+        }
+    }
+
     /* ===== RESPONSIVE ===== */
     @media (max-width: 1024px) {
         .dashboard-grid {
@@ -1053,9 +1088,21 @@ Dashboard - Sistema de Tickets
                         </div>
                     </div>
                     {% else %}
+                    <details style="margin-top: 16px;">
+                        <summary style="
+                            display: inline-flex;
+                            padding: 11px 20px;
+                            border-radius: 10px;
+                            background: #dc3545;
+                            color: white;
+                            font-weight: 600;
+                            cursor: pointer;
+                        ">
+                            Solicitar salida anticipada
+                        </summary>
                     <form
                         method="post"
-                        style="margin-top: 16px;"
+                        style="margin-top: 12px;"
                     >
                         {% csrf_token %}
 
@@ -1079,9 +1126,10 @@ Dashboard - Sistema de Tickets
                                 cursor: pointer;
                             "
                         >
-                            Solicitar salida anticipada
+                            Enviar solicitud
                         </button>
                     </form>
+                    </details>
                     {% endif %}
 
                                         <form
