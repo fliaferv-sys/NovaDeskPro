@@ -300,6 +300,15 @@ class Consumable(models.Model):
         unique=True,
     )
 
+    stock_product = models.OneToOneField(
+        "inventory.StockProduct",
+        on_delete=models.PROTECT,
+        related_name="printing_consumable",
+        verbose_name="Producto de stock",
+        blank=True,
+        null=True,
+    )
+
     manufacturer = models.CharField(
         "Fabricante",
         max_length=150,

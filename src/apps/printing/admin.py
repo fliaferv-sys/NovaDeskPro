@@ -344,6 +344,7 @@ class ConsumableAdmin(admin.ModelAdmin):
     list_display = (
         "reference_code",
         "name",
+        "stock_product",
         "consumable_type",
         "manufacturer",
         "model",
@@ -371,7 +372,11 @@ class ConsumableAdmin(admin.ModelAdmin):
         "reference_code",
         "manufacturer",
         "model",
+        "stock_product__name",
+        "stock_product__reference_code",
     )
+
+    autocomplete_fields = ("stock_product",)
 
     ordering = (
         "name",
@@ -387,6 +392,7 @@ class ConsumableAdmin(admin.ModelAdmin):
                     "name",
                     "consumable_type",
                     "reference_code",
+                    "stock_product",
                     "manufacturer",
                     "model",
                     "color",

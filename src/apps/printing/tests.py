@@ -1,5 +1,7 @@
 from django.contrib import admin
 from django.core.exceptions import FieldDoesNotExist
+from django.db import IntegrityError, transaction
+from django.db.models.deletion import ProtectedError
 from django.test import TestCase
 from django.urls import reverse
 
@@ -246,6 +248,122 @@ class ConsumableStockTests(TestCase):
         )
 
         movement.full_clean()
+
+class ConsumableStockProductIntegrationTests(TestCase):
+    def setUp(self):
+        from apps.inventory.models import StockCategory, StockProduct
+
+        self.category = StockCategory.objects.create(
+            name="Consumibles de impresión",
+            code="printing-consumables-test",
+        )
+        self.stock_product = StockProduct.objects.create(
+            name="Tóner integrado",
+            reference_code="STOCK-TONER-001",
+            category=self.category,
+        )
+
+    def create_consumable(self, *, reference_code, stock_product=None):
+        from .models import Consumable
+
+        return Consumable.objects.create(
+            name="Tóner de prueba",
+            reference_code=reference_code,
+            manufacturer="Test",
+            initial_stock=7,
+            stock_product=stock_product,
+        )
+
+    def test_legacy_consumable_remains_valid_with_null_stock_product(self):
+        consumable = self.create_consumable(reference_code="TONER-NULL-001")
+
+        consumable.full_clean()
+        self.assertIsNone(consumable.stock_product)
+
+    def test_link_supports_forward_and_reverse_navigation(self):
+        consumable = self.create_consumable(
+            reference_code="TONER-LINK-001",
+            stock_product=self.stock_product,
+        )
+
+        self.assertEqual(consumable.stock_product, self.stock_product)
+        self.assertEqual(self.stock_product.printing_consumable, consumable)
+
+    def test_two_consumables_cannot_link_to_same_stock_product(self):
+        self.create_consumable(
+            reference_code="TONER-UNIQUE-001",
+            stock_product=self.stock_product,
+        )
+
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            self.create_consumable(
+                reference_code="TONER-UNIQUE-002",
+                stock_product=self.stock_product,
+            )
+
+    def test_linked_stock_product_is_protected_from_deletion(self):
+        self.create_consumable(
+            reference_code="TONER-PROTECT-001",
+            stock_product=self.stock_product,
+        )
+
+        with self.assertRaises(ProtectedError):
+            self.stock_product.delete()
+
+    def test_nullable_link_does_not_change_stock_or_create_inventory_records(self):
+        from apps.inventory.models import StockBalance
+        from apps.inventory.models import StockMovement as InventoryMovement
+
+        consumable = self.create_consumable(reference_code="TONER-STOCK-001")
+
+        self.assertEqual(consumable.current_stock, 7)
+        self.assertEqual(StockBalance.objects.count(), 0)
+        self.assertEqual(InventoryMovement.objects.count(), 0)
+
+    def test_printing_stock_movement_and_compatibility_keep_working(self):
+        from apps.inventory.models import Asset
+        from .models import (
+            ConsumableCompatibility,
+            PrintingDevice,
+            StockMovement,
+        )
+
+        user = User.objects.create_user(
+            username="printing-integration-user",
+            email="printing-integration-user@example.test",
+            password="test-password-123",
+            role=User.Role.ADMIN,
+        )
+        consumable = self.create_consumable(
+            reference_code="TONER-COMPATIBILITY-001",
+            stock_product=self.stock_product,
+        )
+        asset = Asset.objects.create(
+            internal_code="PRINT-INTEGRATION-001",
+            asset_type=Asset.AssetType.PRINTER,
+            brand="Test",
+            model="IntegrationPrinter",
+        )
+        device = PrintingDevice.objects.create(asset=asset)
+        compatibility = ConsumableCompatibility.objects.create(
+            printing_device=device,
+            consumable=consumable,
+            is_active=True,
+        )
+        movement = StockMovement(
+            consumable=consumable,
+            movement_type=StockMovement.MovementType.CONSUMPTION,
+            quantity=1,
+            printing_device=device,
+            performed_by=user,
+        )
+
+        movement.full_clean()
+        movement.save()
+
+        self.assertEqual(compatibility.consumable, consumable)
+        self.assertEqual(consumable.current_stock, 6)
+
 
 class MeterReadingValidationTests(TestCase):
     def setUp(self):
