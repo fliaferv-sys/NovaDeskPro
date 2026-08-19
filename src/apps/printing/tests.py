@@ -4,6 +4,7 @@ from django.db import IntegrityError, transaction
 from django.db.models.deletion import ProtectedError
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 
 from apps.accounts.models import User
 
@@ -363,6 +364,383 @@ class ConsumableStockProductIntegrationTests(TestCase):
 
         self.assertEqual(compatibility.consumable, consumable)
         self.assertEqual(consumable.current_stock, 6)
+
+
+class ConsumableStockReconciliationTests(TestCase):
+    def setUp(self):
+        from apps.inventory.models import StockCategory
+
+        self.user = User.objects.create_user(
+            username="reconciliation-admin",
+            email="reconciliation@example.test",
+            password="test-password-123",
+            role=User.Role.ADMIN,
+        )
+        self.category = StockCategory.objects.create(
+            name="Conciliación", code="reconciliation-test"
+        )
+
+    def product(self, code, *, active=True):
+        from apps.inventory.models import StockProduct
+
+        return StockProduct.objects.create(
+            name=f"Producto {code}", reference_code=code,
+            category=self.category, is_active=active,
+        )
+
+    def consumable(self, code, *, initial=0, active=True, product=None):
+        from .models import Consumable
+
+        return Consumable.objects.create(
+            name=f"Consumible {code}", reference_code=code,
+            manufacturer="Test", initial_stock=initial,
+            is_active=active, stock_product=product,
+        )
+
+    def batch(self):
+        from .models import ConsumableStockMigrationBatch
+
+        return ConsumableStockMigrationBatch.objects.create(created_by=self.user)
+
+    def generate(self, batch):
+        from .reconciliation import generate_consumable_stock_migration_batch
+
+        return generate_consumable_stock_migration_batch(batch=batch)
+
+    def test_batch_population_is_idempotent_and_unique(self):
+        from django.core.exceptions import ValidationError
+        from .models import ConsumableStockMigrationItem
+
+        consumable = self.consumable("NO-MATCH")
+        batch = self.batch()
+        self.generate(batch)
+        self.generate(batch)
+
+        self.assertEqual(batch.items.filter(consumable=consumable).count(), 1)
+        self.assertEqual(ConsumableStockMigrationItem.objects.count(), 1)
+        with self.assertRaises(ValidationError):
+            ConsumableStockMigrationItem.objects.create(
+                batch=batch, consumable=consumable,
+                printing_reference_snapshot="X", printing_name_snapshot="X",
+                printing_active_snapshot=True, printing_initial_stock_snapshot=0,
+                printing_entries_snapshot=0, printing_outputs_snapshot=0,
+                printing_transfers_snapshot=0, printing_current_stock_snapshot=0,
+                match_status=ConsumableStockMigrationItem.MatchStatus.NO_MATCH,
+                quantity_status=ConsumableStockMigrationItem.QuantityStatus.NO_PRODUCT,
+            )
+
+    def test_detects_linked_unique_candidate_ambiguous_and_no_match(self):
+        from .models import ConsumableStockMigrationItem as Item
+
+        linked_product = self.product("LINKED-P")
+        linked = self.consumable("OTHER-CODE", product=linked_product)
+        candidate_product = self.product(" exact-01 ")
+        candidate = self.consumable("EXACT_01")
+        self.product("AMB-01")
+        self.product("AMB 01")
+        ambiguous = self.consumable("AMB_01")
+        no_match = self.consumable("NONE-01")
+        batch = self.generate(self.batch())
+
+        self.assertEqual(batch.items.get(consumable=linked).match_status, Item.MatchStatus.LINKED)
+        candidate_item = batch.items.get(consumable=candidate)
+        self.assertEqual(candidate_item.match_status, Item.MatchStatus.EXACT_CODE_MATCH)
+        self.assertEqual(candidate_item.stock_product_candidate, candidate_product)
+        self.assertEqual(batch.items.get(consumable=ambiguous).match_status, Item.MatchStatus.AMBIGUOUS_CODE)
+        self.assertEqual(batch.items.get(consumable=no_match).match_status, Item.MatchStatus.NO_MATCH)
+
+    def test_snapshots_movements_and_transfer_without_changing_current_stock(self):
+        from .models import ConsumableStockMigrationItem as Item, StockMovement
+
+        consumable = self.consumable("MOV-01", initial=10)
+        for movement_type, quantity in (
+            (StockMovement.MovementType.ENTRY, 5),
+            (StockMovement.MovementType.ISSUE, 4),
+            (StockMovement.MovementType.TRANSFER, 9),
+        ):
+            StockMovement.objects.create(
+                consumable=consumable, movement_type=movement_type,
+                quantity=quantity, performed_by=self.user,
+            )
+        before = consumable.current_stock
+        item = self.generate(self.batch()).items.get(consumable=consumable)
+
+        self.assertEqual(item.printing_entries_snapshot, 5)
+        self.assertEqual(item.printing_outputs_snapshot, 4)
+        self.assertEqual(item.printing_transfers_snapshot, 9)
+        self.assertEqual(item.printing_current_stock_snapshot, 11)
+        self.assertEqual(consumable.current_stock, before)
+        self.assertEqual(item.quantity_status, Item.QuantityStatus.NO_PRODUCT)
+
+    def test_inventory_total_and_positive_zero_negative_differences(self):
+        from apps.accounts.models import Branch
+        from apps.inventory.models import OrganizationalLocation, StockBalance
+        from .models import ConsumableStockMigrationItem as Item
+
+        branch = Branch.objects.create(code="REC-HQ", name="Sede conciliación")
+        location = OrganizationalLocation.objects.create(
+            branch=branch, name="Depósito", location_type=OrganizationalLocation.LocationType.WAREHOUSE,
+        )
+        expected = []
+        for index, (printing, inventory, status) in enumerate((
+            (7, 5, Item.QuantityStatus.PRINTING_GREATER),
+            (5, 5, Item.QuantityStatus.MATCH),
+            (3, 5, Item.QuantityStatus.INVENTORY_GREATER),
+        )):
+            product = self.product(f"DIFF-{index}")
+            consumable = self.consumable(f"DIFF-C-{index}", initial=printing, product=product)
+            StockBalance.objects.create(
+                product=product, branch=branch, organizational_location=location, quantity=inventory,
+            )
+            expected.append((consumable, printing - inventory, status))
+        batch = self.generate(self.batch())
+        for consumable, difference, status in expected:
+            item = batch.items.get(consumable=consumable)
+            self.assertEqual(item.inventory_total_stock_snapshot, 5)
+            self.assertEqual(item.difference, difference)
+            self.assertEqual(item.quantity_status, status)
+
+    def test_negative_inactive_product_inactive_and_no_balance_are_detected(self):
+        from .models import ConsumableStockMigrationItem as Item, StockMovement
+
+        negative = self.consumable("NEG-01")
+        StockMovement.objects.create(
+            consumable=negative, movement_type=StockMovement.MovementType.ISSUE,
+            quantity=1, performed_by=self.user,
+        )
+        inactive_product = self.product("INACTIVE-P", active=False)
+        inactive = self.consumable("INACTIVE-C", active=False, product=inactive_product)
+        batch = self.generate(self.batch())
+        negative_item = batch.items.get(consumable=negative)
+        inactive_item = batch.items.get(consumable=inactive)
+
+        self.assertEqual(negative_item.quantity_status, Item.QuantityStatus.NEGATIVE_PRINTING_STOCK)
+        self.assertFalse(inactive_item.printing_active_snapshot)
+        self.assertFalse(inactive_item.stock_product_active_snapshot)
+        self.assertFalse(inactive_item.inventory_has_balance_snapshot)
+        self.assertEqual(inactive_item.quantity_status, Item.QuantityStatus.NO_BALANCE)
+
+    def test_manual_decision_and_future_destination_are_persisted(self):
+        from apps.accounts.models import Branch
+        from apps.inventory.models import OrganizationalLocation
+        from .models import ConsumableStockMigrationItem as Item
+
+        consumable = self.consumable("DECISION-01")
+        item = self.generate(self.batch()).items.get(consumable=consumable)
+        branch = Branch.objects.create(code="REC-DEST", name="Destino")
+        location = OrganizationalLocation.objects.create(
+            branch=branch, name="Almacén futuro",
+            location_type=OrganizationalLocation.LocationType.WAREHOUSE,
+        )
+        item.decision_status = Item.DecisionStatus.PHYSICAL_COUNT_REQUIRED
+        item.destination_branch = branch
+        item.destination_location = location
+        item.approved_quantity = 4
+        item.reviewed_by = self.user
+        item.reviewed_at = timezone.now()
+        item.save()
+        item.refresh_from_db()
+
+        self.assertEqual(item.destination_location, location)
+        self.assertEqual(item.approved_quantity, 4)
+        self.assertEqual(item.reviewed_by, self.user)
+
+    def test_completed_batch_cannot_be_recalculated(self):
+        from django.core.exceptions import ValidationError
+        from .models import ConsumableStockMigrationBatch
+        from .reconciliation import complete_consumable_stock_migration_batch
+
+        self.consumable("COMPLETE-01")
+        batch = self.generate(self.batch())
+        complete_consumable_stock_migration_batch(batch=batch)
+        self.assertEqual(batch.status, ConsumableStockMigrationBatch.Status.COMPLETED)
+        with self.assertRaises(ValidationError):
+            self.generate(batch)
+
+    def test_generation_does_not_create_or_modify_operational_stock(self):
+        from apps.inventory.models import StockBalance
+        from apps.inventory.models import StockMovement as InventoryMovement
+        from .models import StockMovement
+
+        consumable = self.consumable("SAFE-01", initial=3)
+        printing_movement = StockMovement.objects.create(
+            consumable=consumable, movement_type=StockMovement.MovementType.ENTRY,
+            quantity=2, performed_by=self.user,
+        )
+        before = consumable.current_stock
+        self.generate(self.batch())
+
+        self.assertEqual(StockBalance.objects.count(), 0)
+        self.assertEqual(InventoryMovement.objects.count(), 0)
+        self.assertEqual(StockMovement.objects.get(pk=printing_movement.pk).quantity, 2)
+        self.assertEqual(consumable.current_stock, before)
+
+    def consolidation_destination(self, suffix="ONE"):
+        from apps.accounts.models import Branch
+        from apps.inventory.models import OrganizationalLocation
+
+        branch = Branch.objects.create(code=f"CON-{suffix}", name=f"Sede {suffix}")
+        location = OrganizationalLocation.objects.create(
+            branch=branch,
+            name=f"Depósito {suffix}",
+            location_type=OrganizationalLocation.LocationType.WAREHOUSE,
+        )
+        return branch, location
+
+    def approved_item(self, *, code="CONSOL-01", quantity=3, product_active=True,
+                      consumable_active=True):
+        from .models import ConsumableStockMigrationItem as Item
+
+        product = self.product(f"{code}-PRODUCT", active=product_active)
+        consumable = self.consumable(code, initial=quantity, active=consumable_active)
+        batch = self.generate(self.batch())
+        item = batch.items.get(consumable=consumable)
+        branch, location = self.consolidation_destination(code)
+        item.stock_product_candidate = product
+        item.decision_status = Item.DecisionStatus.USE_PRINTING
+        item.approved_quantity = quantity
+        item.destination_branch = branch
+        item.destination_location = location
+        item.save()
+        return item, consumable, product, branch, location
+
+    def consolidate(self, *items):
+        from .reconciliation import consolidate_consumable_stock_items
+
+        return consolidate_consumable_stock_items(items=items, performed_by=self.user)
+
+    def test_consolidation_links_product_creates_movement_and_updates_balance(self):
+        from apps.inventory.models import StockBalance
+        from apps.inventory.models import StockMovement as InventoryMovement
+
+        item, consumable, product, branch, location = self.approved_item(quantity=3)
+        movements = self.consolidate(item)
+        item.refresh_from_db()
+        consumable.refresh_from_db()
+
+        self.assertEqual(consumable.stock_product, product)
+        self.assertEqual(len(movements), 1)
+        movement = movements[0]
+        self.assertEqual(movement.direction, InventoryMovement.Direction.ENTRY)
+        self.assertEqual(movement.reason, InventoryMovement.Reason.INITIAL_ENTRY)
+        self.assertEqual(movement.quantity, 3)
+        self.assertIn(str(item.pk), movement.document_reference)
+        self.assertEqual(
+            StockBalance.objects.get(
+                product=product, branch=branch, organizational_location=location
+            ).quantity,
+            3,
+        )
+        self.assertEqual(item.inventory_stock_movement, movement)
+        self.assertEqual(item.consolidated_quantity, 3)
+        self.assertEqual(item.consolidated_by, self.user)
+        self.assertIsNotNone(item.consolidated_at)
+
+    def test_second_consolidation_is_rejected_without_adding_stock(self):
+        from django.core.exceptions import ValidationError
+        from apps.inventory.models import StockBalance, StockMovement as InventoryMovement
+
+        item, _consumable, product, branch, location = self.approved_item(quantity=2)
+        self.consolidate(item)
+        item.refresh_from_db()
+        with self.assertRaises(ValidationError):
+            self.consolidate(item)
+
+        self.assertEqual(InventoryMovement.objects.filter(product=product).count(), 1)
+        self.assertEqual(
+            StockBalance.objects.get(
+                product=product, branch=branch, organizational_location=location
+            ).quantity,
+            2,
+        )
+
+    def test_selected_items_roll_back_together_when_one_is_invalid(self):
+        from django.core.exceptions import ValidationError
+        from apps.inventory.models import StockBalance
+        from apps.inventory.models import StockMovement as InventoryMovement
+
+        valid, consumable, _product, _branch, _location = self.approved_item(
+            code="ROLLBACK-01", quantity=2
+        )
+        invalid, *_ = self.approved_item(code="ROLLBACK-02", quantity=1)
+        invalid.destination_branch = None
+        invalid.save(update_fields=["destination_branch", "updated_at"])
+
+        with self.assertRaises(ValidationError):
+            self.consolidate(valid, invalid)
+
+        consumable.refresh_from_db()
+        self.assertIsNone(consumable.stock_product)
+        self.assertEqual(StockBalance.objects.count(), 0)
+        self.assertEqual(InventoryMovement.objects.count(), 0)
+
+    def test_invalid_quantity_missing_branch_and_cross_branch_location_are_rejected(self):
+        from django.core.exceptions import ValidationError
+
+        item, *_ = self.approved_item(code="VALIDATE-01")
+        item.approved_quantity = None
+        item.destination_branch = None
+        item.save(update_fields=["approved_quantity", "destination_branch", "updated_at"])
+        with self.assertRaises(ValidationError):
+            self.consolidate(item)
+
+        item, *_ = self.approved_item(code="VALIDATE-02")
+        other_branch, _ = self.consolidation_destination("OTHER")
+        item.destination_branch = other_branch
+        ConsumableStockMigrationItem = type(item)
+        ConsumableStockMigrationItem.objects.filter(pk=item.pk).update(
+            destination_branch=other_branch
+        )
+        item.refresh_from_db()
+        with self.assertRaises(ValidationError):
+            self.consolidate(item)
+
+    def test_inactive_product_and_consumable_are_rejected(self):
+        from django.core.exceptions import ValidationError
+        from apps.inventory.models import StockBalance
+
+        inactive_product_item, *_ = self.approved_item(
+            code="INACTIVE-P-01", product_active=False
+        )
+        with self.assertRaises(ValidationError):
+            self.consolidate(inactive_product_item)
+
+        inactive_consumable_item, *_ = self.approved_item(
+            code="INACTIVE-C-01", consumable_active=False
+        )
+        with self.assertRaises(ValidationError):
+            self.consolidate(inactive_consumable_item)
+        self.assertEqual(StockBalance.objects.count(), 0)
+
+    def test_consolidation_preserves_printing_history_compatibility_and_other_domains(self):
+        from apps.inventory.models import Asset, StockBalance
+        from apps.tickets.models import Ticket
+        from .models import ConsumableCompatibility, PrintingDevice, StockMovement
+
+        item, consumable, _product, _branch, _location = self.approved_item(
+            code="PRESERVE-01", quantity=2
+        )
+        unrelated_product = self.product("UNRELATED-01")
+        asset = Asset.objects.create(
+            internal_code="CONSOLIDATION-PRINTER-01",
+            asset_type=Asset.AssetType.PRINTER,
+            brand="Test", model="Printer",
+        )
+        device = PrintingDevice.objects.create(asset=asset)
+        compatibility = ConsumableCompatibility.objects.create(
+            printing_device=device, consumable=consumable
+        )
+        legacy = StockMovement.objects.create(
+            consumable=consumable, movement_type=StockMovement.MovementType.ENTRY,
+            quantity=4, performed_by=self.user,
+        )
+        ticket_count = Ticket.objects.count()
+        self.consolidate(item)
+
+        self.assertTrue(StockMovement.objects.filter(pk=legacy.pk, quantity=4).exists())
+        self.assertTrue(ConsumableCompatibility.objects.filter(pk=compatibility.pk).exists())
+        self.assertFalse(StockBalance.objects.filter(product=unrelated_product).exists())
+        self.assertEqual(Ticket.objects.count(), ticket_count)
 
 
 class MeterReadingValidationTests(TestCase):

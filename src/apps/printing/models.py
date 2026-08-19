@@ -1438,3 +1438,202 @@ class PrintingContract(models.Model):
 
     def __str__(self):
         return f"{self.contract_number} - {self.provider}"
+
+
+class ConsumableStockMigrationBatch(models.Model):
+    """Persistent, non-mutating audit of Printing and Inventory stock."""
+
+    class Status(models.TextChoices):
+        DRAFT = "DRAFT", "Borrador"
+        IN_REVIEW = "IN_REVIEW", "En revisión"
+        COMPLETED = "COMPLETED", "Completado"
+        CANCELLED = "CANCELLED", "Cancelado"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="created_consumable_stock_migration_batches",
+    )
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.DRAFT)
+    notes = models.TextField(blank=True)
+    total_items = models.PositiveIntegerField(default=0, editable=False)
+    pending_items = models.PositiveIntegerField(default=0, editable=False)
+    reviewed_items = models.PositiveIntegerField(default=0, editable=False)
+    error_items = models.PositiveIntegerField(default=0, editable=False)
+    completed_at = models.DateTimeField(blank=True, null=True, editable=False)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Lote de conciliación de consumibles"
+        verbose_name_plural = "Lotes de conciliación de consumibles"
+
+    def __str__(self):
+        return f"Conciliación {self.created_at:%d/%m/%Y %H:%M}"
+
+    def save(self, *args, **kwargs):
+        if self.pk and not self._state.adding:
+            previous = type(self).objects.filter(pk=self.pk).values_list("status", flat=True).first()
+            if previous == self.Status.COMPLETED:
+                raise ValidationError("Un lote completado es inmutable.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if self.status == self.Status.COMPLETED:
+            raise ValidationError("Un lote completado no puede eliminarse.")
+        return super().delete(*args, **kwargs)
+
+
+class ConsumableStockMigrationItem(models.Model):
+    class MatchStatus(models.TextChoices):
+        LINKED = "LINKED", "Producto vinculado"
+        EXACT_CODE_MATCH = "EXACT_CODE_MATCH", "Coincidencia exacta de código"
+        AMBIGUOUS_CODE = "AMBIGUOUS_CODE", "Código ambiguo"
+        NO_MATCH = "NO_MATCH", "Sin coincidencia"
+
+    class QuantityStatus(models.TextChoices):
+        MATCH = "MATCH", "Cantidades iguales"
+        PRINTING_GREATER = "PRINTING_GREATER", "Printing mayor"
+        INVENTORY_GREATER = "INVENTORY_GREATER", "Inventory mayor"
+        NO_PRODUCT = "NO_PRODUCT", "Sin producto resuelto"
+        NO_BALANCE = "NO_BALANCE", "Inventory sin saldo"
+        NEGATIVE_PRINTING_STOCK = "NEGATIVE_PRINTING_STOCK", "Stock Printing negativo"
+
+    class DecisionStatus(models.TextChoices):
+        PENDING = "PENDING", "Pendiente"
+        USE_INVENTORY = "USE_INVENTORY", "Usar Inventory"
+        USE_PRINTING = "USE_PRINTING", "Usar Printing"
+        PHYSICAL_COUNT_REQUIRED = "PHYSICAL_COUNT_REQUIRED", "Requiere conteo físico"
+        LINK_EXISTING_PRODUCT = "LINK_EXISTING_PRODUCT", "Vincular producto existente"
+        CREATE_NEW_PRODUCT_LATER = "CREATE_NEW_PRODUCT_LATER", "Crear producto posteriormente"
+        IGNORE_INACTIVE = "IGNORE_INACTIVE", "Ignorar inactivo"
+        BLOCKED = "BLOCKED", "Bloqueado"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    batch = models.ForeignKey(
+        ConsumableStockMigrationBatch,
+        on_delete=models.PROTECT,
+        related_name="items",
+    )
+    consumable = models.ForeignKey(
+        Consumable,
+        on_delete=models.PROTECT,
+        related_name="stock_migration_items",
+    )
+    stock_product_candidate = models.ForeignKey(
+        "inventory.StockProduct",
+        on_delete=models.PROTECT,
+        related_name="printing_stock_migration_candidates",
+        blank=True,
+        null=True,
+    )
+    printing_reference_snapshot = models.CharField(max_length=100)
+    printing_name_snapshot = models.CharField(max_length=200)
+    printing_active_snapshot = models.BooleanField()
+    printing_initial_stock_snapshot = models.IntegerField()
+    printing_entries_snapshot = models.IntegerField()
+    printing_outputs_snapshot = models.IntegerField()
+    printing_transfers_snapshot = models.IntegerField()
+    printing_current_stock_snapshot = models.IntegerField()
+    inventory_total_stock_snapshot = models.IntegerField(blank=True, null=True)
+    inventory_has_balance_snapshot = models.BooleanField(default=False)
+    stock_product_active_snapshot = models.BooleanField(blank=True, null=True)
+    match_status = models.CharField(max_length=30, choices=MatchStatus.choices)
+    quantity_status = models.CharField(max_length=30, choices=QuantityStatus.choices)
+    decision_status = models.CharField(
+        max_length=30,
+        choices=DecisionStatus.choices,
+        default=DecisionStatus.PENDING,
+    )
+    difference = models.IntegerField(blank=True, null=True)
+    destination_branch = models.ForeignKey(
+        "accounts.Branch",
+        on_delete=models.PROTECT,
+        related_name="consumable_stock_migration_items",
+        blank=True,
+        null=True,
+    )
+    destination_location = models.ForeignKey(
+        "inventory.OrganizationalLocation",
+        on_delete=models.PROTECT,
+        related_name="consumable_stock_migration_items",
+        blank=True,
+        null=True,
+    )
+    approved_quantity = models.PositiveIntegerField(blank=True, null=True)
+    inventory_stock_movement = models.OneToOneField(
+        "inventory.StockMovement",
+        on_delete=models.PROTECT,
+        related_name="printing_stock_consolidation_item",
+        blank=True,
+        null=True,
+        editable=False,
+    )
+    consolidated_quantity = models.PositiveIntegerField(blank=True, null=True, editable=False)
+    consolidated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="consolidated_consumable_stock_migration_items",
+        blank=True,
+        null=True,
+        editable=False,
+    )
+    consolidated_at = models.DateTimeField(blank=True, null=True, editable=False)
+    notes = models.TextField(blank=True)
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="reviewed_consumable_stock_migration_items",
+        blank=True,
+        null=True,
+    )
+    reviewed_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["printing_name_snapshot", "printing_reference_snapshot"]
+        verbose_name = "Ítem de conciliación de consumible"
+        verbose_name_plural = "Ítems de conciliación de consumibles"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["batch", "consumable"],
+                name="unique_consumable_per_stock_migration_batch",
+            )
+        ]
+
+    def clean(self):
+        super().clean()
+        if (
+            self.destination_branch_id
+            and self.destination_location_id
+            and self.destination_location.branch_id != self.destination_branch_id
+        ):
+            raise ValidationError(
+                {"destination_location": "La ubicación debe pertenecer a la sede seleccionada."}
+            )
+        if self.batch_id and self.batch.status == ConsumableStockMigrationBatch.Status.COMPLETED:
+            raise ValidationError("Los ítems de un lote completado son inmutables.")
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if self.batch.status == ConsumableStockMigrationBatch.Status.COMPLETED:
+            raise ValidationError("Los ítems de un lote completado no pueden eliminarse.")
+        return super().delete(*args, **kwargs)
+
+    @property
+    def requires_review(self):
+        return (
+            self.decision_status == self.DecisionStatus.PENDING
+            or self.match_status in {self.MatchStatus.AMBIGUOUS_CODE, self.MatchStatus.NO_MATCH}
+            or self.quantity_status != self.QuantityStatus.MATCH
+            or not self.printing_active_snapshot
+            or self.stock_product_active_snapshot is False
+        )
+
+    def __str__(self):
+        return f"{self.printing_reference_snapshot} - {self.printing_name_snapshot}"

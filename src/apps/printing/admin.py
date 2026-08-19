@@ -1,17 +1,25 @@
 from django.contrib import admin
+from django.core.exceptions import ValidationError
 from django.db.models import IntegerField, Sum
 from django.db.models.functions import Coalesce
+from django.utils import timezone
 from django.utils.html import format_html
 
 from .models import (
     Consumable,
     ConsumableCompatibility,
+    ConsumableStockMigrationBatch,
+    ConsumableStockMigrationItem,
     MeterReading,
     PrintingContract,
     PrintingDevice,
     PrintingDeviceNetworkDetection,
     StockMovement,
     MaintenanceRecord,
+)
+from .reconciliation import (
+    consolidate_consumable_stock_items,
+    generate_consumable_stock_migration_batch,
 )
 
 
@@ -781,6 +789,120 @@ class StockMovementAdmin(admin.ModelAdmin):
         return response
     
     exportar_movimientos.short_description = "📥 Exportar movimientos seleccionados"
+
+
+@admin.register(ConsumableStockMigrationBatch)
+class ConsumableStockMigrationBatchAdmin(admin.ModelAdmin):
+    list_display = (
+        "created_at", "status", "created_by", "total_items",
+        "pending_items", "reviewed_items", "error_items", "completed_at",
+    )
+    list_filter = ("status", "created_at")
+    search_fields = ("notes", "created_by__username", "created_by__email")
+    readonly_fields = (
+        "created_by", "created_at", "total_items", "pending_items",
+        "reviewed_items", "error_items", "completed_at",
+    )
+    actions = ("generate_or_refresh_snapshots",)
+
+    def save_model(self, request, obj, form, change):
+        if not obj.created_by_id:
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
+
+    @admin.action(description="Generar o recalcular snapshots seleccionados")
+    def generate_or_refresh_snapshots(self, request, queryset):
+        generated = 0
+        for batch in queryset:
+            try:
+                generate_consumable_stock_migration_batch(batch=batch)
+            except ValidationError as error:
+                self.message_user(request, f"{batch}: {'; '.join(error.messages)}", level="ERROR")
+            else:
+                generated += 1
+        if generated:
+            self.message_user(request, f"{generated} lote(s) generado(s) o recalculado(s).")
+
+    def has_delete_permission(self, request, obj=None):
+        if obj and obj.status == ConsumableStockMigrationBatch.Status.COMPLETED:
+            return False
+        return super().has_delete_permission(request, obj)
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj and obj.status == ConsumableStockMigrationBatch.Status.COMPLETED:
+            return tuple(field.name for field in obj._meta.fields)
+        return self.readonly_fields
+
+
+@admin.register(ConsumableStockMigrationItem)
+class ConsumableStockMigrationItemAdmin(admin.ModelAdmin):
+    list_display = (
+        "printing_reference_snapshot", "printing_name_snapshot", "stock_product_candidate",
+        "printing_current_stock_snapshot", "inventory_total_stock_snapshot", "difference",
+        "match_status", "quantity_status", "decision_status", "destination_branch",
+        "destination_location", "reviewed_by",
+        "consolidated_at",
+    )
+    list_filter = (
+        "match_status", "quantity_status", "decision_status", "printing_active_snapshot",
+        "stock_product_active_snapshot", "destination_branch",
+    )
+    search_fields = (
+        "printing_reference_snapshot", "printing_name_snapshot",
+        "stock_product_candidate__reference_code", "stock_product_candidate__name",
+    )
+    autocomplete_fields = (
+        "stock_product_candidate", "destination_branch", "destination_location",
+    )
+    actions = ("consolidate_approved_items",)
+    readonly_fields = (
+        "batch", "consumable", "printing_reference_snapshot", "printing_name_snapshot",
+        "printing_active_snapshot", "printing_initial_stock_snapshot",
+        "printing_entries_snapshot", "printing_outputs_snapshot",
+        "printing_transfers_snapshot", "printing_current_stock_snapshot",
+        "inventory_total_stock_snapshot", "inventory_has_balance_snapshot",
+        "stock_product_active_snapshot", "match_status", "quantity_status", "difference",
+        "reviewed_by", "reviewed_at", "created_at", "updated_at",
+        "inventory_stock_movement", "consolidated_quantity", "consolidated_by",
+        "consolidated_at",
+    )
+
+    def save_model(self, request, obj, form, change):
+        if obj.decision_status != ConsumableStockMigrationItem.DecisionStatus.PENDING:
+            obj.reviewed_by = request.user
+            obj.reviewed_at = timezone.now()
+        super().save_model(request, obj, form, change)
+        total = obj.batch.items.count()
+        pending = obj.batch.items.filter(
+            decision_status=ConsumableStockMigrationItem.DecisionStatus.PENDING
+        ).count()
+        ConsumableStockMigrationBatch.objects.filter(pk=obj.batch_id).update(
+            total_items=total,
+            pending_items=pending,
+            reviewed_items=total - pending,
+        )
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj and obj.batch.status == ConsumableStockMigrationBatch.Status.COMPLETED:
+            return tuple(field.name for field in obj._meta.fields)
+        return self.readonly_fields
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    @admin.action(description="Consolidar stock de ítems aprobados en Inventory")
+    def consolidate_approved_items(self, request, queryset):
+        try:
+            movements = consolidate_consumable_stock_items(
+                items=list(queryset), performed_by=request.user
+            )
+        except ValidationError as error:
+            self.message_user(request, "; ".join(error.messages), level="ERROR")
+        else:
+            self.message_user(
+                request,
+                f"{len(movements)} ítem(s) consolidados correctamente en Inventory.",
+            )
 
 
 @admin.register(MeterReading)
