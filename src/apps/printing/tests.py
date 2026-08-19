@@ -366,6 +366,189 @@ class ConsumableStockProductIntegrationTests(TestCase):
         self.assertEqual(consumable.current_stock, 6)
 
 
+class ConsumableStageFourAdminTests(TestCase):
+    def setUp(self):
+        from apps.inventory.models import StockCategory, StockProduct
+
+        self.user = User.objects.create_superuser(
+            username="printing-stage-four-admin",
+            email="printing-stage-four@example.test",
+            password="test-password-123",
+        )
+        self.client.force_login(self.user)
+        self.category = StockCategory.objects.create(
+            name="Categoría existente",
+            code="existing-stage-four",
+        )
+        self.stock_product = StockProduct.objects.create(
+            name="Producto existente",
+            reference_code="EXISTING-001",
+            category=self.category,
+        )
+        self.add_url = reverse("admin:printing_consumable_add")
+
+    def consumable_data(self, **overrides):
+        data = {
+            "name": "Tóner etapa cuatro",
+            "consumable_type": "TONER",
+            "reference_code": "NEW-TONER-001",
+            "stock_product": "",
+            "manufacturer": "Fabricante",
+            "model": "Modelo 1",
+            "color": "Negro",
+            "minimum_stock": 2,
+            "maximum_stock": "",
+            "estimated_yield_pages": 5000,
+            "unit_price": "0",
+            "notes": "",
+            "is_active": "on",
+            "_save": "Guardar",
+            "initial_stock": 99,
+        }
+        data.update(overrides)
+        return data
+
+    def test_admin_allows_consumable_without_stock_product_and_ignores_initial_stock(self):
+        from .models import Consumable
+
+        response = self.client.post(self.add_url, self.consumable_data())
+
+        self.assertEqual(response.status_code, 302)
+        consumable = Consumable.objects.get(reference_code="NEW-TONER-001")
+        self.assertIsNone(consumable.stock_product)
+        self.assertEqual(consumable.initial_stock, 0)
+
+    def test_candidate_detection_returns_unique_exact_normalized_match(self):
+        from .forms import find_stock_product_candidates
+
+        candidates = find_stock_product_candidates(" existing_001 ")
+
+        self.assertEqual(candidates, [self.stock_product])
+
+    def test_admin_candidate_endpoint_exposes_unique_suggestion(self):
+        response = self.client.get(
+            reverse("admin:printing_consumable_stock_product_candidates"),
+            {"reference_code": " existing_001 "},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(
+            response.json()["candidates"][0]["id"],
+            str(self.stock_product.pk),
+        )
+
+    def test_candidate_detection_does_not_choose_ambiguous_match(self):
+        from apps.inventory.models import StockProduct
+        from .forms import find_stock_product_candidates
+
+        StockProduct.objects.create(
+            name="Producto ambiguo uno",
+            reference_code="AMB-001",
+            category=self.category,
+        )
+        StockProduct.objects.create(
+            name="Producto ambiguo dos",
+            reference_code="AMB_001",
+            category=self.category,
+        )
+
+        candidates = find_stock_product_candidates("AMB001")
+
+        self.assertEqual(len(candidates), 2)
+
+    def test_admin_links_existing_product_explicitly(self):
+        from .models import Consumable
+
+        response = self.client.post(
+            self.add_url,
+            self.consumable_data(stock_product=str(self.stock_product.pk)),
+        )
+
+        consumable = Consumable.objects.get(reference_code="NEW-TONER-001")
+        self.assertEqual(consumable.stock_product, self.stock_product)
+        self.assertRedirects(
+            response,
+            reverse(
+                "inventory:stock_product_detail",
+                args=[self.stock_product.pk],
+            ),
+        )
+
+    def test_admin_creates_and_links_product_without_stock_records(self):
+        from apps.inventory.models import StockBalance, StockProduct
+        from apps.inventory.models import StockMovement as InventoryMovement
+        from .models import Consumable, StockMovement as PrintingMovement
+
+        response = self.client.post(
+            self.add_url,
+            self.consumable_data(create_stock_product="on"),
+        )
+
+        product = StockProduct.objects.get(reference_code="NEW-TONER-001")
+        consumable = Consumable.objects.get(reference_code="NEW-TONER-001")
+        self.assertEqual(consumable.stock_product, product)
+        self.assertEqual(consumable.initial_stock, 0)
+        self.assertEqual(product.name, consumable.name)
+        self.assertEqual(product.brand, consumable.manufacturer)
+        self.assertEqual(product.model, consumable.model)
+        self.assertEqual(
+            product.unit_of_measure,
+            StockProduct.UnitOfMeasure.UNIT,
+        )
+        self.assertEqual(product.category.code, "printing-consumables")
+        self.assertTrue(product.is_active)
+        self.assertFalse(StockBalance.objects.filter(product=product).exists())
+        self.assertFalse(InventoryMovement.objects.filter(product=product).exists())
+        self.assertFalse(PrintingMovement.objects.filter(consumable=consumable).exists())
+        self.assertRedirects(
+            response,
+            reverse("inventory:stock_product_detail", args=[product.pk]),
+        )
+
+    def test_admin_rejects_new_product_with_duplicate_normalized_reference(self):
+        from apps.inventory.models import StockProduct
+        from .models import Consumable
+
+        response = self.client.post(
+            self.add_url,
+            self.consumable_data(
+                reference_code="EXISTING_001",
+                create_stock_product="on",
+            ),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Selecciónelo explícitamente")
+        self.assertFalse(
+            Consumable.objects.filter(reference_code="EXISTING_001").exists()
+        )
+        self.assertEqual(StockProduct.objects.count(), 1)
+
+    def test_consumable_changelist_renders_linked_and_unlinked_statuses(self):
+        from .models import Consumable
+
+        Consumable.objects.create(
+            name="Consumible sin vínculo",
+            reference_code="UNLINKED-STAGE-FOUR",
+            manufacturer="Fabricante",
+            initial_stock=0,
+        )
+        Consumable.objects.create(
+            name="Consumible vinculado",
+            reference_code="LINKED-STAGE-FOUR",
+            manufacturer="Fabricante",
+            initial_stock=0,
+            stock_product=self.stock_product,
+        )
+
+        response = self.client.get(reverse("admin:printing_consumable_changelist"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Sin producto de stock")
+        self.assertContains(response, "Vinculado")
+
+
 class ConsumableStockReconciliationTests(TestCase):
     def setUp(self):
         from apps.inventory.models import StockCategory

@@ -1,9 +1,16 @@
 from django.contrib import admin
 from django.core.exceptions import ValidationError
+from django.http import JsonResponse
+from django.shortcuts import redirect
+from django.urls import path, reverse
 from django.db.models import IntegerField, Sum
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 from django.utils.html import format_html
+
+from apps.inventory.models import StockCategory, StockProduct
+
+from .forms import ConsumableAdminForm, find_stock_product_candidates
 
 from .models import (
     Consumable,
@@ -349,9 +356,11 @@ class StockStatusFilter(admin.SimpleListFilter):
 
 @admin.register(Consumable)
 class ConsumableAdmin(admin.ModelAdmin):
+    form = ConsumableAdminForm
     list_display = (
         "reference_code",
         "name",
+        "stock_link_status",
         "stock_product",
         "consumable_type",
         "manufacturer",
@@ -401,6 +410,7 @@ class ConsumableAdmin(admin.ModelAdmin):
                     "consumable_type",
                     "reference_code",
                     "stock_product",
+                    "create_stock_product",
                     "manufacturer",
                     "model",
                     "color",
@@ -464,6 +474,94 @@ class ConsumableAdmin(admin.ModelAdmin):
         "reposicion_sugerida",
         "costo_reposicion",
     )
+
+    class Media:
+        js = ("printing/js/consumable_admin.js",)
+
+    def get_readonly_fields(self, request, obj=None):
+        readonly_fields = list(super().get_readonly_fields(request, obj))
+        if obj is None:
+            readonly_fields.append("initial_stock")
+        return tuple(readonly_fields)
+
+    def get_urls(self):
+        custom_urls = [
+            path(
+                "stock-product-candidates/",
+                self.admin_site.admin_view(self.stock_product_candidates_view),
+                name="printing_consumable_stock_product_candidates",
+            ),
+        ]
+        return custom_urls + super().get_urls()
+
+    def stock_product_candidates_view(self, request):
+        candidates = find_stock_product_candidates(
+            request.GET.get("reference_code", "")
+        )
+        return JsonResponse(
+            {
+                "count": len(candidates),
+                "candidates": [
+                    {
+                        "id": str(product.pk),
+                        "reference_code": product.reference_code,
+                        "label": str(product),
+                    }
+                    for product in candidates
+                ],
+            }
+        )
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            obj.initial_stock = 0
+
+        if form.cleaned_data.get("create_stock_product"):
+            category, _ = StockCategory.objects.get_or_create(
+                code="printing-consumables",
+                defaults={
+                    "name": "Consumibles de impresión",
+                    "description": (
+                        "Tóneres, tintas, unidades de imagen, fusores y otros "
+                        "consumibles de impresión."
+                    ),
+                    "is_active": True,
+                },
+            )
+            obj.stock_product = StockProduct.objects.create(
+                name=obj.name,
+                reference_code=obj.reference_code,
+                category=category,
+                brand=obj.manufacturer,
+                model=obj.model,
+                unit_of_measure=StockProduct.UnitOfMeasure.UNIT,
+                minimum_stock=obj.minimum_stock,
+                is_active=obj.is_active,
+            )
+
+        super().save_model(request, obj, form, change)
+
+    def response_add(self, request, obj, post_url_continue=None):
+        if obj.stock_product_id and "_continue" not in request.POST:
+            return redirect(
+                reverse(
+                    "inventory:stock_product_detail",
+                    kwargs={"pk": obj.stock_product_id},
+                )
+            )
+        return super().response_add(request, obj, post_url_continue)
+
+    @admin.display(description="Estado Inventory", ordering="stock_product")
+    def stock_link_status(self, obj):
+        if obj.stock_product_id:
+            return format_html(
+                '<strong style="color:#198754;">{}</strong>',
+                "Vinculado",
+            )
+        return format_html(
+            '<strong style="color:#6c757d;">{}</strong>',
+            "Sin producto de stock",
+        )
 
     @admin.display(
         description="Stock actual",
