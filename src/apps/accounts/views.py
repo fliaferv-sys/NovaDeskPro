@@ -83,9 +83,9 @@ def home_view(request):
         .order_by("-created_at")[:8]
     )
 
-    consumables = Consumable.objects.filter(
-        is_active=True
-    )
+    consumables = Consumable.objects.filter(is_active=True).select_related(
+        "stock_product"
+    ).prefetch_related("stock_product__balances")
 
     consumables_out_of_stock = 0
     consumables_low_stock = 0
@@ -93,12 +93,12 @@ def home_view(request):
     total_reorder_cost = Decimal("0.00")
 
     for consumable in consumables:
-        stock = consumable.current_stock
+        stock = consumable.operational_stock
 
         if stock <= 0:
             consumables_out_of_stock += 1
 
-        elif stock <= consumable.minimum_stock:
+        elif stock <= consumable.effective_minimum_stock:
             consumables_low_stock += 1
 
         elif (
@@ -107,7 +107,7 @@ def home_view(request):
         ):
             consumables_overstock += 1
 
-        if stock <= consumable.minimum_stock:
+        if stock <= consumable.effective_minimum_stock:
             total_reorder_cost += consumable.estimated_reorder_cost
 
     ticket_status_labels = [

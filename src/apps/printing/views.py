@@ -31,26 +31,28 @@ def psline_dashboard(request):
     offline_devices = devices.filter(asset__connection_status="OFFLINE").count()
     unknown_devices = total_devices - online_devices - offline_devices
 
-    consumables = Consumable.objects.filter(is_active=True)
+    consumables = Consumable.objects.filter(is_active=True).select_related(
+        "stock_product"
+    ).prefetch_related("stock_product__balances")
 
     toner_total = sum(
-        c.current_stock for c in consumables
+        c.operational_stock for c in consumables
         if c.consumable_type == Consumable.ConsumableType.TONER
     )
 
     image_unit_total = sum(
-        c.current_stock for c in consumables
+        c.operational_stock for c in consumables
         if c.consumable_type == Consumable.ConsumableType.DRUM
     )
 
     low_stock_count = sum(
         1 for c in consumables
-        if c.current_stock > 0 and c.is_below_minimum_stock
+        if c.operational_stock > 0 and c.is_below_minimum_stock
     )
 
     out_of_stock_count = sum(
         1 for c in consumables
-        if c.current_stock <= 0
+        if c.operational_stock <= 0
     )
 
     # =========================
@@ -123,17 +125,17 @@ def psline_dashboard(request):
         consumable = comp.consumable
 
         if consumable.consumable_type == Consumable.ConsumableType.TONER:
-            model_summary_map[key]["toner_total"] += consumable.current_stock
+            model_summary_map[key]["toner_total"] += consumable.operational_stock
 
-            if consumable.current_stock <= 0:
+            if consumable.operational_stock <= 0:
                 model_summary_map[key]["toner_out"] += 1
             elif consumable.is_below_minimum_stock:
                 model_summary_map[key]["toner_low"] += 1
 
         elif consumable.consumable_type == Consumable.ConsumableType.DRUM:
-            model_summary_map[key]["drum_total"] += consumable.current_stock
+            model_summary_map[key]["drum_total"] += consumable.operational_stock
 
-            if consumable.current_stock <= 0:
+            if consumable.operational_stock <= 0:
                 model_summary_map[key]["drum_out"] += 1
             elif consumable.is_below_minimum_stock:
                 model_summary_map[key]["drum_low"] += 1
@@ -164,16 +166,16 @@ def psline_dashboard(request):
             "is_inventory_only": True,
         })
         if consumable.consumable_type == Consumable.ConsumableType.TONER:
-            item["toner_total"] += consumable.current_stock
-            item["toner_out"] += int(consumable.current_stock <= 0)
+            item["toner_total"] += consumable.operational_stock
+            item["toner_out"] += int(consumable.operational_stock <= 0)
             item["toner_low"] += int(
-                consumable.current_stock > 0 and consumable.is_below_minimum_stock
+                consumable.operational_stock > 0 and consumable.is_below_minimum_stock
             )
         elif consumable.consumable_type == Consumable.ConsumableType.DRUM:
-            item["drum_total"] += consumable.current_stock
-            item["drum_out"] += int(consumable.current_stock <= 0)
+            item["drum_total"] += consumable.operational_stock
+            item["drum_out"] += int(consumable.operational_stock <= 0)
             item["drum_low"] += int(
-                consumable.current_stock > 0 and consumable.is_below_minimum_stock
+                consumable.operational_stock > 0 and consumable.is_below_minimum_stock
             )
 
     model_summary = sorted(

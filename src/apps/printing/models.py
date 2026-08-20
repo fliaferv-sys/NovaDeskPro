@@ -526,7 +526,26 @@ class Consumable(models.Model):
 
     @property
     def current_stock(self):
+        """Legacy Printing balance retained for reconciliation and audit only."""
         return self.initial_stock + self.total_entries - self.total_outputs
+
+    def inventory_stock(self, *, branch=None):
+        if not self.stock_product_id:
+            return None
+        balances = self.stock_product.balances.all()
+        if branch is not None:
+            balances = balances.filter(branch=branch)
+        return sum(balance.quantity for balance in balances)
+
+    @property
+    def operational_stock(self):
+        if self.stock_product_id:
+            return self.inventory_stock()
+        return self.current_stock
+
+    @property
+    def stock_source(self):
+        return "INVENTORY" if self.stock_product_id else "PRINTING_LEGACY"
 
     @property
     def effective_minimum_stock(self):
@@ -536,19 +555,19 @@ class Consumable(models.Model):
 
     @property
     def is_below_minimum_stock(self):
-        return self.current_stock <= self.effective_minimum_stock
+        return self.operational_stock <= self.effective_minimum_stock
 
     @property
     def is_above_maximum_stock(self):
         return (
             self.maximum_stock is not None
-            and self.current_stock > self.maximum_stock
+            and self.operational_stock > self.maximum_stock
         )
 
     @property
     def quantity_to_minimum(self):
         return max(
-            self.effective_minimum_stock - self.current_stock,
+            self.effective_minimum_stock - self.operational_stock,
             0,
         )
 
@@ -556,7 +575,7 @@ class Consumable(models.Model):
     def suggested_reorder_quantity(self):
         if self.maximum_stock is not None:
             return max(
-                self.maximum_stock - self.current_stock,
+                self.maximum_stock - self.operational_stock,
                 0,
             )
 

@@ -1195,6 +1195,163 @@ class PrintingTicketStockUsageTests(TestCase):
         )
 
 
+class PrintingStageSixOperationalStockTests(TestCase):
+    def setUp(self):
+        from apps.accounts.models import Branch
+        from apps.inventory.models import (
+            OrganizationalLocation,
+            StockBalance,
+            StockCategory,
+            StockProduct,
+        )
+        from .models import Consumable, StockMovement
+
+        self.user = User.objects.create_superuser(
+            username="printing-stage-six-admin",
+            email="printing-stage-six@example.test",
+            password="test-password-123",
+        )
+        self.client.force_login(self.user)
+        self.branch = Branch.objects.create(code="STAGE6", name="Sede etapa 6")
+        self.location = OrganizationalLocation.objects.create(
+            branch=self.branch,
+            code="STAGE6-WH",
+            name="Depósito etapa 6",
+            location_type=OrganizationalLocation.LocationType.WAREHOUSE,
+        )
+        category = StockCategory.objects.create(name="Printing", code="stage6-printing")
+        self.product = StockProduct.objects.create(
+            name="Tóner operativo",
+            reference_code="STAGE6-TONER",
+            category=category,
+            minimum_stock=3,
+        )
+        self.balance = StockBalance.objects.create(
+            product=self.product,
+            branch=self.branch,
+            organizational_location=self.location,
+            quantity=2,
+        )
+        self.consumable = Consumable.objects.create(
+            name="Tóner vinculado etapa 6",
+            reference_code="STAGE6-TONER",
+            manufacturer="Test",
+            initial_stock=50,
+            minimum_stock=9,
+            stock_product=self.product,
+        )
+        self.legacy_movement = StockMovement.objects.create(
+            consumable=self.consumable,
+            movement_type=StockMovement.MovementType.ENTRY,
+            quantity=7,
+            performed_by=self.user,
+        )
+
+    def test_linked_consumable_uses_inventory_stock_and_minimum(self):
+        self.assertEqual(self.consumable.current_stock, 57)
+        self.assertEqual(self.consumable.operational_stock, 2)
+        self.assertEqual(self.consumable.effective_minimum_stock, 3)
+        self.assertTrue(self.consumable.is_below_minimum_stock)
+        self.assertEqual(self.balance.stock_status, "low")
+
+    def test_dashboard_and_report_use_inventory_without_moving_stock(self):
+        from apps.inventory.models import StockMovement as InventoryMovement
+        from apps.reports.selectors import get_printing_report
+        from .models import StockMovement
+
+        inventory_movement_count = InventoryMovement.objects.count()
+        legacy_movement_count = StockMovement.objects.count()
+
+        dashboard = self.client.get(reverse("printing:dashboard"))
+        report = get_printing_report({})
+        row = next(item for item in report["consumables"] if item.pk == self.consumable.pk)
+
+        self.assertEqual(dashboard.status_code, 200)
+        self.assertEqual(dashboard.context["toner_total"], 2)
+        self.assertEqual(row.current_stock_value, 2)
+        self.assertEqual(row.stock_minimum_value, 3)
+        self.assertEqual(row.stock_source_label, "Inventory")
+        self.assertEqual(report["movement_count"], 1)
+        self.balance.refresh_from_db()
+        self.assertEqual(self.balance.quantity, 2)
+        self.assertEqual(InventoryMovement.objects.count(), inventory_movement_count)
+        self.assertEqual(StockMovement.objects.count(), legacy_movement_count)
+
+    def test_legacy_consumable_keeps_legacy_stock_and_alert(self):
+        from apps.notifications.generators import generate_consumable_stock_notifications
+        from apps.notifications.models import Notification
+        from .models import Consumable
+
+        legacy = Consumable.objects.create(
+            name="Consumible legacy sin stock",
+            reference_code="STAGE6-LEGACY",
+            manufacturer="Test",
+            initial_stock=0,
+            minimum_stock=2,
+        )
+
+        generate_consumable_stock_notifications()
+
+        self.assertEqual(legacy.operational_stock, legacy.current_stock)
+        self.assertTrue(
+            Notification.objects.filter(
+                unique_key=f"consumable-out-of-stock-{legacy.pk}", is_active=True
+            ).exists()
+        )
+
+    def test_linked_consumable_does_not_generate_duplicate_printing_alert(self):
+        from apps.notifications.generators import generate_consumable_stock_notifications
+        from apps.notifications.models import Notification
+
+        legacy_key = f"consumable-low-stock-{self.consumable.pk}"
+        Notification.objects.create(
+            notification_type=Notification.TYPE_LOW_STOCK,
+            level=Notification.LEVEL_WARNING,
+            title="Alerta anterior",
+            message="Alerta Printing anterior al vínculo",
+            unique_key=legacy_key,
+        )
+
+        generate_consumable_stock_notifications()
+
+        self.assertFalse(
+            Notification.objects.get(unique_key=legacy_key).is_active
+        )
+        self.assertFalse(
+            Notification.objects.filter(
+                object_type="Consumable",
+                object_id=self.consumable.pk,
+                is_active=True,
+            ).exists()
+        )
+        self.assertEqual(self.balance.stock_status, "low")
+
+    def test_legacy_stock_movement_admin_is_view_only(self):
+        from .models import StockMovement
+
+        count = StockMovement.objects.count()
+        changelist = self.client.get(reverse("admin:printing_stockmovement_changelist"))
+        add = self.client.get(reverse("admin:printing_stockmovement_add"))
+        change_url = reverse(
+            "admin:printing_stockmovement_change", args=[self.legacy_movement.pk]
+        )
+        detail = self.client.get(change_url)
+        edit = self.client.post(change_url, {"quantity": 99})
+        delete = self.client.get(
+            reverse("admin:printing_stockmovement_delete", args=[self.legacy_movement.pk])
+        )
+
+        self.assertEqual(changelist.status_code, 200)
+        self.assertContains(changelist, "Histórico / legado")
+        self.assertEqual(add.status_code, 403)
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(edit.status_code, 403)
+        self.assertEqual(delete.status_code, 403)
+        self.legacy_movement.refresh_from_db()
+        self.assertEqual(self.legacy_movement.quantity, 7)
+        self.assertEqual(StockMovement.objects.count(), count)
+
+
 class ConsumableStockReconciliationTests(TestCase):
     def setUp(self):
         from apps.inventory.models import StockCategory

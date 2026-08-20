@@ -1,6 +1,6 @@
 from datetime import datetime, time, timedelta
 
-from django.db.models import Case, Count, F, IntegerField, Q, Sum, Value, When
+from django.db.models import Count, F, IntegerField, Q, Sum, Value
 from django.db.models.functions import Coalesce, TruncDay
 from django.utils import timezone
 
@@ -199,11 +199,40 @@ def get_inventory_report(filters):
 
 
 def get_printing_report(filters):
-    devices = PrintingDevice.objects.select_related("asset__branch")
+    devices = PrintingDevice.objects.select_related(
+        "asset__branch", "asset__physical_location", "branch",
+        "organizational_location",
+    )
     if filters.get("branch"):
-        devices = devices.filter(asset__branch=filters["branch"])
+        devices = devices.filter(
+            Q(branch=filters["branch"])
+            | Q(branch__isnull=True, asset__branch=filters["branch"])
+        )
     if filters.get("active"):
         devices = devices.filter(is_active=filters["active"] == "true")
+
+    device_rows = list(devices.order_by("brand", "model", "serial_number")[:100])
+    branch_totals = {}
+    for device in device_rows:
+        branch = device.effective_branch
+        location = device.effective_location
+        identifier = (
+            f"ID {device.photocopier_id}"
+            if device.photocopier_id
+            else device.identifier
+        )
+        brand_model = " ".join(
+            value for value in (device.effective_brand, device.effective_model) if value
+        )
+        device.report_identifier = identifier
+        device.report_equipment = " - ".join(
+            value for value in (identifier, brand_model) if value
+        )
+        device.report_brand_model = brand_model or "Sin marca / modelo"
+        device.report_branch = branch.name if branch else "Sin sede"
+        device.report_location = location.name if location else "Sin ubicación"
+        branch_label = str(branch) if branch else "Sin sede"
+        branch_totals[branch_label] = branch_totals.get(branch_label, 0) + 1
 
     positive = [
         PrintingStockMovement.MovementType.ENTRY,
@@ -216,16 +245,46 @@ def get_printing_report(filters):
         PrintingStockMovement.MovementType.NEGATIVE_ADJUSTMENT,
         PrintingStockMovement.MovementType.WRITE_OFF,
     ]
-    consumables = Consumable.objects.annotate(
+    consumables_queryset = Consumable.objects.select_related("stock_product").prefetch_related(
+        "stock_product__balances", "stock_product__stock_movements"
+    ).annotate(
         entries_total=Coalesce(Sum("stock_movements__quantity", filter=Q(stock_movements__movement_type__in=positive)), 0),
         outputs_total=Coalesce(Sum("stock_movements__quantity", filter=Q(stock_movements__movement_type__in=negative)), 0),
     ).annotate(current_stock_value=F("initial_stock") + F("entries_total") - F("outputs_total"))
     if filters.get("active"):
-        consumables = consumables.filter(is_active=filters["active"] == "true")
+        consumables_queryset = consumables_queryset.filter(
+            is_active=filters["active"] == "true"
+        )
 
-    low_consumables = consumables.filter(current_stock_value__gt=0,
-                                         current_stock_value__lte=F("minimum_stock"))
-    empty_consumables = consumables.filter(current_stock_value=0)
+    consumables = list(consumables_queryset.order_by("name"))
+    for consumable in consumables:
+        if consumable.stock_product_id:
+            consumable.current_stock_value = consumable.inventory_stock(
+                branch=filters.get("branch")
+            )
+            inventory_movements = consumable.stock_product.stock_movements.all()
+            if filters.get("branch"):
+                inventory_movements = inventory_movements.filter(
+                    balance__branch=filters["branch"]
+                )
+            consumable.entries_total = sum(
+                movement.quantity for movement in inventory_movements
+                if movement.direction == InventoryStockMovement.Direction.ENTRY
+            )
+            consumable.outputs_total = sum(
+                movement.quantity for movement in inventory_movements
+                if movement.direction == InventoryStockMovement.Direction.EXIT
+            )
+        consumable.stock_minimum_value = consumable.effective_minimum_stock
+        consumable.stock_source_label = (
+            "Inventory" if consumable.stock_product_id else "Printing histórico"
+        )
+
+    low_consumables = [
+        row for row in consumables
+        if 0 < row.current_stock_value <= row.stock_minimum_value
+    ]
+    empty_consumables = [row for row in consumables if row.current_stock_value <= 0]
 
     movements = PrintingStockMovement.objects.select_related("consumable", "printing_device__asset")
     movements = _datetime_range(movements, "movement_date", filters)
@@ -234,15 +293,22 @@ def get_printing_report(filters):
 
     return {
         "device_total": devices.count(),
-        "devices": devices.order_by("asset__internal_code")[:100],
+        "devices": device_rows,
         "devices_by_type": list(devices.values("device_type").annotate(total=Count("id")).order_by("device_type")),
         "devices_by_active": list(devices.values("is_active").annotate(total=Count("id")).order_by("-is_active")),
-        "devices_by_branch": list(devices.values("asset__branch__name").annotate(total=Count("id")).order_by("-total")),
-        "consumable_count": consumables.count(),
-        "consumables": consumables.order_by("name")[:100],
-        "low_count": low_consumables.count(),
-        "empty_count": empty_consumables.count(),
-        "low_consumables": low_consumables.order_by("current_stock_value", "name")[:100],
+        "devices_by_branch": [
+            {"label": label, "total": total}
+            for label, total in sorted(
+                branch_totals.items(), key=lambda item: (-item[1], item[0])
+            )
+        ],
+        "consumable_count": len(consumables),
+        "consumables": consumables[:100],
+        "low_count": len(low_consumables),
+        "empty_count": len(empty_consumables),
+        "low_consumables": sorted(
+            low_consumables, key=lambda row: (row.current_stock_value, row.name)
+        )[:100],
         "movement_count": movements.count(),
         "movements": movements.order_by("-movement_date")[:100],
     }

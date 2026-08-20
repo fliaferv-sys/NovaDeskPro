@@ -185,3 +185,91 @@ class PrintingReportTests(ReportsFixtureMixin, TestCase):
         self.assertEqual(report["device_total"], 0)
         self.assertEqual(report["consumable_count"], 1)
         self.assertEqual(report["low_count"], 1)
+
+    def test_outsourced_device_without_asset_uses_direct_report_fields(self):
+        direct_branch = Branch.objects.create(
+            code="PLANTA-VILLA-ELISA", name="Sede Villa Elisa"
+        )
+        location = OrganizationalLocation.objects.create(
+            branch=direct_branch,
+            code="SOPORTE-DTI",
+            name="Oficina de Soporte Informático",
+            location_type=OrganizationalLocation.LocationType.OFFICE,
+        )
+        device = PrintingDevice.objects.create(
+            asset=None,
+            photocopier_id="21",
+            brand="LEXMARK",
+            model="MX 622",
+            serial_number="7018909304981",
+            branch=direct_branch,
+            organizational_location=location,
+            is_outsourced=True,
+            is_active=True,
+        )
+
+        report = get_printing_report({})
+        row = next(item for item in report["devices"] if item.pk == device.pk)
+        branch_row = next(
+            item for item in report["devices_by_branch"]
+            if item["label"] == str(direct_branch)
+        )
+
+        self.assertEqual(row.report_equipment, "ID 21 - LEXMARK MX 622")
+        self.assertEqual(row.report_branch, "Sede Villa Elisa")
+        self.assertEqual(row.report_location, "Oficina de Soporte Informático")
+        self.assertNotIn("None", row.report_equipment)
+        self.assertNotIn(str(device.pk), row.report_equipment)
+        self.assertEqual(branch_row["total"], 1)
+
+        self.client.force_login(self.admin)
+        response = self.client.get(reverse("reports:printing"))
+        self.assertContains(response, "ID 21 - LEXMARK MX 622")
+        self.assertContains(response, "Oficina de Soporte Informático")
+        self.assertNotContains(response, f">{device.pk}<")
+
+    def test_legacy_asset_fallback_and_inventory_stock_remain_unchanged(self):
+        category = StockCategory.objects.create(name="Printing RPT", code="printing-rpt")
+        product = StockProduct.objects.create(
+            name="Tóner Inventory RPT",
+            reference_code="TON-INV-RPT",
+            category=category,
+            minimum_stock=2,
+        )
+        location = OrganizationalLocation.objects.create(
+            branch=self.branch,
+            code="RPT-PRINT-STOCK",
+            name="Depósito Printing RPT",
+            location_type=OrganizationalLocation.LocationType.WAREHOUSE,
+        )
+        balance = StockBalance.objects.create(
+            product=product,
+            branch=self.branch,
+            organizational_location=location,
+            quantity=5,
+        )
+        consumable = Consumable.objects.create(
+            name="Tóner vinculado RPT",
+            reference_code="TON-INV-RPT",
+            manufacturer="Test",
+            initial_stock=99,
+            minimum_stock=8,
+            stock_product=product,
+        )
+        inventory_movements = StockMovement.objects.count()
+        printing_movements = PrintingMovement.objects.count()
+
+        report = get_printing_report({})
+        legacy_row = next(item for item in report["devices"] if item.pk == self.device.pk)
+        stock_row = next(
+            item for item in report["consumables"] if item.pk == consumable.pk
+        )
+
+        self.assertEqual(legacy_row.report_equipment, "RPT-PRINT - Test P1")
+        self.assertEqual(legacy_row.report_branch, "Sede Reportes")
+        self.assertEqual(stock_row.current_stock_value, 5)
+        self.assertEqual(stock_row.stock_source_label, "Inventory")
+        balance.refresh_from_db()
+        self.assertEqual(balance.quantity, 5)
+        self.assertEqual(StockMovement.objects.count(), inventory_movements)
+        self.assertEqual(PrintingMovement.objects.count(), printing_movements)

@@ -83,6 +83,11 @@ def generate_consumable_stock_notifications():
         no_stock_key = f"consumable-out-of-stock-{consumable.pk}"
         low_stock_key = f"consumable-low-stock-{consumable.pk}"
 
+        if consumable.stock_product_id:
+            deactivated_count += deactivate_notification(no_stock_key)
+            deactivated_count += deactivate_notification(low_stock_key)
+            continue
+
         current_stock = consumable.current_stock
 
         if current_stock <= 0:

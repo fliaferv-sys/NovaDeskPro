@@ -341,7 +341,7 @@ class StockStatusFilter(admin.SimpleListFilter):
         matched_ids = []
 
         for consumable in queryset:
-            stock = consumable.current_stock
+            stock = consumable.operational_stock
 
             if selected == "out" and stock <= 0:
                 matched_ids.append(consumable.pk)
@@ -439,6 +439,10 @@ class ConsumableAdmin(admin.ModelAdmin):
         (
             "Control de existencias",
             {
+                "description": (
+                    "En consumibles vinculados, el stock actual y el mínimo operativo "
+                    "provienen de Inventory. Los demás valores se conservan como legado."
+                ),
                 "fields": (
                     "initial_stock",
                     "minimum_stock",
@@ -496,10 +500,17 @@ class ConsumableAdmin(admin.ModelAdmin):
     class Media:
         js = ("printing/js/consumable_admin.js",)
 
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related(
+            "stock_product"
+        ).prefetch_related("stock_product__balances")
+
     def get_readonly_fields(self, request, obj=None):
         readonly_fields = list(super().get_readonly_fields(request, obj))
         if obj is None:
             readonly_fields.append("initial_stock")
+        elif obj.stock_product_id:
+            readonly_fields.extend(("initial_stock", "maximum_stock", "unit_price"))
         return tuple(readonly_fields)
 
     def get_urls(self):
@@ -596,7 +607,7 @@ class ConsumableAdmin(admin.ModelAdmin):
         ordering="initial_stock",
     )
     def stock_actual(self, obj):
-        stock = obj.current_stock
+        stock = obj.operational_stock
 
         if stock <= 0:
             return format_html(
@@ -617,7 +628,7 @@ class ConsumableAdmin(admin.ModelAdmin):
 
     @admin.display(description="Estado del stock")
     def estado_stock(self, obj):
-        stock = obj.current_stock
+        stock = obj.operational_stock
 
         if stock <= 0:
             return format_html(
@@ -732,6 +743,7 @@ class ConsumableCompatibilityAdmin(admin.ModelAdmin):
 @admin.register(StockMovement)
 class StockMovementAdmin(admin.ModelAdmin):
     list_display = (
+        "legacy_status",
         "movement_date",
         "consumable",
         "movement_type",
@@ -830,42 +842,32 @@ class StockMovementAdmin(admin.ModelAdmin):
         ),
     )
 
-    readonly_fields = (
-        "performed_by",
-        "created_at",
+    readonly_fields = tuple(
+        field.name for field in StockMovement._meta.fields
     )
 
-    def save_model(self, request, obj, form, change):
-        if not obj.performed_by_id:
-            obj.performed_by = request.user
-
-        obj.full_clean()
-        super().save_model(request, obj, form, change)
-
     def get_readonly_fields(self, request, obj=None):
-        if obj:
-            return (
-                "consumable",
-                "movement_type",
-                "quantity",
-                "printing_device",
-                "performed_by",
-                "movement_date",
-                "unit_cost",
-                "source_location",
-                "destination_location",
-                "document_reference",
-                "notes",
-                "created_at",
-            )
+        return self.readonly_fields
 
-        return (
-            "performed_by",
-            "created_at",
-        )
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+    @admin.display(description="Estado")
+    def legacy_status(self, obj):
+        return "Histórico / legado"
+
+    def changelist_view(self, request, extra_context=None):
+        extra_context = {
+            **(extra_context or {}),
+            "title": "Movimientos de stock — Histórico / legado (solo lectura)",
+        }
+        return super().changelist_view(request, extra_context=extra_context)
 
     @admin.display(
         description="Stock resultante",
