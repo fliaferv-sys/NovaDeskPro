@@ -286,7 +286,7 @@
 
             <input type="text"
                    name="search"
-                   placeholder="Buscar código..."
+                   placeholder="Buscar ID de fotocopiadora..."
                    value="{{ request.GET.search|default:'' }}">
 
             <button type="submit" class="model-btn">
@@ -305,7 +305,7 @@
                 <table class="model-table">
                     <thead>
                         <tr>
-                            <th>Código</th>
+                            <th>ID de fotocopiadora</th>
                             <th>Marca</th>
                             <th>Modelo</th>
                             <th>Tipo</th>
@@ -319,9 +319,9 @@
                         {% for device in devices %}
                             <tr class="clickable-row"
                                 data-href="/psline/equipo/{{ device.pk }}/">
-                                <td>{{ device.asset.internal_code }}</td>
-                                <td>{{ device.asset.brand }}</td>
-                                <td>{{ device.asset.model }}</td>
+                                <td>{{ device.photocopier_id|default:"—" }}</td>
+                                <td>{{ device.effective_brand }}</td>
+                                <td>{{ device.effective_model }}</td>
                                 <td>{{ device.get_device_type_display }}</td>
                                 <td>
                                     {% if device.asset.connection_status == "ONLINE" %}

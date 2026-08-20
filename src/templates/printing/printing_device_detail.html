@@ -28,7 +28,7 @@
                 <table class="model-table">
                     <thead>
                         <tr>
-                            <th>Código</th>
+                            <th>ID de fotocopiadora</th>
                             <th>Marca</th>
                             <th>Modelo</th>
                             <th>Tipo</th>
@@ -42,9 +42,9 @@
                     <tbody>
                         {% for device in devices %}
                             <tr>
-                                <td>{{ device.asset.internal_code }}</td>
-                                <td>{{ device.asset.brand }}</td>
-                                <td>{{ device.asset.model }}</td>
+                                <td>{{ device.photocopier_id|default:"—" }}</td>
+                                <td>{{ device.effective_brand }}</td>
+                                <td>{{ device.effective_model }}</td>
                                 <td>{{ device.get_device_type_display }}</td>
                                 <td>{{ device.asset.get_connection_status_display }}</td>
                                 <td>{{ device.asset.current_ip|default:"—" }}</td>

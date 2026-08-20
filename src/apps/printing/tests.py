@@ -77,6 +77,60 @@ class PrintingDeviceDetailTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["device"], printing_device)
 
+    def test_photocopier_id_is_shown_in_detail_and_list_and_used_as_identifier(self):
+        from apps.inventory.models import Asset
+        from .models import PrintingDevice
+
+        user = User.objects.create_user(
+            username="printing-operational-id-admin",
+            email="printing-operational-id@example.test",
+            password="test-password-123",
+            role=User.Role.ADMIN,
+        )
+        asset = Asset.objects.create(
+            internal_code="LEGACY-ASSET-CODE",
+            asset_type=Asset.AssetType.PRINTER,
+            brand="Lexmark",
+            model="MX622M",
+            serial_number="7018909304981",
+        )
+        device = PrintingDevice.objects.create(asset=asset, photocopier_id="21")
+        self.client.force_login(user)
+
+        detail = self.client.get(
+            reverse("printing:device_detail", kwargs={"pk": device.pk})
+        )
+        listing = self.client.get(
+            reverse("printing:devices_by_model"), {"search": "21"}
+        )
+
+        self.assertEqual(device.identifier, "21")
+        self.assertContains(detail, "ID de fotocopiadora")
+        self.assertContains(detail, "21")
+        self.assertContains(listing, "21")
+        self.assertContains(listing, "Lexmark")
+
+    def test_photocopier_id_is_optional_and_unique_when_present(self):
+        from apps.inventory.models import Asset
+        from .models import PrintingDevice
+
+        first_asset = Asset.objects.create(
+            internal_code="PHOTO-ID-OPTIONAL-1",
+            asset_type=Asset.AssetType.PRINTER,
+        )
+        second_asset = Asset.objects.create(
+            internal_code="PHOTO-ID-OPTIONAL-2",
+            asset_type=Asset.AssetType.PRINTER,
+        )
+        PrintingDevice.objects.create(asset=first_asset, photocopier_id="21")
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                PrintingDevice.objects.create(asset=second_asset, photocopier_id="21")
+
+        second_asset.refresh_from_db()
+        PrintingDevice.objects.create(asset=second_asset)
+
 
 class PrintingAdminSearchFieldsTests(TestCase):
     def test_all_printing_admin_search_fields_resolve_to_existing_fields(self):
@@ -417,6 +471,7 @@ class ConsumableStageFourAdminTests(TestCase):
         consumable = Consumable.objects.get(reference_code="NEW-TONER-001")
         self.assertIsNone(consumable.stock_product)
         self.assertEqual(consumable.initial_stock, 0)
+        self.assertEqual(consumable.minimum_stock, 2)
 
     def test_candidate_detection_returns_unique_exact_normalized_match(self):
         from .forms import find_stock_product_candidates
@@ -467,6 +522,8 @@ class ConsumableStageFourAdminTests(TestCase):
 
         consumable = Consumable.objects.get(reference_code="NEW-TONER-001")
         self.assertEqual(consumable.stock_product, self.stock_product)
+        self.stock_product.refresh_from_db()
+        self.assertEqual(self.stock_product.minimum_stock, 2)
         self.assertRedirects(
             response,
             reverse(
@@ -497,6 +554,7 @@ class ConsumableStageFourAdminTests(TestCase):
             StockProduct.UnitOfMeasure.UNIT,
         )
         self.assertEqual(product.category.code, "printing-consumables")
+        self.assertEqual(product.minimum_stock, 2)
         self.assertTrue(product.is_active)
         self.assertFalse(StockBalance.objects.filter(product=product).exists())
         self.assertFalse(InventoryMovement.objects.filter(product=product).exists())
@@ -505,6 +563,100 @@ class ConsumableStageFourAdminTests(TestCase):
             response,
             reverse("inventory:stock_product_detail", args=[product.pk]),
         )
+
+    def test_linked_minimum_updates_inventory_without_stock_or_movements(self):
+        from apps.accounts.models import Branch
+        from apps.inventory.models import (
+            OrganizationalLocation,
+            StockBalance,
+            StockMovement as InventoryMovement,
+        )
+        from .models import Consumable, StockMovement as PrintingMovement
+
+        self.stock_product.minimum_stock = 5
+        self.stock_product.save(update_fields=["minimum_stock", "updated_at"])
+        consumable = Consumable.objects.create(
+            name="Tóner Lexmark MX632",
+            reference_code="66S4X00",
+            manufacturer="Lexmark",
+            model="MX632",
+            initial_stock=0,
+            minimum_stock=2,
+            stock_product=self.stock_product,
+        )
+        branch = Branch.objects.create(code="MIN-SYNC", name="Sede sincronización")
+        location = OrganizationalLocation.objects.create(
+            branch=branch,
+            code="MIN-SYNC-WH",
+            name="Depósito sincronización",
+            location_type=OrganizationalLocation.LocationType.WAREHOUSE,
+        )
+        balance = StockBalance.objects.create(
+            product=self.stock_product,
+            branch=branch,
+            organizational_location=location,
+            quantity=5,
+        )
+        change_url = reverse("admin:printing_consumable_change", args=[consumable.pk])
+
+        self.assertEqual(balance.stock_status, "low")
+        first_response = self.client.post(
+            change_url,
+            self.consumable_data(
+                name=consumable.name,
+                reference_code=consumable.reference_code,
+                model=consumable.model,
+                stock_product=str(self.stock_product.pk),
+                minimum_stock=2,
+            ),
+        )
+        self.assertEqual(first_response.status_code, 302)
+        self.stock_product.refresh_from_db()
+        balance.refresh_from_db()
+        self.assertEqual(self.stock_product.minimum_stock, 2)
+        self.assertEqual(balance.stock_status, "available")
+
+        response = self.client.post(
+            change_url,
+            self.consumable_data(
+                name=consumable.name,
+                reference_code=consumable.reference_code,
+                model=consumable.model,
+                stock_product=str(self.stock_product.pk),
+                minimum_stock=3,
+            ),
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.stock_product.refresh_from_db()
+        balance.refresh_from_db()
+        self.assertEqual(self.stock_product.minimum_stock, 3)
+        self.assertEqual(balance.quantity, 5)
+        self.assertEqual(balance.stock_status, "available")
+        self.assertFalse(InventoryMovement.objects.exists())
+        self.assertFalse(PrintingMovement.objects.exists())
+
+    def test_linked_form_explains_and_reads_inventory_minimum(self):
+        from .models import Consumable
+
+        self.stock_product.minimum_stock = 2
+        self.stock_product.save(update_fields=["minimum_stock", "updated_at"])
+        consumable = Consumable.objects.create(
+            name="Consumible vinculado",
+            reference_code="LINKED-MIN-HELP",
+            manufacturer="Lexmark",
+            initial_stock=0,
+            minimum_stock=5,
+            stock_product=self.stock_product,
+        )
+
+        response = self.client.get(
+            reverse("admin:printing_consumable_change", args=[consumable.pk])
+        )
+
+        self.assertContains(response, "Vinculado con Inventory")
+        self.assertEqual(response.context["adminform"].form.initial["minimum_stock"], 2)
+        self.assertEqual(consumable.effective_minimum_stock, 2)
 
     def test_admin_rejects_new_product_with_duplicate_normalized_reference(self):
         from apps.inventory.models import StockProduct
@@ -547,6 +699,500 @@ class ConsumableStageFourAdminTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Sin producto de stock")
         self.assertContains(response, "Vinculado")
+
+
+class PrintingTicketStockUsageTests(TestCase):
+    def setUp(self):
+        from apps.accounts.models import Branch
+        from apps.inventory.models import (
+            Asset,
+            OrganizationalLocation,
+            StockBalance,
+            StockCategory,
+            StockProduct,
+        )
+        from apps.tickets.models import Ticket
+        from .models import Consumable, ConsumableCompatibility, PrintingDevice
+
+        self.user = User.objects.create_user(
+            username="printing-usage-admin",
+            email="printing-usage@example.test",
+            password="test-password-123",
+            role=User.Role.ADMIN,
+        )
+        self.requester = User.objects.create_user(
+            username="printing-usage-requester",
+            email="printing-requester@example.test",
+            role=User.Role.CLIENT,
+        )
+        self.client.force_login(self.user)
+        self.branch = Branch.objects.create(code="PRINT-USE-HQ", name="Sede local")
+        self.location = OrganizationalLocation.objects.create(
+            branch=self.branch,
+            code="PRINT-USE-WH",
+            name="Depósito local",
+            location_type=OrganizationalLocation.LocationType.WAREHOUSE,
+        )
+        self.remote_branch = Branch.objects.create(
+            code="PRINT-USE-REMOTE", name="Sede remota"
+        )
+        self.remote_location = OrganizationalLocation.objects.create(
+            branch=self.remote_branch,
+            code="PRINT-USE-REMOTE-WH",
+            name="Depósito remoto",
+            location_type=OrganizationalLocation.LocationType.WAREHOUSE,
+        )
+        self.asset = Asset.objects.create(
+            internal_code="PRINT-USAGE-ASSET",
+            asset_type=Asset.AssetType.PRINTER,
+            brand="HP",
+            model="LaserJet Test",
+            serial_number="PRINT-USAGE-SERIAL",
+            branch=self.branch,
+            physical_location=self.location,
+        )
+        self.device = PrintingDevice.objects.create(asset=self.asset)
+        self.ticket = Ticket.objects.create(
+            title="Cambiar tóner",
+            description="Impresora sin tóner",
+            requester=self.requester,
+            assigned_to=self.user,
+            asset=self.asset,
+            printing_device=self.device,
+            category=Ticket.Category.PRINTER,
+        )
+        self.category = StockCategory.objects.create(
+            name="Consumibles Printing", code="printing-ticket-usage"
+        )
+        self.product = StockProduct.objects.create(
+            name="Tóner compatible",
+            reference_code="PRINT-USAGE-TONER",
+            category=self.category,
+        )
+        self.consumable = Consumable.objects.create(
+            name="Tóner compatible",
+            reference_code="PRINT-USAGE-TONER",
+            manufacturer="HP",
+            model="Toner Model",
+            color="Negro",
+            initial_stock=0,
+            stock_product=self.product,
+        )
+        self.compatibility = ConsumableCompatibility.objects.create(
+            printing_device=self.device,
+            consumable=self.consumable,
+            is_active=True,
+        )
+        self.balance = StockBalance.objects.create(
+            product=self.product,
+            branch=self.branch,
+            organizational_location=self.location,
+            quantity=5,
+        )
+        self.url = reverse(
+            "printing:register_ticket_consumable", args=[self.ticket.pk]
+        )
+
+    def post_data(self, **overrides):
+        data = {
+            "compatibility": str(self.compatibility.pk),
+            "stock_balance": str(self.balance.pk),
+            "quantity": 2,
+            "observation": "Cambio de consumible",
+        }
+        data.update(overrides)
+        return data
+
+    def test_ticket_detail_shows_register_action_for_printing_device(self):
+        response = self.client.get(
+            reverse("tickets:ticket_detail", args=[self.ticket.pk])
+        )
+
+        self.assertContains(response, "Registrar consumible")
+        self.assertContains(response, self.url)
+
+    def test_ticket_without_asset_does_not_show_or_allow_specialized_flow(self):
+        from apps.tickets.models import Ticket
+
+        ticket = Ticket.objects.create(
+            title="Sin activo",
+            description="Prueba",
+            requester=self.requester,
+            assigned_to=self.user,
+        )
+        detail = self.client.get(reverse("tickets:ticket_detail", args=[ticket.pk]))
+
+        self.assertNotContains(detail, "Registrar consumible")
+        self.assertEqual(
+            self.client.get(
+                reverse("printing:register_ticket_consumable", args=[ticket.pk])
+            ).status_code,
+            403,
+        )
+
+    def test_non_printing_asset_does_not_show_or_allow_specialized_flow(self):
+        from apps.inventory.models import Asset
+        from apps.tickets.models import Ticket
+
+        asset = Asset.objects.create(
+            internal_code="NON-PRINT-ASSET", asset_type=Asset.AssetType.DESKTOP
+        )
+        ticket = Ticket.objects.create(
+            title="PC",
+            description="Prueba",
+            requester=self.requester,
+            assigned_to=self.user,
+            asset=asset,
+        )
+        detail = self.client.get(reverse("tickets:ticket_detail", args=[ticket.pk]))
+
+        self.assertNotContains(detail, "Registrar consumible")
+        self.assertEqual(
+            self.client.get(
+                reverse("printing:register_ticket_consumable", args=[ticket.pk])
+            ).status_code,
+            403,
+        )
+
+    def test_valid_printer_and_single_local_balance_are_preselected(self):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.context["printing_device"], self.device)
+        self.assertEqual(
+            response.context["form"].initial["compatibility"],
+            self.compatibility.pk,
+        )
+        self.assertEqual(
+            response.context["form"].initial["stock_balance"], self.balance.pk
+        )
+        self.assertContains(response, self.asset.internal_code)
+
+    def test_outsourced_device_without_asset_can_register_consumable(self):
+        from apps.inventory.models import StockMovement, TicketStockUsage
+        from apps.tickets.models import Ticket
+        from .models import PrintingDevice, PrintingTicketStockUsageContext
+
+        device = PrintingDevice.objects.create(
+            asset=None,
+            branch=self.branch,
+            organizational_location=self.location,
+            brand="Ricoh",
+            model="IM C3000",
+            serial_number="THIRD-PARTY-001",
+            is_outsourced=True,
+        )
+        self.compatibility.printing_device = device
+        self.compatibility.save(update_fields=["printing_device"])
+        ticket = Ticket.objects.create(
+            title="Consumible tercerizado",
+            description="Cambio de tóner",
+            requester=self.requester,
+            assigned_to=self.user,
+            printing_device=device,
+            category=Ticket.Category.PRINTER,
+        )
+        url = reverse("printing:register_ticket_consumable", args=[ticket.pk])
+
+        response = self.client.post(
+            url,
+            {
+                "compatibility": str(self.compatibility.pk),
+                "stock_balance": str(self.balance.pk),
+                "quantity": 1,
+                "observation": "Equipo tercerizado",
+            },
+        )
+
+        usage = TicketStockUsage.objects.get(ticket=ticket)
+        self.assertRedirects(
+            response,
+            reverse("inventory:ticket_stock_usage_detail", args=[usage.pk]),
+        )
+        self.assertEqual(usage.lines.get().stock_movement.reason, StockMovement.Reason.CONSUMPTION)
+        context = PrintingTicketStockUsageContext.objects.get(usage=usage)
+        self.assertEqual(context.device_identifier_snapshot, "THIRD-PARTY-001")
+        self.assertEqual(context.device_brand_snapshot, "Ricoh")
+        self.assertEqual(context.branch_snapshot, str(self.branch))
+
+    def test_only_compatible_linked_consumables_with_stock_are_listed(self):
+        from apps.inventory.models import StockBalance, StockProduct
+        from .models import Consumable, ConsumableCompatibility, PrintingDevice
+
+        incompatible_product = StockProduct.objects.create(
+            name="Incompatible",
+            reference_code="INCOMPATIBLE-TONER",
+            category=self.category,
+        )
+        incompatible = Consumable.objects.create(
+            name="Incompatible",
+            reference_code="INCOMPATIBLE-TONER",
+            manufacturer="Otro",
+            initial_stock=0,
+            stock_product=incompatible_product,
+        )
+        other_asset = self.asset.__class__.objects.create(
+            internal_code="OTHER-PRINTER",
+            asset_type=self.asset.AssetType.PRINTER,
+        )
+        other_device = PrintingDevice.objects.create(asset=other_asset)
+        ConsumableCompatibility.objects.create(
+            printing_device=other_device, consumable=incompatible
+        )
+        StockBalance.objects.create(
+            product=incompatible_product,
+            branch=self.branch,
+            organizational_location=self.location,
+            quantity=3,
+        )
+
+        response = self.client.get(self.url)
+
+        self.assertContains(response, "PRINT-USAGE-TONER")
+        self.assertNotContains(response, "INCOMPATIBLE-TONER")
+
+    def test_incompatible_consumable_is_rejected_by_backend(self):
+        from apps.inventory.models import StockBalance, StockProduct
+        from .models import Consumable, ConsumableCompatibility
+
+        product = StockProduct.objects.create(
+            name="No compatible", reference_code="NO-COMPAT", category=self.category
+        )
+        consumable = Consumable.objects.create(
+            name="No compatible",
+            reference_code="NO-COMPAT",
+            manufacturer="Otro",
+            initial_stock=0,
+            stock_product=product,
+        )
+        compatibility = ConsumableCompatibility.objects.create(
+            printing_device=self.device,
+            consumable=consumable,
+            is_active=False,
+        )
+        balance = StockBalance.objects.create(
+            product=product,
+            branch=self.branch,
+            organizational_location=self.location,
+            quantity=2,
+        )
+
+        response = self.client.post(
+            self.url,
+            self.post_data(
+                compatibility=str(compatibility.pk),
+                stock_balance=str(balance.pk),
+            ),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "opción válida")
+        self.assertFalse(self.ticket.stock_usages.exists())
+
+    def test_unlinked_inactive_and_zero_stock_consumables_are_not_usable(self):
+        from apps.inventory.models import StockBalance, StockProduct
+        from .models import Consumable, ConsumableCompatibility
+
+        unlinked = Consumable.objects.create(
+            name="Sin vínculo",
+            reference_code="NO-LINK",
+            manufacturer="Test",
+            initial_stock=0,
+        )
+        ConsumableCompatibility.objects.create(
+            printing_device=self.device, consumable=unlinked
+        )
+        inactive_product = StockProduct.objects.create(
+            name="Inactivo",
+            reference_code="INACTIVE-PRODUCT",
+            category=self.category,
+            is_active=False,
+        )
+        inactive = Consumable.objects.create(
+            name="Inactivo",
+            reference_code="INACTIVE-PRODUCT",
+            manufacturer="Test",
+            initial_stock=0,
+            stock_product=inactive_product,
+        )
+        ConsumableCompatibility.objects.create(
+            printing_device=self.device, consumable=inactive
+        )
+        StockBalance.objects.create(
+            product=inactive_product,
+            branch=self.branch,
+            organizational_location=self.location,
+            quantity=2,
+        )
+        zero_product = StockProduct.objects.create(
+            name="Sin stock", reference_code="ZERO-PRODUCT", category=self.category
+        )
+        zero_consumable = Consumable.objects.create(
+            name="Sin stock",
+            reference_code="ZERO-PRODUCT",
+            manufacturer="Test",
+            initial_stock=0,
+            stock_product=zero_product,
+        )
+        ConsumableCompatibility.objects.create(
+            printing_device=self.device, consumable=zero_consumable
+        )
+        StockBalance.objects.create(
+            product=zero_product,
+            branch=self.branch,
+            organizational_location=self.location,
+            quantity=0,
+        )
+
+        response = self.client.get(self.url)
+
+        self.assertNotContains(response, "NO-LINK")
+        self.assertNotContains(response, "INACTIVE-PRODUCT")
+        self.assertNotContains(response, "ZERO-PRODUCT")
+
+    def test_multiple_local_balances_require_selection(self):
+        from apps.inventory.models import OrganizationalLocation, StockBalance
+
+        second_location = OrganizationalLocation.objects.create(
+            branch=self.branch,
+            code="PRINT-USE-WH-2",
+            name="Segundo depósito",
+            location_type=OrganizationalLocation.LocationType.WAREHOUSE,
+        )
+        StockBalance.objects.create(
+            product=self.product,
+            branch=self.branch,
+            organizational_location=second_location,
+            quantity=2,
+        )
+
+        response = self.client.get(self.url)
+
+        self.assertNotIn("stock_balance", response.context["form"].initial)
+
+    def test_remote_stock_is_not_preselected_and_is_warned(self):
+        from apps.inventory.models import StockBalance
+
+        self.balance.delete()
+        remote_balance = StockBalance.objects.create(
+            product=self.product,
+            branch=self.remote_branch,
+            organizational_location=self.remote_location,
+            quantity=4,
+        )
+
+        response = self.client.get(self.url)
+
+        self.assertNotEqual(
+            response.context["form"].initial.get("stock_balance"),
+            remote_balance.pk,
+        )
+        self.assertContains(response, "nunca se seleccionará stock remoto")
+
+    def test_no_compatibilities_shows_clear_message(self):
+        self.compatibility.delete()
+
+        response = self.client.get(self.url)
+
+        self.assertContains(
+            response,
+            "No hay consumibles compatibles configurados para esta impresora.",
+        )
+
+    def test_valid_confirmation_uses_inventory_and_creates_historical_context(self):
+        from apps.inventory.models import StockMovement, TicketStockUsage
+        from .models import (
+            PrintingTicketStockUsageContext,
+            PrintingTicketStockUsageLineContext,
+            StockMovement as PrintingStockMovement,
+        )
+
+        response = self.client.post(self.url, self.post_data())
+
+        usage = TicketStockUsage.objects.get(ticket=self.ticket)
+        self.assertRedirects(
+            response,
+            reverse("inventory:ticket_stock_usage_detail", args=[usage.pk]),
+        )
+        self.assertEqual(usage.status, TicketStockUsage.Status.CONFIRMED)
+        self.assertEqual(usage.registered_by, self.user)
+        self.assertEqual(usage.confirmed_by, self.user)
+        self.assertIsNotNone(usage.confirmed_at)
+        self.balance.refresh_from_db()
+        self.assertEqual(self.balance.quantity, 3)
+        movement = StockMovement.objects.get(ticket=self.ticket)
+        self.assertEqual(movement.reason, StockMovement.Reason.CONSUMPTION)
+        line = usage.lines.get()
+        self.assertEqual(line.stock_movement, movement)
+        self.assertEqual(line.source_branch, self.branch)
+        self.assertEqual(line.source_location, self.location)
+        context = PrintingTicketStockUsageContext.objects.get(usage=usage)
+        self.assertEqual(context.printing_device, self.device)
+        self.assertEqual(context.device_id_snapshot, str(self.device.pk))
+        self.assertEqual(context.device_identifier_snapshot, self.asset.internal_code)
+        self.assertEqual(context.device_brand_snapshot, "HP")
+        self.assertEqual(context.device_model_snapshot, "LaserJet Test")
+        self.assertEqual(context.device_serial_snapshot, "PRINT-USAGE-SERIAL")
+        self.assertEqual(context.branch_snapshot, str(self.branch))
+        self.assertEqual(context.location_snapshot, self.location.full_path)
+        line_context = PrintingTicketStockUsageLineContext.objects.get(
+            usage_line=line
+        )
+        self.assertEqual(line_context.consumable, self.consumable)
+        self.assertEqual(line_context.reference_snapshot, "PRINT-USAGE-TONER")
+        self.assertEqual(line_context.type_snapshot, "Tóner")
+        self.assertFalse(PrintingStockMovement.objects.exists())
+
+    def test_insufficient_stock_creates_nothing(self):
+        from apps.inventory.models import StockMovement, TicketStockUsage
+
+        response = self.client.post(self.url, self.post_data(quantity=99))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Stock insuficiente")
+        self.balance.refresh_from_db()
+        self.assertEqual(self.balance.quantity, 5)
+        self.assertFalse(TicketStockUsage.objects.exists())
+        self.assertFalse(StockMovement.objects.exists())
+
+    def test_snapshots_survive_ticket_asset_and_device_location_changes(self):
+        from apps.inventory.models import Asset, OrganizationalLocation
+        from apps.tickets.models import Ticket
+        from .models import PrintingTicketStockUsageContext
+
+        self.client.post(self.url, self.post_data(quantity=1))
+        usage = self.ticket.stock_usages.get()
+        context = PrintingTicketStockUsageContext.objects.get(usage=usage)
+        original_values = (
+            context.device_id_snapshot,
+            context.device_identifier_snapshot,
+            context.branch_snapshot,
+            context.location_snapshot,
+        )
+        other_asset = Asset.objects.create(
+            internal_code="CHANGED-TICKET-ASSET",
+            asset_type=Asset.AssetType.DESKTOP,
+        )
+        Ticket.objects.filter(pk=self.ticket.pk).update(asset=other_asset)
+        changed_location = OrganizationalLocation.objects.create(
+            branch=self.branch,
+            code="CHANGED-LOCATION",
+            name="Ubicación cambiada",
+            location_type=OrganizationalLocation.LocationType.OFFICE,
+        )
+        Asset.objects.filter(pk=self.asset.pk).update(
+            brand="Otra marca", model="Otro modelo", physical_location=changed_location
+        )
+
+        context.refresh_from_db()
+        self.assertEqual(
+            (
+                context.device_id_snapshot,
+                context.device_identifier_snapshot,
+                context.branch_snapshot,
+                context.location_snapshot,
+            ),
+            original_values,
+        )
 
 
 class ConsumableStockReconciliationTests(TestCase):

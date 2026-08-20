@@ -37,6 +37,7 @@ class TicketForm(forms.ModelForm):
 
         fields = [
             "asset",
+            "printing_device",
             "title",
             "description",
             "priority",
@@ -49,6 +50,7 @@ class TicketForm(forms.ModelForm):
                     "class": "form-control",
                 }
             ),
+            "printing_device": forms.Select(attrs={"class": "form-control"}),
             "title": forms.TextInput(
                 attrs={
                     "class": "form-control",
@@ -76,6 +78,7 @@ class TicketForm(forms.ModelForm):
 
         labels = {
             "asset": "Equipo relacionado",
+            "printing_device": "Equipo de impresión tercerizado",
             "title": "Título",
             "description": "Descripción del problema",
             "priority": "Prioridad",
@@ -101,6 +104,14 @@ class TicketForm(forms.ModelForm):
                 self.fields["asset"].initial = assets.first()
         else:
             self.fields["asset"].queryset = Asset.objects.none()
+
+        self.fields["printing_device"].required = False
+        self.fields["printing_device"].empty_label = (
+            "Sin equipo de impresión relacionado"
+        )
+        self.fields["printing_device"].queryset = self.fields[
+            "printing_device"
+        ].queryset.filter(is_active=True, is_outsourced=True)
 
         self.fields["title"].required = True
         self.fields["description"].required = True

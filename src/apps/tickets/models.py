@@ -105,6 +105,15 @@ class Ticket(models.Model):
         verbose_name="Equipo relacionado",
     )
 
+    printing_device = models.ForeignKey(
+        "printing.PrintingDevice",
+        on_delete=models.SET_NULL,
+        related_name="tickets",
+        blank=True,
+        null=True,
+        verbose_name="Equipo de impresión tercerizado",
+    )
+
     status = models.CharField(
         max_length=20,
         choices=Status.choices,

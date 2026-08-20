@@ -1,6 +1,10 @@
 from django.contrib.auth.decorators import login_required
+from django.contrib import messages
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Count, Q
-from django.shortcuts import render, get_object_or_404
+from django.shortcuts import redirect, render, get_object_or_404
+
+from apps.tickets.models import Ticket
 
 from .models import (
     Consumable,
@@ -8,6 +12,8 @@ from .models import (
     PrintingDevice,
 )
 from apps.accounts.access import roles_required
+from .forms import PrintingTicketStockUsageForm
+from .services import register_printing_ticket_stock_usage
 
 
 # ==========================================================
@@ -23,7 +29,7 @@ def psline_dashboard(request):
 
     online_devices = devices.filter(asset__connection_status="ONLINE").count()
     offline_devices = devices.filter(asset__connection_status="OFFLINE").count()
-    unknown_devices = devices.filter(asset__connection_status="UNKNOWN").count()
+    unknown_devices = total_devices - online_devices - offline_devices
 
     consumables = Consumable.objects.filter(is_active=True)
 
@@ -64,8 +70,8 @@ def psline_dashboard(request):
 
     # Agrupar dispositivos
     for device in devices:
-        brand = device.asset.brand or "—"
-        model = device.asset.model or "—"
+        brand = device.effective_brand or "—"
+        model = device.effective_model or "—"
         key = f"{brand}|||{model}"
 
         if key not in model_summary_map:
@@ -87,7 +93,7 @@ def psline_dashboard(request):
 
         model_summary_map[key]["total_devices"] += 1
 
-        status = device.asset.connection_status
+        status = device.asset.connection_status if device.asset_id else "UNKNOWN"
         if status == "ONLINE":
             model_summary_map[key]["online_devices"] += 1
         elif status == "OFFLINE":
@@ -101,8 +107,8 @@ def psline_dashboard(request):
 
     # Consumibles por modelo
     for comp in compatibilities:
-        brand = comp.printing_device.asset.brand or "—"
-        model = comp.printing_device.asset.model or "—"
+        brand = comp.printing_device.effective_brand or "—"
+        model = comp.printing_device.effective_model or "—"
         key = f"{brand}|||{model}"
 
         if key not in model_summary_map:
@@ -209,27 +215,40 @@ def printing_devices_by_model(request):
             "responsible_user",
             "asset__branch",
             "asset__physical_location",
+            "branch",
+            "organizational_location",
         )
         .filter(is_active=True)
     )
 
     if brand:
-        devices = devices.filter(asset__brand=brand)
+        devices = devices.filter(Q(brand=brand) | Q(brand="", asset__brand=brand))
 
     if model:
-        devices = devices.filter(asset__model=model)
+        devices = devices.filter(Q(model=model) | Q(model="", asset__model=model))
 
     if status:
-        devices = devices.filter(asset__connection_status=status)
+        if status == "UNKNOWN":
+            devices = devices.filter(
+                Q(asset__isnull=True) | Q(asset__connection_status="UNKNOWN")
+            )
+        else:
+            devices = devices.filter(asset__connection_status=status)
 
     if search:
-        devices = devices.filter(asset__internal_code__icontains=search)
+        devices = devices.filter(
+            Q(photocopier_id__icontains=search)
+            | Q(serial_number__icontains=search)
+            | Q(brand__icontains=search)
+            | Q(model__icontains=search)
+            | Q(asset__internal_code__icontains=search)
+        )
 
     # KPIs
     total = devices.count()
     online = devices.filter(asset__connection_status="ONLINE").count()
     offline = devices.filter(asset__connection_status="OFFLINE").count()
-    unknown = devices.filter(asset__connection_status="UNKNOWN").count()
+    unknown = total - online - offline
 
     # Alertas
     has_offline = offline > 0
@@ -267,16 +286,83 @@ def printing_device_detail(request, pk):
             "asset__assigned_user",
             "asset__branch",
             "asset__physical_location",
+            "branch",
+            "organizational_location",
         ),
         pk=pk,
     )
 
     context = {
         "device": device,
+        "devices": [device],
+        "brand": device.effective_brand,
+        "model": device.effective_model,
     }
 
     return render(
         request,
         "printing/printing_device_detail.html",
         context,
+    )
+
+
+@login_required
+@roles_required("ADMIN", "SUPERVISOR")
+def register_ticket_consumable(request, ticket_pk):
+    ticket = get_object_or_404(
+        Ticket.objects.select_related(
+            "printing_device__asset__branch",
+            "printing_device__asset__physical_location",
+            "printing_device__branch",
+            "printing_device__organizational_location",
+        ),
+        pk=ticket_pk,
+    )
+    printing_device = ticket.printing_device
+    if printing_device is None:
+        raise PermissionDenied("El ticket no tiene un equipo de impresión relacionado.")
+    if not printing_device.is_active:
+        raise PermissionDenied("El equipo de impresión no está activo.")
+
+    form = PrintingTicketStockUsageForm(
+        request.POST or None,
+        printing_device=printing_device,
+    )
+    if request.method == "POST" and form.is_valid():
+        try:
+            usage = register_printing_ticket_stock_usage(
+                ticket=ticket,
+                printing_device=printing_device,
+                compatibility=form.cleaned_data["compatibility"],
+                stock_balance=form.cleaned_data["stock_balance"],
+                quantity=form.cleaned_data["quantity"],
+                observation=form.cleaned_data["observation"],
+                registered_by=request.user,
+            )
+        except ValidationError as error:
+            form.add_error(None, "; ".join(error.messages))
+        else:
+            messages.success(request, "Consumible registrado y stock descontado.")
+            return redirect("inventory:ticket_stock_usage_detail", pk=usage.pk)
+
+    configured_compatibilities = ConsumableCompatibility.objects.filter(
+        printing_device=printing_device,
+        is_active=True,
+        consumable__is_active=True,
+    )
+    usable_compatibilities = form.fields["compatibility"].queryset
+    remote_balances = form.fields["stock_balance"].queryset.exclude(
+        branch=printing_device.effective_branch
+    )
+    return render(
+        request,
+        "printing/register_ticket_consumable.html",
+        {
+            "ticket": ticket,
+            "printing_device": printing_device,
+            "form": form,
+            "has_configured_compatibilities": configured_compatibilities.exists(),
+            "has_usable_compatibilities": usable_compatibilities.exists(),
+            "has_remote_stock": remote_balances.exists(),
+        },
     )

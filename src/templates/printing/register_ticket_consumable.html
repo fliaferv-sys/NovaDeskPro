@@ -1,0 +1,102 @@
+{% extends "layouts/base.html" %}
+{% block title %}Registrar consumible{% endblock %}
+{% block extra_css %}
+<style>
+    .consumable-page { max-width: 860px; margin: 0 auto; padding: 22px 14px; }
+    .consumable-card { background:#fff; border:1px solid #eaecf0; border-radius:16px; box-shadow:0 8px 24px rgba(15,23,42,.08); overflow:hidden; }
+    .consumable-header, .consumable-form { padding:24px; }
+    .consumable-header { border-bottom:1px solid #eaecf0; }
+    .consumable-header h1 { margin:0 0 18px; color:#101828; font-size:26px; }
+    .consumable-context { display:grid; gap:8px; padding:16px; border-radius:12px; background:#f8fafc; color:#475467; line-height:1.5; }
+    .consumable-context strong { color:#101828; }
+    .consumable-field { margin-bottom:22px; }
+    .consumable-field label { display:block; margin-bottom:8px; color:#101828; font-weight:700; }
+    .consumable-field select, .consumable-field input, .consumable-field textarea { width:100%; padding:12px 14px; border:1px solid #d0d5dd; border-radius:10px; background:#fff; color:#101828; font:inherit; }
+    .consumable-field textarea { min-height:118px; resize:vertical; }
+    .consumable-field select:focus, .consumable-field input:focus, .consumable-field textarea:focus { outline:none; border-color:var(--secondary-color,#f68b1e); box-shadow:0 0 0 3px rgba(246,139,30,.14); }
+    .compatibility-badge { display:inline-flex; align-items:center; gap:6px; margin-top:9px; padding:6px 10px; border-radius:999px; background:#dcfce7; color:#166534; font-size:13px; font-weight:700; }
+    .quantity-layout { display:grid; grid-template-columns:minmax(140px,1fr) auto; gap:14px; align-items:end; }
+    .available-stock { min-width:180px; padding:12px 14px; border-radius:10px; background:#f2f4f7; color:#475467; font-weight:600; text-align:center; }
+    .form-message { margin-bottom:18px; padding:12px 14px; border-radius:10px; line-height:1.45; }
+    .form-message-warning { background:#fffaeb; color:#93370d; }
+    .form-message-danger { background:#fef3f2; color:#b42318; }
+    .field-errors { margin-top:7px; color:#b42318; font-size:13px; }
+    .confirm-consumption { width:100%; padding:13px 18px; border:0; border-radius:10px; background:var(--secondary-color,#f68b1e); color:#fff; font-weight:800; cursor:pointer; }
+    .confirm-consumption:disabled { cursor:not-allowed; opacity:.55; }
+    .back-to-ticket { display:block; margin-top:14px; color:#475467; font-weight:700; text-align:center; text-decoration:none; }
+    @media (max-width:640px) {
+        .consumable-page { padding:12px 4px; }
+        .consumable-header, .consumable-form { padding:18px 16px; }
+        .consumable-header h1 { font-size:22px; }
+        .quantity-layout { grid-template-columns:1fr; }
+        .available-stock { min-width:0; text-align:left; }
+    }
+</style>
+{% endblock %}
+{% block content %}
+<div class="consumable-page">
+    <section class="consumable-card">
+        <header class="consumable-header">
+            <h1>Registrar consumible</h1>
+            <div class="consumable-context">
+                <div><strong>Ticket:</strong> {{ ticket.ticket_number }} — {{ ticket.title }}</div>
+                <div><strong>Impresora:</strong> ID {{ printing_device.identifier }} — {{ printing_device.effective_brand|upper }} {{ printing_device.effective_model|upper }}</div>
+                <div><strong>Sede técnica:</strong> {{ printing_device.effective_branch|default:"Sin sede"|upper }}</div>
+            </div>
+        </header>
+        <form class="consumable-form" method="post" novalidate>
+            {% csrf_token %}
+            {% if not has_configured_compatibilities %}
+                <div class="form-message form-message-warning">No hay consumibles compatibles configurados para esta impresora.</div>
+            {% elif not has_usable_compatibilities %}
+                <div class="form-message form-message-warning">Los consumibles compatibles no poseen un producto de stock activo con existencias disponibles.</div>
+            {% endif %}
+            {% if has_remote_stock %}
+                <div class="form-message form-message-warning">Hay stock en otra sede. Verifique expresamente el origen antes de confirmar; nunca se seleccionará stock remoto de forma automática.</div>
+            {% endif %}
+            {% if form.non_field_errors %}<div class="form-message form-message-danger">{{ form.non_field_errors }}</div>{% endif %}
+
+            <div class="consumable-field">
+                <label for="{{ form.compatibility.id_for_label }}">{{ form.compatibility.label }}</label>
+                {{ form.compatibility }}
+                <div class="compatibility-badge"><i class="bi bi-check-circle-fill" aria-hidden="true"></i> Compatible con {{ printing_device.effective_brand }} {{ printing_device.effective_model }}</div>
+                {% if form.compatibility.errors %}<div class="field-errors">{{ form.compatibility.errors }}</div>{% endif %}
+            </div>
+            <div class="consumable-field">
+                <label for="{{ form.stock_balance.id_for_label }}">{{ form.stock_balance.label }}</label>
+                {{ form.stock_balance }}
+                {% if form.stock_balance.errors %}<div class="field-errors">{{ form.stock_balance.errors }}</div>{% endif %}
+            </div>
+            <div class="consumable-field quantity-layout">
+                <div>
+                    <label for="{{ form.quantity.id_for_label }}">{{ form.quantity.label }}</label>
+                    {{ form.quantity }}
+                    {% if form.quantity.errors %}<div class="field-errors">{{ form.quantity.errors }}</div>{% endif %}
+                </div>
+                <div class="available-stock" id="availableStock" aria-live="polite">Disponible: — unidades</div>
+            </div>
+            <div class="consumable-field">
+                <label for="{{ form.observation.id_for_label }}">{{ form.observation.label }}</label>
+                {{ form.observation }}
+                {% if form.observation.errors %}<div class="field-errors">{{ form.observation.errors }}</div>{% endif %}
+            </div>
+            <button class="confirm-consumption" type="submit"{% if not has_usable_compatibilities %} disabled{% endif %}>Confirmar consumo</button>
+            <a class="back-to-ticket" href="{% url 'tickets:ticket_detail' ticket.pk %}">Volver al ticket</a>
+        </form>
+    </section>
+</div>
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const stockSelect = document.getElementById("{{ form.stock_balance.id_for_label }}");
+        const availableStock = document.getElementById("availableStock");
+        const observation = document.getElementById("{{ form.observation.id_for_label }}");
+        function updateAvailableStock() {
+            const option = stockSelect && stockSelect.options[stockSelect.selectedIndex];
+            const match = option ? option.text.match(/disponible:\s*(\d+)/i) : null;
+            availableStock.textContent = "Disponible: " + (match ? match[1] : "—") + " unidades";
+        }
+        if (stockSelect) { stockSelect.addEventListener("change", updateAvailableStock); updateAvailableStock(); }
+        if (observation) { observation.placeholder = "Ej: Instalación realizada correctamente."; }
+    });
+</script>
+{% endblock %}

@@ -42,10 +42,34 @@ class PrintingDevice(models.Model):
 
     asset = models.OneToOneField(
         "inventory.Asset",
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
         related_name="printing_device",
-        verbose_name="Activo",
+        verbose_name="Activo patrimonial (opcional)",
+        blank=True,
+        null=True,
+        help_text="Solo para equipos institucionales históricos; no crear activos para equipos tercerizados.",
     )
+
+    branch = models.ForeignKey(
+        "accounts.Branch", on_delete=models.PROTECT, related_name="printing_devices",
+        verbose_name="Sede", blank=True, null=True,
+    )
+    organizational_location = models.ForeignKey(
+        "inventory.OrganizationalLocation", on_delete=models.PROTECT,
+        related_name="printing_devices", verbose_name="Ubicación", blank=True, null=True,
+    )
+    brand = models.CharField("Marca", max_length=100, blank=True)
+    model = models.CharField("Modelo", max_length=100, blank=True)
+    serial_number = models.CharField("Número de serie", max_length=150, blank=True)
+    photocopier_id = models.CharField(
+        "ID de fotocopiadora",
+        max_length=50,
+        unique=True,
+        blank=True,
+        null=True,
+        help_text="Identificador operativo asignado al equipo tercerizado.",
+    )
+    is_outsourced = models.BooleanField("Equipo tercerizado", default=True)
 
     device_type = models.CharField(
         "Tipo de equipo",
@@ -160,10 +184,64 @@ class PrintingDevice(models.Model):
     class Meta:
         verbose_name = "Equipo de impresión"
         verbose_name_plural = "Equipos de impresión"
-        ordering = ["asset"]
+        ordering = ["brand", "model", "serial_number"]
+
+    @property
+    def effective_branch(self):
+        return self.branch or (self.asset.branch if self.asset_id else None)
+
+    @property
+    def effective_location(self):
+        return self.organizational_location or (
+            self.asset.physical_location if self.asset_id else None
+        )
+
+    @property
+    def effective_brand(self):
+        return self.brand or (self.asset.brand if self.asset_id else "")
+
+    @property
+    def effective_model(self):
+        return self.model or (self.asset.model if self.asset_id else "")
+
+    @property
+    def effective_serial_number(self):
+        return self.serial_number or (self.asset.serial_number if self.asset_id else "")
+
+    @property
+    def identifier(self):
+        if self.photocopier_id:
+            return self.photocopier_id
+        if self.asset_id:
+            return self.asset.internal_code
+        return self.serial_number or "Sin ID operativo"
+
+    def clean(self):
+        super().clean()
+        if self.organizational_location_id and self.branch_id:
+            if self.organizational_location.branch_id != self.branch_id:
+                raise ValidationError(
+                    {"organizational_location": "La ubicación no pertenece a la sede indicada."}
+                )
+        if self.is_outsourced and not self.asset_id:
+            required = {
+                "branch": self.branch_id,
+                "organizational_location": self.organizational_location_id,
+                "brand": self.brand,
+                "model": self.model,
+                "serial_number": self.serial_number,
+            }
+            for field, value in required.items():
+                if not value:
+                    raise ValidationError(
+                        {field: "Este dato es obligatorio para un equipo tercerizado."}
+                    )
 
     def __str__(self):
-        return f"{self.asset} - {self.get_device_type_display()}"
+        description = " ".join(
+            value for value in (self.effective_brand, self.effective_model) if value
+        )
+        return f"{self.identifier} - {description or self.get_device_type_display()}"
 
     
 class PrintingDeviceNetworkDetection(models.Model):
@@ -259,7 +337,7 @@ class PrintingDeviceNetworkDetection(models.Model):
 
     def __str__(self):
         return (
-            f"{self.printing_device.asset.internal_code} - "
+            f"{self.printing_device.identifier} - "
             f"{self.detected_ip or 'Sin IP'} - "
             f"{self.detected_at:%d/%m/%Y %H:%M}"
         )
@@ -451,8 +529,14 @@ class Consumable(models.Model):
         return self.initial_stock + self.total_entries - self.total_outputs
 
     @property
+    def effective_minimum_stock(self):
+        if self.stock_product_id:
+            return self.stock_product.minimum_stock
+        return self.minimum_stock
+
+    @property
     def is_below_minimum_stock(self):
-        return self.current_stock <= self.minimum_stock
+        return self.current_stock <= self.effective_minimum_stock
 
     @property
     def is_above_maximum_stock(self):
@@ -464,7 +548,7 @@ class Consumable(models.Model):
     @property
     def quantity_to_minimum(self):
         return max(
-            self.minimum_stock - self.current_stock,
+            self.effective_minimum_stock - self.current_stock,
             0,
         )
 
@@ -571,6 +655,78 @@ class ConsumableCompatibility(models.Model):
 
     def __str__(self):
         return f"{self.printing_device} → {self.consumable}"
+
+
+class PrintingTicketStockUsageContext(models.Model):
+    """Immutable printing context for an Inventory ticket stock usage."""
+
+    usage = models.OneToOneField(
+        "inventory.TicketStockUsage",
+        on_delete=models.PROTECT,
+        related_name="printing_context",
+        verbose_name="Consumo de stock",
+    )
+    printing_device = models.ForeignKey(
+        PrintingDevice,
+        on_delete=models.PROTECT,
+        related_name="ticket_stock_usage_contexts",
+        verbose_name="Equipo de impresión",
+    )
+    device_id_snapshot = models.CharField("ID histórico del equipo", max_length=36)
+    device_identifier_snapshot = models.CharField(
+        "Identificador histórico", max_length=150
+    )
+    device_brand_snapshot = models.CharField("Marca histórica", max_length=100, blank=True)
+    device_model_snapshot = models.CharField("Modelo histórico", max_length=100, blank=True)
+    device_serial_snapshot = models.CharField("Serie histórica", max_length=150, blank=True)
+    branch_snapshot = models.CharField("Sede histórica", max_length=150, blank=True)
+    location_snapshot = models.CharField("Ubicación histórica", max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="created_printing_ticket_stock_contexts",
+        verbose_name="Registrado por",
+    )
+
+    class Meta:
+        verbose_name = "Contexto Printing de consumo por ticket"
+        verbose_name_plural = "Contextos Printing de consumos por ticket"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.usage} - {self.device_identifier_snapshot}"
+
+
+class PrintingTicketStockUsageLineContext(models.Model):
+    """Technical consumable snapshots for one Inventory usage line."""
+
+    usage_line = models.OneToOneField(
+        "inventory.TicketStockUsageLine",
+        on_delete=models.PROTECT,
+        related_name="printing_context",
+        verbose_name="Línea de consumo",
+    )
+    consumable = models.ForeignKey(
+        Consumable,
+        on_delete=models.PROTECT,
+        related_name="ticket_stock_usage_line_contexts",
+        verbose_name="Consumible",
+    )
+    reference_snapshot = models.CharField("Referencia histórica", max_length=100)
+    type_snapshot = models.CharField("Tipo histórico", max_length=50)
+    manufacturer_snapshot = models.CharField("Fabricante histórico", max_length=150, blank=True)
+    model_snapshot = models.CharField("Modelo histórico", max_length=150, blank=True)
+    color_snapshot = models.CharField("Color histórico", max_length=50, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Contexto Printing de línea de consumo"
+        verbose_name_plural = "Contextos Printing de líneas de consumo"
+        ordering = ["created_at"]
+
+    def __str__(self):
+        return f"{self.usage_line} - {self.reference_snapshot}"
 
 
 class StockMovement(models.Model):

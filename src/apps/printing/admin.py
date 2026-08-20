@@ -33,7 +33,12 @@ from .reconciliation import (
 @admin.register(PrintingDevice)
 class PrintingDeviceAdmin(admin.ModelAdmin):
     list_display = (
+        "photocopier_id",
         "asset",
+        "brand",
+        "model",
+        "serial_number",
+        "branch",
         "device_type",
         "technology",
         "color_mode",
@@ -52,13 +57,19 @@ class PrintingDeviceAdmin(admin.ModelAdmin):
     )
     
     search_fields = (
+        "photocopier_id",
+        "brand",
+        "model",
+        "serial_number",
         "asset__internal_code",
         "asset__brand",
         "asset__model",
         "asset__serial_number",
     )
     
-    autocomplete_fields = ("asset", "responsible_user")
+    autocomplete_fields = (
+        "asset", "branch", "organizational_location", "responsible_user"
+    )
     
     readonly_fields = ("created_at", "updated_at")
     
@@ -67,11 +78,18 @@ class PrintingDeviceAdmin(admin.ModelAdmin):
             "Identificación",
             {
                 "fields": (
+                    "photocopier_id",
                     "asset",
+                    "brand",
+                    "model",
+                    "serial_number",
+                    "branch",
+                    "organizational_location",
                     "device_type",
                     "technology",
                     "color_mode",
                     "ownership_type",
+                    "is_outsourced",
                     "is_active",
                 )
             },
@@ -331,7 +349,7 @@ class StockStatusFilter(admin.SimpleListFilter):
             elif (
                 selected == "low"
                 and stock > 0
-                and stock <= consumable.minimum_stock
+                and stock <= consumable.effective_minimum_stock
             ):
                 matched_ids.append(consumable.pk)
 
@@ -344,7 +362,7 @@ class StockStatusFilter(admin.SimpleListFilter):
 
             elif (
                 selected == "normal"
-                and stock > consumable.minimum_stock
+                and stock > consumable.effective_minimum_stock
                 and (
                     consumable.maximum_stock is None
                     or stock <= consumable.maximum_stock
@@ -367,7 +385,7 @@ class ConsumableAdmin(admin.ModelAdmin):
         "model",
         "color",
         "stock_actual",
-        "minimum_stock",
+        "minimum_stock_operativo",
         "maximum_stock",
         "estado_stock",
         "faltante_minimo",
@@ -541,6 +559,12 @@ class ConsumableAdmin(admin.ModelAdmin):
 
         super().save_model(request, obj, form, change)
 
+        if obj.stock_product_id:
+            product = obj.stock_product
+            if product.minimum_stock != obj.minimum_stock:
+                product.minimum_stock = obj.minimum_stock
+                product.save(update_fields=["minimum_stock", "updated_at"])
+
     def response_add(self, request, obj, post_url_continue=None):
         if obj.stock_product_id and "_continue" not in request.POST:
             return redirect(
@@ -563,6 +587,10 @@ class ConsumableAdmin(admin.ModelAdmin):
             "Sin producto de stock",
         )
 
+    @admin.display(description="Stock mínimo operativo")
+    def minimum_stock_operativo(self, obj):
+        return obj.effective_minimum_stock
+
     @admin.display(
         description="Stock actual",
         ordering="initial_stock",
@@ -576,7 +604,7 @@ class ConsumableAdmin(admin.ModelAdmin):
                 str(stock),
             )
 
-        if stock <= obj.minimum_stock:
+        if stock <= obj.effective_minimum_stock:
             return format_html(
                 '<strong style="color:#fd7e14;">{}</strong>',
                 str(stock),
@@ -597,7 +625,7 @@ class ConsumableAdmin(admin.ModelAdmin):
                 "SIN STOCK"
             )
 
-        if stock <= obj.minimum_stock:
+        if stock <= obj.effective_minimum_stock:
             return format_html(
                 '<strong style="color:#fd7e14;">{}</strong>',
                 "STOCK BAJO"

@@ -67,8 +67,9 @@ Detalle del Ticket #{{ ticket.ticket_number }}
 
     .btn-small {
         background: #123a63;
-        color: white;
+        color: white !important;
     }
+    .btn-small i { color: white !important; }
     .btn-small:hover { background: #0e2a4a; }
 
     .btn-danger {
@@ -1616,6 +1617,11 @@ Detalle del Ticket #{{ ticket.ticket_number }}
             <a href="{% url 'tickets:ticket_update' ticket.pk %}" class="btn-small">
                 <i class="bi bi-pencil"></i> Editar
             </a>
+            {% if ticket.printing_device %}
+                <a href="{% url 'printing:register_ticket_consumable' ticket.pk %}" class="btn-small">
+                    <i class="bi bi-box-seam"></i> Registrar consumible
+                </a>
+            {% endif %}
         {% endif %}
         {% if request.user.role == "ADMIN" or request.user.is_superuser %}
             <a href="{% url 'tickets:ticket_delete' ticket.pk %}" class="btn-danger">
