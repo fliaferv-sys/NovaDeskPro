@@ -102,8 +102,7 @@ def home_view(request):
             consumables_low_stock += 1
 
         elif (
-            consumable.maximum_stock is not None
-            and stock > consumable.maximum_stock
+            consumable.is_above_maximum_stock
         ):
             consumables_overstock += 1
 

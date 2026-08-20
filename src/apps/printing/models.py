@@ -466,7 +466,8 @@ class Consumable(models.Model):
         super().clean()
 
         if (
-            self.maximum_stock is not None
+            not self.stock_product_id
+            and self.maximum_stock is not None
             and self.maximum_stock < self.minimum_stock
         ):
             raise ValidationError(
@@ -479,7 +480,8 @@ class Consumable(models.Model):
             )
 
         if (
-            self.maximum_stock is not None
+            not self.stock_product_id
+            and self.maximum_stock is not None
             and self.initial_stock > self.maximum_stock
         ):
             raise ValidationError(
@@ -554,14 +556,21 @@ class Consumable(models.Model):
         return self.minimum_stock
 
     @property
+    def effective_maximum_stock(self):
+        """Legacy maximum only applies while Printing remains the stock source."""
+        if self.stock_product_id:
+            return None
+        return self.maximum_stock
+
+    @property
     def is_below_minimum_stock(self):
         return self.operational_stock <= self.effective_minimum_stock
 
     @property
     def is_above_maximum_stock(self):
         return (
-            self.maximum_stock is not None
-            and self.operational_stock > self.maximum_stock
+            self.effective_maximum_stock is not None
+            and self.operational_stock > self.effective_maximum_stock
         )
 
     @property
@@ -573,9 +582,9 @@ class Consumable(models.Model):
 
     @property
     def suggested_reorder_quantity(self):
-        if self.maximum_stock is not None:
+        if self.effective_maximum_stock is not None:
             return max(
-                self.maximum_stock - self.operational_stock,
+                self.effective_maximum_stock - self.operational_stock,
                 0,
             )
 

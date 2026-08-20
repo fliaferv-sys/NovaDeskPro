@@ -355,8 +355,7 @@ class StockStatusFilter(admin.SimpleListFilter):
 
             elif (
                 selected == "over"
-                and consumable.maximum_stock is not None
-                and stock > consumable.maximum_stock
+                and consumable.is_above_maximum_stock
             ):
                 matched_ids.append(consumable.pk)
 
@@ -364,8 +363,8 @@ class StockStatusFilter(admin.SimpleListFilter):
                 selected == "normal"
                 and stock > consumable.effective_minimum_stock
                 and (
-                    consumable.maximum_stock is None
-                    or stock <= consumable.maximum_stock
+                    consumable.effective_maximum_stock is None
+                    or stock <= consumable.effective_maximum_stock
                 )
             ):
                 matched_ids.append(consumable.pk)
@@ -386,7 +385,7 @@ class ConsumableAdmin(admin.ModelAdmin):
         "color",
         "stock_actual",
         "minimum_stock_operativo",
-        "maximum_stock",
+        "maximum_stock_legacy",
         "estado_stock",
         "faltante_minimo",
         "reposicion_sugerida",
@@ -421,40 +420,48 @@ class ConsumableAdmin(admin.ModelAdmin):
 
     fieldsets = (
         (
-            "Identificación",
+            "Datos técnicos",
             {
                 "fields": (
                     "name",
                     "consumable_type",
                     "reference_code",
-                    "stock_product",
-                    "create_stock_product",
                     "manufacturer",
                     "model",
                     "color",
+                    "estimated_yield_pages",
                     "is_active",
                 )
             },
         ),
         (
-            "Control de existencias",
+            "Integración con Inventory",
             {
                 "description": (
-                    "En consumibles vinculados, el stock actual y el mínimo operativo "
-                    "provienen de Inventory. Los demás valores se conservan como legado."
+                    "Para consumibles vinculados, Inventory es la única fuente operativa "
+                    "de existencias, mínimo y estado."
                 ),
                 "fields": (
-                    "initial_stock",
+                    "stock_product",
+                    "create_stock_product",
+                    "stock_source_display",
+                    "operational_stock_display",
                     "minimum_stock",
-                    "maximum_stock",
-                    "estimated_yield_pages",
                 )
             },
         ),
         (
-            "Información comercial",
+            "Datos históricos / legado de Printing",
             {
+                "description": (
+                    "Se conservan para auditoría, conciliación y compatibilidad "
+                    "histórica. No representan el stock operativo de un consumible "
+                    "vinculado."
+                ),
                 "fields": (
+                    "initial_stock",
+                    "legacy_stock_display",
+                    "maximum_stock",
                     "unit_price",
                 )
             },
@@ -495,6 +502,9 @@ class ConsumableAdmin(admin.ModelAdmin):
         "faltante_minimo",
         "reposicion_sugerida",
         "costo_reposicion",
+        "stock_source_display",
+        "operational_stock_display",
+        "legacy_stock_display",
     )
 
     class Media:
@@ -602,10 +612,29 @@ class ConsumableAdmin(admin.ModelAdmin):
     def minimum_stock_operativo(self, obj):
         return obj.effective_minimum_stock
 
-    @admin.display(
-        description="Stock actual",
-        ordering="initial_stock",
-    )
+    @admin.display(description="Fuente operativa")
+    def stock_source_display(self, obj):
+        if obj and obj.stock_product_id:
+            return "Inventory"
+        return "Printing (fallback legacy temporal)"
+
+    @admin.display(description="Stock operativo")
+    def operational_stock_display(self, obj):
+        if obj is None:
+            return "Se gestionará desde Inventory"
+        return obj.operational_stock
+
+    @admin.display(description="Stock histórico Printing")
+    def legacy_stock_display(self, obj):
+        if obj is None:
+            return 0
+        return obj.current_stock
+
+    @admin.display(description="Stock máximo histórico Printing")
+    def maximum_stock_legacy(self, obj):
+        return obj.maximum_stock if obj.maximum_stock is not None else "—"
+
+    @admin.display(description="Stock operativo")
     def stock_actual(self, obj):
         stock = obj.operational_stock
 
@@ -643,8 +672,7 @@ class ConsumableAdmin(admin.ModelAdmin):
             )
 
         if (
-            obj.maximum_stock is not None
-            and stock > obj.maximum_stock
+            obj.is_above_maximum_stock
         ):
             return format_html(
                 '<strong style="color:#6f42c1;">{}</strong>',
@@ -664,8 +692,10 @@ class ConsumableAdmin(admin.ModelAdmin):
     def reposicion_sugerida(self, obj):
         return obj.suggested_reorder_quantity
 
-    @admin.display(description="Costo reposición")
+    @admin.display(description="Costo reposición histórico Printing")
     def costo_reposicion(self, obj):
+        if obj.stock_product_id:
+            return "—"
         return f"${obj.estimated_reorder_cost:,.2f}"
 
 

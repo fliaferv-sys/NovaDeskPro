@@ -1254,6 +1254,48 @@ class PrintingStageSixOperationalStockTests(TestCase):
         self.assertTrue(self.consumable.is_below_minimum_stock)
         self.assertEqual(self.balance.stock_status, "low")
 
+    def test_linked_legacy_maximum_and_price_do_not_change_operational_state(self):
+        from .models import Consumable
+
+        Consumable.objects.filter(pk=self.consumable.pk).update(
+            initial_stock=500,
+            maximum_stock=1,
+            unit_price="999.99",
+        )
+        self.consumable.refresh_from_db()
+
+        self.assertEqual(self.consumable.current_stock, 507)
+        self.assertEqual(self.consumable.operational_stock, 2)
+        self.assertIsNone(self.consumable.effective_maximum_stock)
+        self.assertFalse(self.consumable.is_above_maximum_stock)
+        self.assertEqual(self.consumable.suggested_reorder_quantity, 1)
+        self.assertEqual(self.balance.quantity, 2)
+
+    def test_consumable_admin_separates_inventory_and_legacy_data(self):
+        from django.contrib import admin
+        from .models import Consumable
+
+        response = self.client.get(
+            reverse("admin:printing_consumable_change", args=[self.consumable.pk])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        fieldset_titles = [
+            title for title, _options in admin.site._registry[Consumable].fieldsets
+        ]
+        self.assertIn("Datos técnicos", fieldset_titles)
+        self.assertIn("Integración con Inventory", fieldset_titles)
+        self.assertIn("Datos históricos / legado de Printing", fieldset_titles)
+        self.assertContains(response, "Integración con Inventory")
+        self.assertContains(response, "Datos históricos / legado de Printing")
+        self.assertContains(response, "Stock histórico Printing")
+        self.assertContains(response, "Inventory es la única fuente operativa")
+        admin_form = response.context["adminform"].form
+        self.assertNotIn("initial_stock", admin_form.fields)
+        self.assertNotIn("maximum_stock", admin_form.fields)
+        self.assertNotIn("unit_price", admin_form.fields)
+        self.assertIn("minimum_stock", admin_form.fields)
+
     def test_dashboard_and_report_use_inventory_without_moving_stock(self):
         from apps.inventory.models import StockMovement as InventoryMovement
         from apps.reports.selectors import get_printing_report
