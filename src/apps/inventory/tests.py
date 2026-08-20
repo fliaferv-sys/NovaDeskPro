@@ -1,7 +1,9 @@
 from unittest.mock import patch
 import tempfile
+from decimal import Decimal
 from io import StringIO
 
+from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.core.exceptions import ValidationError
@@ -15,7 +17,9 @@ from apps.accounts.models import Branch
 from apps.core.models import Department
 from apps.notifications.models import Notification
 from apps.tickets.models import Ticket
+from apps.monitoring.models import DeviceHeartbeat
 
+from .forms import AssetForm
 from .models import (
     AcquisitionBatch,
     Asset,
@@ -47,6 +51,102 @@ from .services.notifications import generate_inventory_stock_notifications
 
 
 User = get_user_model()
+
+
+class AssetTechnicalSpecificationsTests(TestCase):
+    def test_asset_without_technical_specifications_is_valid(self):
+        asset = Asset(internal_code="TECH-EMPTY")
+        asset.full_clean()
+        asset.save()
+
+        self.assertIsNone(asset.ram_gb)
+        self.assertEqual(asset.disk_type, "")
+        self.assertIsNone(asset.storage_capacity_gb)
+
+    def test_valid_ram_and_storage_are_accepted(self):
+        asset = Asset(
+            internal_code="TECH-VALID",
+            ram_gb=Decimal("16.50"),
+            storage_capacity_gb=Decimal("512"),
+        )
+        asset.full_clean()
+
+    def test_non_positive_ram_is_rejected(self):
+        for value in (Decimal("0"), Decimal("-1")):
+            with self.subTest(value=value), self.assertRaises(ValidationError):
+                Asset(internal_code=f"RAM-{value}", ram_gb=value).full_clean()
+
+    def test_all_disk_type_choices_are_accepted(self):
+        for value in (
+            Asset.DiskType.HDD,
+            Asset.DiskType.SSD,
+            Asset.DiskType.NVME,
+            Asset.DiskType.SSHD,
+            Asset.DiskType.OTHER,
+        ):
+            with self.subTest(value=value):
+                Asset(internal_code=f"DISK-{value}", disk_type=value).full_clean()
+
+    def test_invalid_disk_type_is_rejected(self):
+        with self.assertRaises(ValidationError):
+            Asset(internal_code="DISK-INVALID", disk_type="SATA").full_clean()
+
+    def test_non_positive_storage_capacity_is_rejected(self):
+        for value in (Decimal("0"), Decimal("-1")):
+            with self.subTest(value=value), self.assertRaises(ValidationError):
+                Asset(
+                    internal_code=f"STORAGE-{value}", storage_capacity_gb=value
+                ).full_clean()
+
+    def test_asset_form_exposes_technical_specifications(self):
+        form = AssetForm()
+        self.assertTrue(
+            {"ram_gb", "disk_type", "storage_capacity_gb"}.issubset(form.fields)
+        )
+
+    def test_asset_admin_groups_technical_specifications(self):
+        model_admin = admin.site._registry[Asset]
+        technical_fields = next(
+            options["fields"]
+            for title, options in model_admin.fieldsets
+            if title == "Especificaciones técnicas"
+        )
+        self.assertTrue(
+            {"ram_gb", "disk_type", "storage_capacity_gb"}.issubset(
+                technical_fields
+            )
+        )
+
+    def test_effective_values_fall_back_to_monitoring(self):
+        asset = Asset.objects.create(internal_code="TECH-FALLBACK")
+        DeviceHeartbeat.objects.create(
+            asset=asset,
+            computer_name="TECH-FALLBACK",
+            ram_total_gb=Decimal("8"),
+            disk_total_gb=Decimal("256"),
+        )
+
+        self.assertEqual(asset.effective_ram_gb, Decimal("8"))
+        self.assertEqual(asset.effective_storage_capacity_gb, Decimal("256"))
+
+    def test_manual_values_are_not_overwritten_by_monitoring(self):
+        asset = Asset.objects.create(
+            internal_code="TECH-MANUAL",
+            ram_gb=Decimal("16"),
+            storage_capacity_gb=Decimal("512"),
+        )
+        DeviceHeartbeat.objects.create(
+            asset=asset,
+            computer_name="TECH-MANUAL",
+            ram_total_gb=Decimal("8"),
+            disk_total_gb=Decimal("256"),
+        )
+
+        self.assertEqual(asset.effective_ram_gb, Decimal("16"))
+        self.assertEqual(asset.effective_storage_capacity_gb, Decimal("512"))
+        asset.refresh_from_db()
+        self.assertEqual(asset.ram_gb, Decimal("16"))
+        self.assertEqual(asset.storage_capacity_gb, Decimal("512"))
 
 
 class InventoryPermissionsTests(TestCase):

@@ -98,6 +98,9 @@ class AssetForm(forms.ModelForm):
 
             # Datos técnicos
             "operating_system",
+            "ram_gb",
+            "disk_type",
+            "storage_capacity_gb",
             "current_ip",
             "mac_address",
 
@@ -209,6 +212,24 @@ class AssetForm(forms.ModelForm):
                 attrs={
                     "class": "form-control",
                     "placeholder": "Ej.: Windows 11 Pro",
+                }
+            ),
+
+            "ram_gb": forms.NumberInput(
+                attrs={
+                    "class": "form-control",
+                    "min": "0.01",
+                    "step": "0.01",
+                }
+            ),
+
+            "disk_type": forms.Select(attrs={"class": "form-control"}),
+
+            "storage_capacity_gb": forms.NumberInput(
+                attrs={
+                    "class": "form-control",
+                    "min": "0.01",
+                    "step": "0.01",
                 }
             ),
 

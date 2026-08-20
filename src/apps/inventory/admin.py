@@ -302,14 +302,24 @@ class AssetAdmin(admin.ModelAdmin):
             },
         ),
         (
+            "Especificaciones técnicas",
+            {
+                "fields": (
+                    "operating_system",
+                    "ram_gb",
+                    "disk_type",
+                    "storage_capacity_gb",
+                    "current_ip",
+                    "mac_address",
+                ),
+            },
+        ),
+        (
             "Estado operativo y conectividad",
             {
                 "fields": (
                     "operational_status",
                     "connection_status",
-                    "operating_system",
-                    "current_ip",
-                    "mac_address",
                 ),
             },
         ),

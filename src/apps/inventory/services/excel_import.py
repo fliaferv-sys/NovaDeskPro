@@ -40,6 +40,9 @@ TEMPLATE_COLUMNS = [
     "estado_operativo",
     "estado_conexion",
     "sistema_operativo",
+    "memoria_ram_gb",
+    "tipo_disco",
+    "capacidad_almacenamiento_gb",
     "direccion_ip",
     "direccion_mac",
     "fecha_compra",
@@ -184,7 +187,11 @@ def normalize_decimal(value):
     if value in (None, ""):
         return None
 
-    text = normalize_text(value).replace(".", "").replace(",", ".")
+    text = normalize_text(value)
+    if "," in text and "." in text:
+        text = text.replace(".", "").replace(",", ".")
+    elif "," in text:
+        text = text.replace(",", ".")
 
     try:
         return Decimal(text)
@@ -434,6 +441,32 @@ def validate_asset_row(
         errors.append(str(exc))
 
     try:
+        ram_gb = normalize_decimal(raw_data.get("memoria_ram_gb"))
+        if ram_gb is not None and ram_gb <= 0:
+            raise ValueError("debe ser mayor que cero.")
+    except ValueError as exc:
+        ram_gb = None
+        errors.append(f"Memoria RAM: {exc}")
+
+    try:
+        storage_capacity_gb = normalize_decimal(
+            raw_data.get("capacidad_almacenamiento_gb")
+        )
+        if storage_capacity_gb is not None and storage_capacity_gb <= 0:
+            raise ValueError("debe ser mayor que cero.")
+    except ValueError as exc:
+        storage_capacity_gb = None
+        errors.append(f"Capacidad de almacenamiento: {exc}")
+
+    try:
+        disk_type = resolve_choice(
+            raw_data.get("tipo_disco"), "disk_type", "Tipo de disco"
+        )
+    except ValueError as exc:
+        disk_type = ""
+        errors.append(str(exc))
+
+    try:
         purchase_date = normalize_date(
             raw_data.get("fecha_compra")
         )
@@ -483,6 +516,9 @@ def validate_asset_row(
         "operating_system": normalize_text(
             raw_data.get("sistema_operativo")
         ),
+        "ram_gb": ram_gb,
+        "disk_type": disk_type or "",
+        "storage_capacity_gb": storage_capacity_gb,
         "current_ip": normalize_text(
             raw_data.get("direccion_ip")
         ),

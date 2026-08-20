@@ -396,6 +396,32 @@
 
             </div>
 
+            <div class="form-group">
+                <label for="{{ form.ram_gb.id_for_label }}">Memoria RAM (GB)</label>
+                {{ form.ram_gb }}
+                {% for error in form.ram_gb.errors %}
+                    <small class="form-field-error">{{ error }}</small>
+                {% endfor %}
+            </div>
+
+            <div class="form-group">
+                <label for="{{ form.disk_type.id_for_label }}">Tipo de disco</label>
+                {{ form.disk_type }}
+                {% for error in form.disk_type.errors %}
+                    <small class="form-field-error">{{ error }}</small>
+                {% endfor %}
+            </div>
+
+            <div class="form-group">
+                <label for="{{ form.storage_capacity_gb.id_for_label }}">
+                    Capacidad de almacenamiento (GB)
+                </label>
+                {{ form.storage_capacity_gb }}
+                {% for error in form.storage_capacity_gb.errors %}
+                    <small class="form-field-error">{{ error }}</small>
+                {% endfor %}
+            </div>
+
 
             <div class="form-group">
 

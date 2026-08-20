@@ -1,7 +1,9 @@
 import uuid
+from decimal import Decimal
 
 from django.conf import settings
-from django.core.exceptions import ValidationError
+from django.core.exceptions import ObjectDoesNotExist, ValidationError
+from django.core.validators import MinValueValidator
 from django.db import models
 from django.utils import timezone
 
@@ -271,6 +273,13 @@ class Asset(models.Model):
             "Sin información",
         )
 
+    class DiskType(models.TextChoices):
+        HDD = "HDD", "HDD"
+        SSD = "SSD", "SSD"
+        NVME = "NVME", "NVMe"
+        SSHD = "SSHD", "SSHD"
+        OTHER = "OTHER", "Otro"
+
     id = models.UUIDField(
         primary_key=True,
         default=uuid.uuid4,
@@ -423,6 +432,31 @@ class Asset(models.Model):
         verbose_name="Sistema operativo",
     )
 
+    ram_gb = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(Decimal("0.01"))],
+        verbose_name="Memoria RAM (GB)",
+    )
+
+    disk_type = models.CharField(
+        max_length=10,
+        choices=DiskType.choices,
+        blank=True,
+        verbose_name="Tipo de disco",
+    )
+
+    storage_capacity_gb = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(Decimal("0.01"))],
+        verbose_name="Capacidad de almacenamiento (GB)",
+    )
+
     current_ip = models.GenericIPAddressField(
         protocol="both",
         unpack_ipv4=True,
@@ -544,6 +578,28 @@ class Asset(models.Model):
             return self.assigned_user.branch
 
         return None
+
+    @property
+    def effective_ram_gb(self):
+        """Prioriza el dato oficial y usa Monitoring solo como respaldo."""
+        if self.ram_gb is not None:
+            return self.ram_gb
+
+        try:
+            return self.device_heartbeat.ram_total_gb
+        except ObjectDoesNotExist:
+            return None
+
+    @property
+    def effective_storage_capacity_gb(self):
+        """Prioriza el dato oficial y usa Monitoring solo como respaldo."""
+        if self.storage_capacity_gb is not None:
+            return self.storage_capacity_gb
+
+        try:
+            return self.device_heartbeat.disk_total_gb
+        except ObjectDoesNotExist:
+            return None
 
     # ======================================================
     # SALUD DEL EQUIPO
