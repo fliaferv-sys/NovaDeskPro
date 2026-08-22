@@ -117,7 +117,7 @@ Gestión de Usuarios
             <input
                 type="search"
                 id="userSearchInput"
-                placeholder="Buscar por nombre, correo, documento o departamento">
+                placeholder="Buscar por nombre, correo, documento o dependencia">
 
         </div>
 
@@ -191,7 +191,8 @@ Gestión de Usuarios
                     <th>Rol</th>
                     <th>Vínculo</th>
                     <th>Sede o planta</th>
-                    <th>Departamento</th>
+                    <th>Dependencia institucional</th>
+                    <th>Departamento operativo</th>
                     <th>Estado</th>
                     <th>Vencimiento</th>
                     <th></th>
@@ -211,6 +212,7 @@ Gestión de Usuarios
                             {{ system_user.email }}
                             {{ system_user.document_number }}
                             {{ system_user.employee_number }}
+                            {{ system_user.organizational_unit }}
                             {{ system_user.department }}
                             {{ system_user.external_company }}
                             {{ system_user.branch.name }}
@@ -277,6 +279,16 @@ Gestión de Usuarios
                         </td>
 
                         <td>
+                            {% if system_user.organizational_unit %}
+                                {{ system_user.organizational_unit }}
+                            {% else %}
+                                <span class="text-muted">
+                                    Sin asignar
+                                </span>
+                            {% endif %}
+                        </td>
+
+                        <td>
                             {{ system_user.department|default:"Sin registrar" }}
                         </td>
 
@@ -337,7 +349,7 @@ Gestión de Usuarios
 
                     <tr>
 
-                        <td colspan="8">
+                        <td colspan="9">
 
                             <div class="executive-empty-state">
 

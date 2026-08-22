@@ -595,3 +595,13 @@ class OrganizationalUnit(models.Model):
 
     def __str__(self):
         return self.name
+
+    def get_superior_directorate(self):
+        current = self.parent
+
+        while current is not None:
+            if current.unit_type == self.UnitType.DIRECTORATE:
+                return current
+            current = current.parent
+
+        return None
