@@ -505,3 +505,93 @@ class InstitutionSettings(models.Model):
         """
 
         return self.monitoring_logo or self.logo
+
+
+# ==========================================================
+# ESTRUCTURA ORGANIZACIONAL INSTITUCIONAL
+# ==========================================================
+
+class OrganizationalUnit(models.Model):
+
+    class UnitType(models.TextChoices):
+        PRESIDENCY = "PRESIDENCY", "Presidencia"
+        GENERAL_MANAGEMENT = "GENERAL_MANAGEMENT", "Gerencia General"
+        MANAGEMENT = "MANAGEMENT", "Gerencia"
+        DIRECTORATE = "DIRECTORATE", "Dirección"
+        DEPUTY_DIRECTORATE = "DEPUTY_DIRECTORATE", "Dirección Adjunta"
+        SUB_MANAGEMENT = "SUB_MANAGEMENT", "Sub-Gerencia"
+        UNIT = "UNIT", "Unidad"
+        OFFICE = "OFFICE", "Oficina"
+        DEPARTMENT = "DEPARTMENT", "Departamento"
+        OTHER = "OTHER", "Otro"
+
+    name = models.CharField(
+        max_length=200,
+        verbose_name="Nombre",
+    )
+
+    code = models.CharField(
+        max_length=80,
+        unique=True,
+        verbose_name="Código",
+    )
+
+    unit_type = models.CharField(
+        max_length=30,
+        choices=UnitType.choices,
+        verbose_name="Tipo de dependencia",
+    )
+
+    parent = models.ForeignKey(
+        "self",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="children",
+        verbose_name="Dependencia superior",
+    )
+
+    operational_department = models.ForeignKey(
+        "core.Department",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="organizational_units",
+        verbose_name="Departamento operativo relacionado",
+        help_text=(
+            "Relación opcional con un departamento operativo "
+            "utilizado por tickets, usuarios e inventario."
+        ),
+    )
+
+    order = models.PositiveIntegerField(
+        default=0,
+        verbose_name="Orden",
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name="Activo",
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Fecha de creación",
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name="Última actualización",
+    )
+
+    class Meta:
+        verbose_name = "Dependencia institucional"
+        verbose_name_plural = "Dependencias institucionales"
+        ordering = [
+            "parent_id",
+            "order",
+            "name",
+        ]
+
+    def __str__(self):
+        return self.name

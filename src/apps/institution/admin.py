@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import InstitutionSettings
+from .models import InstitutionSettings, OrganizationalUnit
 
 
 @admin.register(InstitutionSettings)
@@ -140,4 +140,37 @@ class InstitutionSettingsAdmin(admin.ModelAdmin):
                 )
             },
         ),
+    )
+@admin.register(OrganizationalUnit)
+class OrganizationalUnitAdmin(admin.ModelAdmin):
+
+    list_display = (
+        "name",
+        "unit_type",
+        "parent",
+        "operational_department",
+        "order",
+        "is_active",
+    )
+
+    list_filter = (
+        "unit_type",
+        "is_active",
+    )
+
+    search_fields = (
+        "name",
+        "code",
+        "parent__name",
+    )
+
+    autocomplete_fields = (
+        "parent",
+        "operational_department",
+    )
+
+    ordering = (
+        "parent_id",
+        "order",
+        "name",
     )
