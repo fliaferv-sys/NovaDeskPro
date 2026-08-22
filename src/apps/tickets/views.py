@@ -740,7 +740,14 @@ def ticket_create_view(request):
 @never_cache
 @transaction.atomic
 def ticket_detail_view(request, pk):
-    ticket = get_object_or_404(Ticket, pk=pk)
+    ticket = get_object_or_404(
+        Ticket.objects.select_related(
+            "requester",
+            "requester__department",
+            "requester__organizational_unit",
+        ),
+        pk=pk,
+    )
     require_ticket_view_access(request.user, ticket)
 
     # ============================================================

@@ -176,7 +176,7 @@
             <div class="profile-detail"><dt>Teléfono</dt><dd>{{ profile_user.phone|default:"No registrado" }}</dd></div>
             <div class="profile-detail"><dt>Dependencia institucional</dt><dd>{{ profile_user.organizational_unit|default:"No registrado" }}</dd></div>
             <div class="profile-detail"><dt>Dependencia superior</dt><dd>{% if profile_user.organizational_unit and profile_user.organizational_unit.get_superior_directorate %}{{ profile_user.organizational_unit.get_superior_directorate }}{% else %}No registrada{% endif %}</dd></div>
-            <div class="profile-detail"><dt>Departamento operativo</dt><dd>{{ profile_user.department|default:"No registrado" }}</dd></div>
+            <div class="profile-detail"><dt>Equipo de atención</dt><dd>{{ profile_user.department|default:"No registrado" }}</dd></div>
             <div class="profile-detail"><dt>Cargo</dt><dd>{{ profile_user.position|default:"No registrado" }}</dd></div>
             <div class="profile-detail"><dt>Sede</dt><dd>{{ profile_user.branch|default:"No registrado" }}</dd></div>
             <div class="profile-detail"><dt>Tipo de vínculo</dt><dd>{{ profile_user.get_employment_type_display }}</dd></div>
