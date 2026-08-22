@@ -317,17 +317,39 @@ class User(AbstractUser):
         verbose_name="Cargo",
     )
 
+        # ======================================================
+    # UBICACIÓN ORGANIZACIONAL DEL USUARIO
     # ======================================================
-    # DEPARTAMENTO DEL USUARIO
+
+    organizational_unit = models.ForeignKey(
+        "institution.OrganizationalUnit",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="users",
+        verbose_name="Dependencia institucional",
+        help_text=(
+            "Dependencia real del funcionario dentro del organigrama "
+            "institucional: Dirección, Gerencia, Unidad, Departamento, "
+            "Oficina u otra dependencia."
+        ),
+    )
+
     # ======================================================
-    
+    # DEPARTAMENTO OPERATIVO
+    # ======================================================
+
     department = models.ForeignKey(
         Department,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name="users",
-        verbose_name="Departamento"
+        verbose_name="Departamento operativo",
+        help_text=(
+            "Departamento utilizado internamente por NovaDesk Pro "
+            "para tickets, categorías, SLA y asignaciones."
+        ),
     )
 
     # ======================================================

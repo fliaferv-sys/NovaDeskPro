@@ -112,6 +112,7 @@ class CustomUserAdmin(UserAdmin):
         "role",
         "employment_type",
         "branch",
+        "organizational_unit",
         "department",
         "approval_status",
         "access_status",
@@ -125,6 +126,7 @@ class CustomUserAdmin(UserAdmin):
         "employment_type",
         "approval_status",
         "branch",
+        "organizational_unit",
         "department",
         "is_temporary_account",
         "must_change_password",
@@ -141,7 +143,10 @@ class CustomUserAdmin(UserAdmin):
         "last_name",
         "document_number",
         "employee_number",
-        "department",
+        "organizational_unit__name",
+        "organizational_unit__code",
+        "department__name",
+        "department__code",
         "position",
         "external_company",
         "branch__name",
@@ -156,6 +161,8 @@ class CustomUserAdmin(UserAdmin):
 
     list_select_related = (
         "branch",
+        "organizational_unit",
+        "department",
         "internal_responsible",
         "approved_by",
     )
@@ -173,6 +180,8 @@ class CustomUserAdmin(UserAdmin):
 
     autocomplete_fields = (
         "branch",
+        "organizational_unit",
+        "department",
         "internal_responsible",
         "approved_by",
     )
@@ -215,6 +224,7 @@ class CustomUserAdmin(UserAdmin):
                     "employment_type",
                     "approval_status",
                     "branch",
+                    "organizational_unit",                    
                     "department",
                     "position",
                 ),
@@ -339,6 +349,7 @@ class CustomUserAdmin(UserAdmin):
                     "role",
                     "employment_type",
                     "branch",
+                    "organizational_unit",
                     "department",
                     "position",
                     "external_company",
