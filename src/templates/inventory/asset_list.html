@@ -25,6 +25,10 @@ Inventario
 
         <div class="inventory-header-actions">
 
+            {% if can_start_new_delivery %}
+            <a href="{% url 'deliveries:new_delivery_recipient' %}" class="btn-primary inventory-new-delivery">Nueva entrega</a>
+            {% endif %}
+
             <a
                 href="{% url 'inventory:asset_import' %}"
                 class="btn-secondary">
@@ -45,7 +49,7 @@ Inventario
                 form="send-to-custody-form"
                 disabled>
 
-                Enviar a Equipos para Entrega
+                Iniciar entrega con seleccionados
                 <span id="selected-count"></span>
 
             </button>
@@ -368,7 +372,15 @@ Inventario
     .inventory-header-actions {
         display: flex;
         align-items: center;
+        flex-wrap: wrap;
         gap: 12px;
+    }
+
+    .inventory-header-actions .inventory-new-delivery {
+        flex: 0 0 auto;
+        width: auto;
+        min-width: 0;
+        padding-inline: 18px;
     }
 
     .inventory-filters {
@@ -645,6 +657,10 @@ Inventario
         .inventory-header-actions a,
         .inventory-header-actions button {
             flex: 1;
+        }
+
+        .inventory-header-actions .inventory-new-delivery {
+            flex: 0 0 auto;
         }
 
     }

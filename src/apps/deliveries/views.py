@@ -2,6 +2,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required, permission_required
 from django.views.decorators.http import require_POST
 from django.core.exceptions import PermissionDenied
+from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from django.shortcuts import get_object_or_404, redirect, render
@@ -13,6 +14,7 @@ from .constants import ACTA_CERRADA_ERROR
 
 from apps.activity.models import ActivityLog
 from apps.activity.services import register_activity
+from apps.accounts.models import User
 from apps.inventory.models import Asset
 
 
@@ -21,6 +23,10 @@ from .forms import (
     DeliveryBatchForm,
     DeliveryBatchDocumentForm,
     DeliveryDocumentForm,
+    NewDeliveryAssetsForm,
+    NewDeliveryRecipientForm,
+    NewDeliveryReviewForm,
+    validate_assets_for_delivery,
 )
 
 from .models import (
@@ -29,6 +35,201 @@ from .models import (
     DeliveryBatchDocument,
     DeliveryDocument,
 )
+
+
+NEW_DELIVERY_SESSION_KEY = "new_delivery_wizard"
+DELIVERY_WIZARD_STEPS = ((1, "Destinatario"), (2, "Equipos"), (3, "Revisión"), (4, "Acta y firma"))
+NEW_DELIVERY_REQUIRED_PERMISSIONS = (
+    "deliveries.view_assetcustodymovement",
+    "deliveries.add_assetcustodymovement",
+    "deliveries.change_assetcustodymovement",
+    "deliveries.view_deliverybatch",
+    "deliveries.add_deliverybatch",
+    "deliveries.change_deliverybatch",
+    "deliveries.view_deliverybatchdocument",
+    "deliveries.add_deliverybatchdocument",
+)
+
+
+def _recipient_summary(recipient):
+    return {
+        "name": recipient.get_full_name() or recipient.username,
+        "email": recipient.email,
+        "employee_number": recipient.employee_number or "",
+        "position": recipient.position or "",
+        "branch": str(recipient.branch) if recipient.branch else "",
+        "organizational_unit": (
+            str(recipient.organizational_unit) if recipient.organizational_unit else ""
+        ),
+        "department": str(recipient.department) if recipient.department else "",
+    }
+
+
+@login_required
+@permission_required(NEW_DELIVERY_REQUIRED_PERMISSIONS, raise_exception=True)
+def new_delivery_recipient_view(request):
+    wizard = request.session.get(NEW_DELIVERY_SESSION_KEY, {})
+    if request.method == "POST":
+        form = NewDeliveryRecipientForm(request.POST)
+        if form.is_valid():
+            recipient = form.cleaned_data["recipient"]
+            request.session[NEW_DELIVERY_SESSION_KEY] = {
+                "recipient_id": str(recipient.pk),
+                "asset_ids": [],
+            }
+            return redirect("deliveries:new_delivery_assets")
+    else:
+        form = NewDeliveryRecipientForm(initial={"recipient": wizard.get("recipient_id")})
+
+    recipient_data = {
+        str(user.pk): _recipient_summary(user)
+        for user in form.fields["recipient"].queryset
+    }
+    return render(
+        request,
+        "deliveries/new_delivery_recipient.html",
+        {"form": form, "recipient_data": recipient_data, "wizard_step": 1, "wizard_steps": DELIVERY_WIZARD_STEPS},
+    )
+
+
+@login_required
+@permission_required(NEW_DELIVERY_REQUIRED_PERMISSIONS, raise_exception=True)
+def new_delivery_assets_view(request):
+    wizard = request.session.get(NEW_DELIVERY_SESSION_KEY, {})
+    if not wizard.get("recipient_id"):
+        return redirect("deliveries:new_delivery_recipient")
+    recipient = get_object_or_404(User, pk=wizard.get("recipient_id"))
+    if request.method == "POST":
+        form = NewDeliveryAssetsForm(request.POST)
+        if form.is_valid():
+            wizard["asset_ids"] = [str(pk) for pk in form.cleaned_data["assets"].values_list("pk", flat=True)]
+            request.session[NEW_DELIVERY_SESSION_KEY] = wizard
+            return redirect("deliveries:new_delivery_review")
+    else:
+        form = NewDeliveryAssetsForm(initial={"assets": wizard.get("asset_ids", [])})
+
+    return render(
+        request,
+        "deliveries/new_delivery_assets.html",
+        {
+            "form": form,
+            "recipient": recipient,
+            "recipient_summary": _recipient_summary(recipient),
+            "wizard_step": 2,
+            "wizard_steps": DELIVERY_WIZARD_STEPS,
+        },
+    )
+
+
+@login_required
+@permission_required(NEW_DELIVERY_REQUIRED_PERMISSIONS, raise_exception=True)
+@transaction.atomic
+def new_delivery_review_view(request):
+    wizard = request.session.get(NEW_DELIVERY_SESSION_KEY, {})
+    if not wizard.get("recipient_id"):
+        return redirect("deliveries:new_delivery_recipient")
+    recipient = get_object_or_404(
+        User.objects.select_related("branch", "organizational_unit", "department"),
+        pk=wizard.get("recipient_id"),
+    )
+    asset_ids = wizard.get("asset_ids", [])
+    if not asset_ids:
+        messages.warning(request, "Seleccione al menos un equipo.")
+        return redirect("deliveries:new_delivery_assets")
+    assets = list(
+        Asset.objects.filter(pk__in=asset_ids)
+        .select_related("branch", "assigned_user", "acquisition_batch")
+        .order_by("asset_type", "brand", "model", "internal_code")
+    )
+    if len(assets) != len(set(asset_ids)):
+        messages.error(request, "Uno de los equipos seleccionados ya no está disponible.")
+        return redirect("deliveries:new_delivery_assets")
+
+    suggested_department = str(recipient.department) if recipient.department else ""
+    initial = {
+        "destination_branch": recipient.branch_id,
+        "department": suggested_department,
+        "location": recipient.branch.address if recipient.branch and recipient.branch.address else "",
+    }
+    form = NewDeliveryReviewForm(request.POST or None, initial=initial)
+    if request.method == "POST" and form.is_valid():
+        locked_assets = list(
+            Asset.objects.select_for_update()
+            .filter(pk__in=asset_ids)
+            .select_related("acquisition_batch", "assigned_user")
+        )
+        active_statuses = get_active_delivery_statuses()
+        incompatible = AssetCustodyMovement.objects.select_for_update().filter(
+            asset_id__in=asset_ids, status__in=active_statuses
+        ).exists()
+        if (
+            len(locked_assets) != len(set(asset_ids))
+            or incompatible
+            or any(asset.assigned_user_id for asset in locked_assets)
+        ):
+            form.add_error(None, "Uno de los equipos ya no puede incluirse en esta entrega.")
+        else:
+            try:
+                validate_assets_for_delivery(locked_assets)
+            except ValidationError as error:
+                form.add_error(None, error)
+            else:
+                current_user = request.user
+                batch = DeliveryBatch.objects.create(
+                    status=DeliveryBatch.BatchStatus.PREPARED,
+                    recipient=recipient,
+                    recipient_employee_number=recipient.employee_number or "",
+                    recipient_position=recipient.position or "",
+                    recipient_unit=str(recipient.organizational_unit or ""),
+                    recipient_area=str(recipient.department or ""),
+                    delivery_responsible=current_user,
+                    authorizing_director=form.cleaned_data["authorizing_director"],
+                    origin_unit=str(current_user.organizational_unit or ""),
+                    origin_department=str(current_user.department or ""),
+                    origin_position=current_user.position or "",
+                    origin_employee_number=current_user.employee_number or "",
+                    destination_branch=form.cleaned_data["destination_branch"],
+                    department=form.cleaned_data["department"],
+                    location=form.cleaned_data["location"],
+                    observations=form.cleaned_data["observations"],
+                    created_by=current_user,
+                )
+                for asset in locked_assets:
+                    AssetCustodyMovement.objects.create(
+                        delivery_batch=batch,
+                        asset=asset,
+                        movement_type=AssetCustodyMovement.MovementType.DELIVERY,
+                        status=AssetCustodyMovement.MovementStatus.PREPARED,
+                        recipient=recipient,
+                        recipient_employee_number=batch.recipient_employee_number,
+                        recipient_position=batch.recipient_position,
+                        recipient_unit=batch.recipient_unit,
+                        recipient_area=batch.recipient_area,
+                        delivery_responsible=current_user,
+                        authorizing_director=batch.authorizing_director,
+                        destination_branch=batch.destination_branch,
+                        department=batch.department,
+                        location=batch.location,
+                        movement_date=batch.delivery_date,
+                        observations=batch.observations,
+                        created_by=current_user,
+                    )
+                request.session.pop(NEW_DELIVERY_SESSION_KEY, None)
+                messages.success(request, "Entrega preparada. Continúe con el acta y las firmas.")
+                return redirect("deliveries:delivery_batch_detail", pk=batch.pk)
+
+    return render(
+        request,
+        "deliveries/new_delivery_review.html",
+        {
+            "form": form,
+            "recipient": recipient,
+            "recipient_summary": _recipient_summary(recipient),
+            "assets": assets,
+            "wizard_step": 3,
+            "wizard_steps": DELIVERY_WIZARD_STEPS,
+        },
+    )
 
 
 @login_required
@@ -303,6 +504,9 @@ def custody_movement_list_view(request):
                 "deliveries.add_assetcustodymovement"
             ),
             "can_view_batches": request.user.has_perm("deliveries.view_deliverybatch"),
+            "can_start_new_delivery": request.user.has_perms(
+                NEW_DELIVERY_REQUIRED_PERMISSIONS
+            ),
 
             "total_equipos": total_equipos,
             "equipos_preparados": equipos_preparados,
@@ -722,6 +926,15 @@ def revert_movement(request, pk):
 def delivery_batch_list_view(request):
 
     batches = DeliveryBatch.objects.all().order_by("-created_at")
+    visible_statuses = {
+        DeliveryBatch.BatchStatus.DRAFT: "En preparación",
+        DeliveryBatch.BatchStatus.PREPARED: "En preparación",
+        DeliveryBatch.BatchStatus.PENDING_SIGNATURE: "Pendiente de documentos y firmas",
+        DeliveryBatch.BatchStatus.DELIVERED: "Entregada",
+        DeliveryBatch.BatchStatus.CANCELLED: "Cancelada",
+    }
+    for batch in batches:
+        batch.visible_status = visible_statuses[batch.status]
 
     return render(
         request,
@@ -811,6 +1024,31 @@ def delivery_batch_detail_view(request, pk):
             }
         ],
     ]
+    visible_status = {
+        DeliveryBatch.BatchStatus.DRAFT: "En preparación",
+        DeliveryBatch.BatchStatus.PREPARED: "En preparación",
+        DeliveryBatch.BatchStatus.PENDING_SIGNATURE: "Pendiente de documentos y firmas",
+        DeliveryBatch.BatchStatus.DELIVERED: "Entregada",
+        DeliveryBatch.BatchStatus.CANCELLED: "Cancelada",
+    }[delivery_batch.status]
+    if delivery_batch.status == DeliveryBatch.BatchStatus.DRAFT:
+        next_step_title = "Completar preparación"
+        next_step = "Complete los datos y revise los equipos para continuar."
+    elif delivery_batch.status == DeliveryBatch.BatchStatus.PREPARED:
+        next_step_title = "Registrar autorización"
+        next_step = "La entrega está preparada. Registre la autorización para continuar con los documentos."
+    elif delivery_batch.status == DeliveryBatch.BatchStatus.PENDING_SIGNATURE and not documents_complete:
+        next_step_title = "Completar documentos"
+        next_step = "Adjunte y verifique los documentos requeridos para continuar."
+    elif delivery_batch.status == DeliveryBatch.BatchStatus.PENDING_SIGNATURE:
+        next_step_title = "Confirmar entrega"
+        next_step = "Todos los documentos están completos. Confirme la entrega para asignar los equipos al destinatario."
+    elif delivery_batch.status == DeliveryBatch.BatchStatus.DELIVERED:
+        next_step_title = "Proceso completado"
+        next_step = "La entrega fue completada y la custodia de los equipos fue actualizada."
+    else:
+        next_step_title = "Proceso cancelado"
+        next_step = "La entrega fue cancelada."
 
     return render(
         request,
@@ -840,6 +1078,26 @@ def delivery_batch_detail_view(request, pk):
             "unverified_document_labels": unverified_document_labels,
             "internal_delivery_uploaded": internal_delivery_uploaded,
             "patrimonial_movement_uploaded": patrimonial_movement_uploaded,
+            "internal_delivery_verified": (
+                DeliveryBatchDocument.DocumentType.INTERNAL_DELIVERY
+                in verified_document_types
+            ),
+            "patrimonial_movement_verified": (
+                DeliveryBatchDocument.DocumentType.PATRIMONIAL_MOVEMENT
+                in verified_document_types
+            ),
+            "visible_status": visible_status,
+            "next_step_title": next_step_title,
+            "next_step": next_step,
+            "completed_document_count": len(
+                required_document_types & verified_document_types
+            ),
+            "required_document_count": len(required_document_types),
+            "wizard_step": 4,
+            "wizard_complete": (
+                delivery_batch.status == DeliveryBatch.BatchStatus.DELIVERED
+            ),
+            "wizard_steps": DELIVERY_WIZARD_STEPS,
         },
     )
 
@@ -854,7 +1112,7 @@ def upload_delivery_batch_document_view(request, pk):
     if batch.status != DeliveryBatch.BatchStatus.PENDING_SIGNATURE:
         messages.error(
             request,
-            "La documentación podrá cargarse después de la autorización del Director DTI.",
+            "La documentación podrá cargarse después de registrar la autorización.",
         )
         return redirect("deliveries:delivery_batch_detail", pk=pk)
 
@@ -886,7 +1144,7 @@ def delivery_batch_prepare_view(request, pk):
     if not batch.recipient or not batch.delivery_responsible or not batch.authorizing_director or not batch.destination_branch or not batch.department or not batch.location:
         messages.error(
             request,
-            "No se pudo confirmar la preparación. Complete receptor, responsable, Director DTI, sede, departamento y ubicación.",
+            "No se pudo confirmar la preparación. Complete receptor, responsable de autorización, sede, departamento y ubicación.",
         )
         return redirect("deliveries:delivery_batch_configure", pk=pk)
     if not batch.movements.exists():
@@ -896,7 +1154,7 @@ def delivery_batch_prepare_view(request, pk):
     batch.status = DeliveryBatch.BatchStatus.PREPARED
     batch.save(update_fields=["status", "updated_at"])
     batch.movements.update(status=AssetCustodyMovement.MovementStatus.PREPARED)
-    messages.success(request, "Equipos marcados como preparados. El acta espera autorización del Director DTI.")
+    messages.success(request, "Equipos preparados. La entrega espera que se registre la autorización.")
     return redirect("deliveries:delivery_batch_detail", pk=pk)
 
 
@@ -912,7 +1170,7 @@ def delivery_batch_send_to_signature_view(request, pk):
     if batch.status != DeliveryBatch.BatchStatus.PREPARED:
         raise PermissionDenied("El acta debe estar preparada antes de la autorización.")
     if not batch.recipient or not batch.delivery_responsible or not batch.authorizing_director or not batch.destination_branch or not batch.department or not batch.location:
-        messages.error(request, "Complete receptor, responsable, Director DTI, sede, departamento y ubicación.")
+        messages.error(request, "Complete receptor, responsable de autorización, sede, departamento y ubicación.")
         return redirect("deliveries:delivery_batch_detail", pk=pk)
     if not batch.movements.exists():
         messages.error(request, "El acta no contiene equipos.")
@@ -921,7 +1179,7 @@ def delivery_batch_send_to_signature_view(request, pk):
     batch.status = DeliveryBatch.BatchStatus.PENDING_SIGNATURE
     batch.save(update_fields=["status", "updated_at"])
     batch.movements.update(status=AssetCustodyMovement.MovementStatus.PENDING_SIGNATURE)
-    messages.success(request, "Entrega autorizada por el Director DTI. Adjunte los documentos firmados.")
+    messages.success(request, "Autorización registrada. Adjunte los documentos firmados.")
     return redirect("deliveries:delivery_batch_detail", pk=pk)
 
 
@@ -993,7 +1251,7 @@ def delivery_batch_complete_view(request, pk):
 
     batch.status = DeliveryBatch.BatchStatus.DELIVERED
     batch.save(update_fields=["status", "updated_at"])
-    messages.success(request, "Entrega completada e inventario actualizado.")
+    messages.success(request, "Entrega completada correctamente. La custodia de los equipos fue actualizada.")
     return redirect("deliveries:delivery_batch_detail", pk=pk)
 
 # ==========================================================

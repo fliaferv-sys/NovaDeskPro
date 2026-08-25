@@ -1,7 +1,7 @@
 {% extends "layouts/base.html" %}
 
 {% block title %}
-Equipos para Entrega
+Entregas en preparación
 {% endblock %}
 
 {% block content %}
@@ -10,15 +10,19 @@ Equipos para Entrega
 
     <div>
         <h1 class="page-title">
-            Equipos para Entrega
+            Entregas en preparación
         </h1>
 
         <p class="page-subtitle">
-            Control de entregas, devoluciones y reasignaciones de equipos.
+            Seguimiento de entregas, devoluciones y reasignaciones de equipos.
         </p>
     </div>
 
 </div>
+
+{% if can_start_new_delivery %}
+<div style="margin:0 0 20px"><a href="{% url 'deliveries:new_delivery_recipient' %}" class="btn-primary">＋ Nueva entrega</a></div>
+{% endif %}
 
 
 <!-- ==================================================
@@ -28,7 +32,7 @@ KPI
 <div class="delivery-kpi-grid">
 
     <a href="?estado=por_agrupar" class="delivery-kpi-card kpi-filter-card {% if status_filter == 'por_agrupar' %}active{% endif %}">
-        <span>Equipos para Entrega</span>
+        <span>Entregas en preparación</span>
         <strong>{{ total_equipos }}</strong>
         <small>Sin agrupar</small>
     </a>
@@ -95,7 +99,7 @@ TABLA DE MOVIMIENTOS
                 <div class="custody-group-toolbar">
                     <span>Seleccione los equipos que pertenecerán a la misma acta.</span>
                     <button type="submit" class="btn-prepare" id="group-selected-button" disabled>
-                        Crear acta agrupada <span id="group-selected-count"></span>
+                        Continuar con la selección <span id="group-selected-count"></span>
                     </button>
                 </div>
             {% endif %}
@@ -108,7 +112,7 @@ TABLA DE MOVIMIENTOS
             <table class="table grouped-batches-table">
                 <thead>
                     <tr>
-                        <th>Acta agrupada</th>
+                        <th>Entrega</th>
                         <th>Cantidad</th>
                         <th>Equipos incluidos</th>
                         <th>{% if status_filter == "firma" or status_filter == "preparados" %}Autorización{% else %}Estado{% endif %}</th>
@@ -140,7 +144,7 @@ TABLA DE MOVIMIENTOS
                                 {% if status_filter == "firma" %}
                                     <span class="custody-status custody-status-pending_signature">Autorización registrada</span>
                                 {% elif status_filter == "preparados" %}
-                                    <span class="custody-status custody-status-prepared">Esperando autorización del Director DTI</span>
+                                    <span class="custody-status custody-status-prepared">Esperando autorización</span>
                                 {% elif group.list.0.batch_configured %}
                                     <span class="custody-status custody-status-prepared">Configurado</span>
                                 {% else %}
@@ -160,7 +164,7 @@ TABLA DE MOVIMIENTOS
                                             formaction="{% url 'deliveries:delivery_batch_send_to_signature' group.grouper.pk %}"
                                             formmethod="post"
                                             class="btn-warning batch-prepare-button">
-                                        ✍️ Autorizar entrega — Director DTI
+                                        Registrar autorización
                                     </button>
                                     {% endif %}
                                     <a href="{% url 'deliveries:delivery_batch_detail' group.grouper.pk %}"
@@ -171,7 +175,7 @@ TABLA DE MOVIMIENTOS
                                     {% if can_manage_deliveries %}
                                     <a href="{% url 'deliveries:delivery_batch_configure' group.grouper.pk %}"
                                        class="document-detail-link">
-                                        {% if group.list.0.batch_configured %}Editar configuración{% else %}Configurar acta y equipos{% endif %}
+                                        {% if group.list.0.batch_configured %}Editar datos{% else %}Completar datos{% endif %}
                                     </a>
                                     <a href="{% url 'deliveries:delivery_batch_detail' group.grouper.pk %}"
                                        class="btn-secondary grouped-detail-button">
@@ -335,7 +339,7 @@ TABLA DE MOVIMIENTOS
                                             {% else %}
                                                 <a href="{% url 'deliveries:delivery_batch_configure' movement.delivery_batch.pk %}"
                                                    class="btn-prepare batch-prepare-button">
-                                                    Configurar acta y equipos
+                                                    Completar datos
                                                 </a>
                                             {% endif %}
                                             {% else %}
@@ -343,7 +347,7 @@ TABLA DE MOVIMIENTOS
                                                    class="document-detail-link">Abrir acta</a>
                                             {% endif %}
                                         {% else %}
-                                            <span class="table-muted">Misma acta agrupada</span>
+                                            <span class="table-muted">Misma entrega</span>
                                         {% endifchanged %}
                                     {% else %}
 
@@ -402,7 +406,7 @@ TABLA DE MOVIMIENTOS
 
                                     <p class="page-subtitle">
                                         Para iniciar una entrega, seleccione los equipos desde Inventario
-                                        y envíelos a un acta agrupada.
+                                        y continúe con la preparación de la entrega.
                                     </p>
 
                                     {% if can_add_movement %}
