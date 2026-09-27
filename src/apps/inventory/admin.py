@@ -748,7 +748,7 @@ class ToolAdminForm(forms.ModelForm):
             self.instance.pk
             and status == Tool.Status.AVAILABLE
             and self.instance.loan_items.filter(
-                loan__status=ToolLoan.Status.ACTIVE
+                loan__status=ToolLoan.Status.ACTIVE, returned_at__isnull=True
             ).exists()
         ):
             raise ValidationError(
@@ -883,7 +883,7 @@ class ToolLoanItemInline(admin.TabularInline):
     verbose_name_plural = "HERRAMIENTAS PRESTADAS"
     extra = 1
     autocomplete_fields = ("tool",)
-    readonly_fields = ("created_at",)
+    readonly_fields = ("created_at", "returned_at", "received_by", "return_observations")
     can_delete = False
 
 

@@ -31,6 +31,7 @@ from .models import (
     StockProduct,
     Tool,
     ToolLoan,
+    ToolLoanItem,
 )
 
 
@@ -89,7 +90,9 @@ class ToolLoanQuickForm(forms.Form):
                 is_active=True,
                 status=Tool.Status.AVAILABLE,
             )
-            .exclude(loan_items__loan__status=ToolLoan.Status.ACTIVE)
+            .exclude(pk__in=ToolLoanItem.objects.filter(
+                loan__status=ToolLoan.Status.ACTIVE, returned_at__isnull=True,
+            ).values("tool_id"))
             .distinct()
         )
         if not self.is_bound:
@@ -1161,3 +1164,29 @@ class AssetImportForm(forms.Form):
             )
 
         return uploaded_file
+
+
+class ToolReturnItemChoiceField(forms.ModelMultipleChoiceField):
+    def label_from_instance(self, item):
+        return f"{item.tool.code} {item.tool.name}"
+
+
+class ToolPartialReturnForm(forms.Form):
+    items = ToolReturnItemChoiceField(
+        label="Herramientas pendientes", queryset=ToolLoanItem.objects.none(),
+        widget=forms.CheckboxSelectMultiple,
+        error_messages={"required": "Seleccione al menos una herramienta."},
+    )
+    received_by = forms.ModelChoiceField(label="Recibido por", queryset=User.objects.none())
+    return_observations = forms.CharField(
+        label="Observaciones de devolución", required=False,
+        widget=forms.Textarea(attrs={"rows": 3}),
+    )
+
+    def __init__(self, *args, loan, user, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["items"].queryset = loan.items.filter(
+            returned_at__isnull=True
+        ).select_related("tool").order_by("tool__code")
+        self.fields["received_by"].queryset = User.objects.filter(is_active=True).order_by("username")
+        self.initial.setdefault("received_by", user.pk)

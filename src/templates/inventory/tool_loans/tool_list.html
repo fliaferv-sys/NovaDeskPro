@@ -1,0 +1,51 @@
+{% extends "inventory/tool_loans/base.html" %}
+{% block tools_heading %}Herramientas DTI{% endblock %}
+{% block tools_subtitle %}Estado actual, disponibilidad y seguimiento de herramientas.{% endblock %}
+{% block tools_content %}
+<section class="tools-metrics tools-catalog-metrics" aria-label="Indicadores de herramientas">
+    <div class="tools-metric"><strong>{{ indicators.total }}</strong><span>Total herramientas activas</span></div>
+    <div class="tools-metric"><strong>{{ indicators.available }}</strong><span>Disponibles</span></div>
+    <div class="tools-metric"><strong>{{ indicators.loaned }}</strong><span>Prestadas</span></div>
+    <div class="tools-metric"><strong>{{ indicators.overdue }}</strong><span>Vencidas</span></div>
+    <div class="tools-metric"><strong>{{ indicators.repair }}</strong><span>En reparación</span></div>
+</section>
+<form method="get" class="tools-card">
+    <div class="tools-card-header"><h2>Buscar herramientas</h2></div>
+    <div class="tools-form-grid">
+        <div class="tools-field"><label for="tool-search">Buscar</label><input id="tool-search" name="q" value="{{ filters.q }}" placeholder="Código, nombre, categoría, marca, modelo o serie"></div>
+        <div class="tools-field"><label for="tool-status">Estado</label><select id="tool-status" name="status"><option value="">Todos</option>{% for value, label in status_choices %}<option value="{{ value }}"{% if filters.status == value %} selected{% endif %}>{{ label }}</option>{% endfor %}<option value="OVERDUE"{% if filters.status == "OVERDUE" %} selected{% endif %}>Vencidas</option></select></div>
+        <div class="tools-field"><label for="tool-category">Categoría</label><select id="tool-category" name="category"><option value="">Todas</option>{% for category in categories %}<option value="{{ category }}"{% if filters.category == category %} selected{% endif %}>{{ category }}</option>{% endfor %}</select></div>
+        <div class="tools-field"><label for="tool-branch">Sede</label><select id="tool-branch" name="branch"><option value="">Todas</option>{% for branch in branches %}<option value="{{ branch.pk }}"{% if filters.branch == branch.pk|stringformat:"s" %} selected{% endif %}>{{ branch.name }}</option>{% endfor %}</select></div>
+    </div>
+    <div class="tools-submit tools-select-buttons"><a class="tools-button" href="{% url 'inventory:tool_list' %}">Limpiar filtros</a><button type="submit" class="tools-button tools-button-secondary">Filtrar</button></div>
+</form>
+<section class="tools-card">
+    <div class="tools-table-wrap" tabindex="0" role="region" aria-label="Listado de herramientas">
+        <table class="tools-table"><thead><tr><th>Código</th><th>Nombre</th><th>Categoría</th><th>Marca / modelo</th><th>Estado</th><th>Responsable actual</th><th>Retiro</th><th>Devolución prevista</th><th>Sede</th><th>Ubicación</th><th>Acción</th></tr></thead>
+        <tbody>{% for tool in tools %}
+            <tr{% if tool.has_overdue_loan %} class="tools-row-overdue"{% endif %}>
+                <td class="tools-code">{{ tool.code }}</td><td>{{ tool.name }}{% if not tool.is_active %}<small> · Inactiva</small>{% endif %}</td>
+                <td>{{ tool.category|default:"-" }}</td><td>{{ tool.brand|default:"-" }} {{ tool.model }}</td>
+                <td><span class="tools-badge tools-status-{{ tool.status|lower }}">{{ tool.get_status_display }}</span>{% if tool.has_overdue_loan %} <span class="tools-badge tools-badge-danger">Vencida</span>{% endif %}</td>
+                {% with loan=tool.display_loan %}
+                <td>{% if loan %}<strong class="tools-loan-owner">{{ loan.borrower_name|default:loan.borrower }}</strong>{% else %}-{% endif %}</td>
+                <td>{% if loan %}{{ loan.loaned_at|date:"d/m/Y H:i" }}{% else %}-{% endif %}</td>
+                <td>{% if loan %}<strong class="tools-loan-due{% if tool.has_overdue_loan %} tools-loan-due-overdue{% endif %}">{{ loan.expected_return_at|date:"d/m/Y H:i" }}</strong>{% else %}-{% endif %}</td>
+                <td>{{ tool.branch.name }}</td><td>{{ tool.organizational_location|default:"-" }}</td>
+                <td>{% if loan %}<a class="tools-button" href="{% url 'inventory:tool_loan_detail' loan.pk %}">Ver préstamo</a>{% else %}-{% endif %}</td>
+                {% endwith %}
+            </tr>
+        {% empty %}<tr><td colspan="11" class="tools-empty">No hay herramientas para mostrar.</td></tr>{% endfor %}</tbody></table>
+    </div>
+    {% if page_obj.has_other_pages %}<nav class="tools-select-bar" aria-label="Paginación de herramientas">
+        {% if page_obj.has_previous %}<a class="tools-button" href="?{{ pagination_query }}&amp;page={{ page_obj.previous_page_number }}">Anterior</a>{% endif %}
+        <span>Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span>
+        {% if page_obj.has_next %}<a class="tools-button" href="?{{ pagination_query }}&amp;page={{ page_obj.next_page_number }}">Siguiente</a>{% endif %}
+    </nav>{% endif %}
+</section>
+<style>
+.tools-catalog-metrics{grid-template-columns:repeat(5,minmax(0,1fr))}.tools-table .tools-row-overdue{background:#fff1f2}.tools-table .tools-row-overdue:hover{background:#ffe4e6}.tools-loan-owner{color:#175cd3}.tools-loan-due{color:#344054}.tools-loan-due-overdue{color:#b42318}.tools-status-available{background:#ecfdf3;color:#027a48}.tools-status-loaned{background:#eff8ff;color:#175cd3}.tools-status-repair{background:#fffaeb;color:#b54708}.tools-status-out_of_service,.tools-status-lost,.tools-status-retired{background:#fef3f2;color:#b42318}
+@media(max-width:850px){.tools-catalog-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:480px){.tools-catalog-metrics{grid-template-columns:1fr}}
+</style>
+{% endblock %}

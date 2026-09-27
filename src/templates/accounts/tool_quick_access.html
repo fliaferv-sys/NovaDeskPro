@@ -1,0 +1,10 @@
+{% if request.user.role != "CLIENT" %}
+{% if request.user.is_superuser or request.user.role == "ADMIN" or request.user.role == "SUPERVISOR" or request.user.role == "TECHNICIAN" %}
+<article class="staff-quick-access-card">
+    <div class="staff-quick-access-icon"><i class="bi bi-tools"></i></div>
+    <h3>Herramientas DTI</h3>
+    <p>Préstamos, devoluciones y control de herramientas de trabajo.</p>
+    <a href="{% url 'inventory:tool_dashboard' %}" class="staff-quick-access-link">Gestionar herramientas <i class="bi bi-arrow-right"></i></a>
+</article>
+{% endif %}
+{% endif %}

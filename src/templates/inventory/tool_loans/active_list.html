@@ -1,7 +1,12 @@
 {% extends "inventory/tool_loans/base.html" %}
 {% block tools_heading %}Préstamos activos{% endblock %}
 {% block tools_subtitle %}Seguimiento de herramientas pendientes de devolución.{% endblock %}
-{% block tools_actions %}{% if can_register %}<a class="tools-button tools-button-primary" href="{% url 'inventory:tool_loan_quick_create' %}">+ Préstamo rápido</a>{% endif %}{% endblock %}
+{% block tools_actions %}
+    {% if can_register %}
+        <a class="tools-button tools-button-primary"
+           href="{% url 'inventory:tool_loan_quick_create' %}">+ Préstamo rápido</a>
+    {% endif %}
+{% endblock %}
 {% block tools_content %}
 <section class="tools-metrics"><div class="tools-metric"><strong>{{ indicators.borrowed_tools }}</strong><span>Herramientas prestadas</span></div><div class="tools-metric"><strong>{{ indicators.active_loans }}</strong><span>Préstamos activos</span></div><div class="tools-metric"><strong>{{ indicators.overdue }}</strong><span>Vencidos</span></div><div class="tools-metric"><strong>{{ indicators.due_today }}</strong><span>Devuelven hoy</span></div></section>
 <form method="get" class="tools-card"><div class="tools-card-header"><h2>Filtrar préstamos</h2></div><div class="tools-filter-grid"><select name="scope"><option value="all">Todos</option><option value="overdue"{% if filters.scope == 'overdue' %} selected{% endif %}>Vencidos</option><option value="today"{% if filters.scope == 'today' %} selected{% endif %}>Devuelven hoy</option></select><select name="responsible"><option value="">Todos los responsables</option>{% for user in responsible_users %}<option value="{{ user.pk }}"{% if filters.responsible == user.pk|stringformat:"s" %} selected{% endif %}>{{ user.get_full_name|default:user.username }}</option>{% endfor %}</select><input name="tool" value="{{ filters.tool }}" placeholder="Código o nombre de herramienta"><button class="tools-button tools-button-primary">Filtrar</button></div></form>

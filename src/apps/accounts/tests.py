@@ -533,3 +533,43 @@ class GlobalNavigationTests(TestCase):
             reverse("tickets:dashboard"),
             fetch_redirect_response=False,
         )
+
+
+class ToolQuickAccessVisibilityTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.users = {
+            role: User.objects.create_user(
+                username=f"quick-tools-{role.lower()}",
+                email=f"quick-tools-{role.lower()}@example.test", role=role,
+            ) for role in User.Role.values
+        }
+
+    def test_authorized_home_shows_single_card_with_named_destination(self):
+        for role in (User.Role.ADMIN, User.Role.SUPERVISOR, User.Role.TECHNICIAN):
+            with self.subTest(role=role):
+                self.client.force_login(self.users[role])
+                response = self.client.get(reverse("home"), follow=True)
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, '<h3>Herramientas DTI</h3>', count=1)
+                self.assertContains(response, 'Préstamos, devoluciones y control de herramientas de trabajo.')
+                self.assertContains(response, f'href="{reverse("inventory:tool_dashboard")}" class="staff-quick-access-link"')
+                self.assertContains(response, 'Gestionar herramientas', count=1)
+                self.assertContains(response, 'bi bi-tools')
+                if role == User.Role.TECHNICIAN:
+                    self.assertEqual(response.redirect_chain, [(reverse("tickets:dashboard"), 302)])
+                else:
+                    self.assertContains(response, '<h3>Control de técnicos</h3>')
+                    self.assertContains(response, '<h3>QR de activos</h3>')
+
+    def test_client_flow_and_other_roles_do_not_show_card(self):
+        for role in User.Role.values:
+            if role in (User.Role.ADMIN, User.Role.SUPERVISOR, User.Role.TECHNICIAN):
+                continue
+            with self.subTest(role=role):
+                self.client.force_login(self.users[role])
+                response = self.client.get(reverse("home"))
+                if role == User.Role.CLIENT:
+                    self.assertRedirects(response, reverse("tickets:ticket_create"), fetch_redirect_response=False)
+                    response = self.client.get(reverse("tickets:dashboard"))
+                self.assertNotContains(response, 'Gestionar herramientas')

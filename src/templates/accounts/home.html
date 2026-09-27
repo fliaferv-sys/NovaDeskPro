@@ -820,20 +820,7 @@ NovaDesk Pro
 
 <div class="staff-dashboard">
 
-<style>
-    .staff-quick-access { margin-top: 24px; }
-    .staff-quick-access-header { margin-bottom: 14px; }
-    .staff-quick-access-header h2 { margin: 0; color: #17233b; font-size: 20px; }
-    .staff-quick-access-header p { margin: 5px 0 0; color: #667085; font-size: 14px; }
-    .staff-quick-access-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
-    .staff-quick-access-card { display: flex; min-width: 0; min-height: 205px; flex-direction: column; padding: 20px; border: 1px solid #e4e9f0; border-radius: 16px; background: #fff; box-shadow: 0 7px 22px rgba(15, 35, 65, .07); }
-    .staff-quick-access-icon { display: grid; width: 46px; height: 46px; margin-bottom: 15px; place-items: center; border-radius: 12px; color: var(--primary-color, #0a1a3a); background: var(--primary-light, #eef3fa); font-size: 21px; }
-    .staff-quick-access-card h3 { margin: 0 0 7px; color: #17233b; font-size: 16px; }
-    .staff-quick-access-card p { margin: 0 0 17px; color: #667085; font-size: 13px; line-height: 1.5; }
-    .staff-quick-access-link { display: inline-flex; align-items: center; justify-content: center; gap: 7px; width: fit-content; margin-top: auto; padding: 9px 13px; border-radius: 9px; color: #fff !important; background: var(--secondary-color, #f68b1e); text-decoration: none; font-size: 13px; font-weight: 700; }
-    @media (max-width: 1100px) { .staff-quick-access-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-    @media (max-width: 600px) { .staff-quick-access-grid { grid-template-columns: 1fr; } .staff-quick-access-card { min-height: 180px; } }
-</style>
+{% include "accounts/quick_access_styles.html" %}
 
 <h1 class="page-title">
     Bienvenido, {{ request.user.first_name }}
@@ -849,6 +836,7 @@ NovaDesk Pro
         <p>Herramientas de consulta y seguimiento de uso frecuente.</p>
     </div>
     <div class="staff-quick-access-grid">
+        {% include "accounts/tool_quick_access.html" %}
         {% if request.user.is_superuser or request.user.role == "ADMIN" or request.user.role == "SUPERVISOR" %}
         <article class="staff-quick-access-card">
             <div class="staff-quick-access-icon"><i class="bi bi-person-check"></i></div>

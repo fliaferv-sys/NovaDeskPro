@@ -1,0 +1,13 @@
+{% if loans %}
+<ul class="tools-dashboard-loans">
+    {% for loan in loans %}
+    <li>
+        <div>
+            <a href="{% url 'inventory:tool_loan_detail' loan.pk %}">{{ loan.number }}</a>
+            <span class="tools-dashboard-loan-meta">{{ loan.borrower_name|default:loan.borrower }} · {% for item in loan.items.all %}{{ item.tool.code }}{% if not forloop.last %}, {% endif %}{% endfor %}</span>
+        </div>
+        <span class="tools-dashboard-loan-date{% if overdue %} tools-loan-due-overdue{% endif %}">{{ loan.expected_return_at|date:"d/m/Y H:i" }}</span>
+    </li>
+    {% endfor %}
+</ul>
+{% else %}<p class="tools-dashboard-empty">{{ empty_message }}</p>{% endif %}

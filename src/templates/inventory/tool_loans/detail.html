@@ -3,6 +3,48 @@
 {% block tools_subtitle %}Detalle del préstamo de herramientas.{% endblock %}
 {% block tools_actions %}<a class="tools-button" href="{% url 'inventory:tool_loan_active_list' %}">Volver al listado</a>{% endblock %}
 {% block tools_content %}
-<section class="tools-card"><div class="tools-card-header"><h2>Préstamo</h2></div><dl class="tools-detail-grid"><div><dt>Responsable</dt><dd>{{ loan.borrower_name|default:loan.borrower }}</dd></div><div><dt>Entregado por</dt><dd>{{ loan.delivered_by }}</dd></div><div><dt>Retiro</dt><dd>{{ loan.loaned_at|date:"d/m/Y H:i" }}</dd></div><div><dt>Devolución prevista</dt><dd>{{ loan.expected_return_at|date:"d/m/Y H:i" }}</dd></div><div><dt>Estado</dt><dd>{{ loan.get_status_display }}</dd></div><div><dt>Vencido</dt><dd>{% if loan.is_overdue %}Sí{% else %}No{% endif %}</dd></div><div><dt>Motivo / destino</dt><dd>{{ loan.purpose }}</dd></div><div><dt>Observaciones</dt><dd>{{ loan.observations|default:"-" }}</dd></div></dl></section>
-<section class="tools-card"><div class="tools-card-header"><h2>Herramientas prestadas</h2></div><div class="tools-table-wrap"><table class="tools-table"><thead><tr><th>Código</th><th>Nombre</th><th>Categoría</th><th>Marca / modelo</th><th>Sede</th><th>Ubicación</th></tr></thead><tbody>{% for item in loan.items.all %}<tr><td class="tools-code">{{ item.tool.code }}</td><td>{{ item.tool.name }}</td><td>{{ item.tool.category|default:"-" }}</td><td>{{ item.tool.brand|default:"-" }} {{ item.tool.model }}</td><td>{{ item.tool.branch.name }}</td><td>{{ item.tool.organizational_location|default:"-" }}</td></tr>{% endfor %}</tbody></table></div></section>
+<section class="tools-card"><div class="tools-card-header"><h2>PRÉSTAMO</h2></div><dl class="tools-detail-grid"><div><dt>Responsable</dt><dd>{{ loan.borrower_name|default:loan.borrower }}</dd></div><div><dt>Entregado por</dt><dd>{{ loan.delivered_by }}</dd></div><div><dt>Retiro</dt><dd>{{ loan.loaned_at|date:"d/m/Y H:i" }}</dd></div><div><dt>Devolución prevista</dt><dd>{{ loan.expected_return_at|date:"d/m/Y H:i" }}</dd></div><div><dt>Estado</dt><dd>{{ loan.get_status_display }}</dd></div><div><dt>Vencido</dt><dd>{% if loan.is_overdue %}Sí{% else %}No{% endif %}</dd></div><div><dt>Motivo / destino</dt><dd>{{ loan.purpose }}</dd></div><div><dt>Observaciones</dt><dd>{{ loan.observations|default:"-" }}</dd></div></dl></section>
+<section class="tools-card"><div class="tools-card-header"><h2>HERRAMIENTAS PRESTADAS</h2></div><div class="tools-table-wrap"><table class="tools-table"><thead><tr><th>Código</th><th>Nombre</th><th>Categoría</th><th>Marca / modelo</th><th>Sede</th><th>Ubicación</th><th>Devolución</th></tr></thead><tbody>{% for item in loan.items.all %}<tr><td class="tools-code">{{ item.tool.code }}</td><td>{{ item.tool.name }}</td><td>{{ item.tool.category|default:"-" }}</td><td>{{ item.tool.brand|default:"-" }} {{ item.tool.model }}</td><td>{{ item.tool.branch.name }}</td><td>{{ item.tool.organizational_location|default:"-" }}</td><td>{% if item.returned_at %}<span class="tools-badge tools-badge-ok">Devuelta</span><p>{{ item.returned_at|date:"d/m/Y H:i" }} · Recibido por: {{ item.received_by|default:"No registrado" }}</p><p>{{ item.return_observations|default:"Sin observaciones" }}</p>{% else %}<span class="tools-badge tools-badge-warn">Pendiente</span>{% endif %}</td></tr>{% endfor %}</tbody></table></div></section>
+<section class="tools-card">
+    <div class="tools-card-header"><h2>DEVOLUCIÓN</h2></div>
+    {% if loan.status == "ACTIVE" %}
+        {% if can_return %}
+        <form method="post" id="tool-return-form">
+            {% csrf_token %}
+            {{ return_form.non_field_errors }}
+            <div class="tools-select-bar">
+                <div class="tools-select-buttons">
+                    <button type="button" class="tools-button" data-select="all">Seleccionar todas</button>
+                    <button type="button" class="tools-button" data-select="none">Limpiar selección</button>
+                </div>
+            </div>
+            <div class="tools-form-grid">
+                <fieldset class="tools-field-wide"><legend>Herramientas pendientes</legend>
+                    {{ return_form.items.errors }}{{ return_form.items }}
+                </fieldset>
+                <div class="tools-field">{{ return_form.received_by.label_tag }}{{ return_form.received_by }}{{ return_form.received_by.errors }}</div>
+                <div class="tools-field tools-field-wide">{{ return_form.return_observations.label_tag }}{{ return_form.return_observations }}{{ return_form.return_observations.errors }}</div>
+            </div>
+            <div class="tools-submit"><button type="submit" class="tools-button tools-button-primary">Registrar devolución</button></div>
+        </form>
+        {% else %}<p class="tools-readonly-note">Solo ADMIN y SUPERVISOR pueden registrar devoluciones.</p>{% endif %}
+    {% elif loan.status == "RETURNED" %}
+        <dl class="tools-detail-grid"><div><dt>Devolución completada</dt><dd>{{ loan.returned_at|date:"d/m/Y H:i" }}</dd></div><div><dt>Recibido por</dt><dd>{{ loan.received_by|default:"No registrado" }}</dd></div></dl>
+    {% else %}<p class="tools-readonly-note">Este préstamo no está activo.</p>{% endif %}
+</section>
+{% endblock %}
+{% block tools_extra_js %}
+<script>
+(() => {
+    const form = document.getElementById('tool-return-form');
+    if (!form) return;
+    form.querySelectorAll('[data-select]').forEach(button => {
+        button.addEventListener('click', () => {
+            form.querySelectorAll('input[name="items"]').forEach(input => {
+                input.checked = button.dataset.select === 'all';
+            });
+        });
+    });
+})();
+</script>
 {% endblock %}

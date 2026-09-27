@@ -2,11 +2,12 @@ from io import BytesIO
 
 import qrcode
 from django.contrib import messages
+from django.core.paginator import Paginator
 from django.contrib.auth.decorators import login_required
 from django.http import FileResponse, HttpResponse
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
-from django.db.models import Count, F, Q, Sum
+from django.db.models import Count, Exists, F, OuterRef, Prefetch, Q, Sum
 from django.db.models.functions import Coalesce
 from django.shortcuts import (
     get_object_or_404,
@@ -42,6 +43,7 @@ from .forms import (
     StockProductForm,
     StockTransferForm,
     ToolLoanQuickForm,
+    ToolPartialReturnForm,
 )
 from django.urls import reverse
 from django.views.decorators.http import require_GET
@@ -72,7 +74,7 @@ from .services.stock import (
     complete_stock_delivery,
     confirm_ticket_stock_usage,
 )
-from .services.tool_loans import register_tool_loan
+from .services.tool_loans import register_tool_loan, register_tool_partial_return
 from .stock_delivery_pdf import generate_stock_delivery_pdf
 
 
@@ -608,10 +610,135 @@ TOOL_READ_ROLES = ("ADMIN", "SUPERVISOR", "TECHNICIAN")
 TOOL_MANAGEMENT_ROLES = {"ADMIN", "SUPERVISOR"}
 
 
+@login_required
+@roles_required(*TOOL_READ_ROLES)
+@require_GET
+def tool_list_view(request):
+    now = timezone.now()
+    pending = ToolLoanItem.objects.filter(
+        returned_at__isnull=True, loan__status=ToolLoan.Status.ACTIVE,
+    )
+    tools = Tool.objects.all()
+    if request.user.role == User.Role.TECHNICIAN and not request.user.is_superuser:
+        pending = pending.filter(loan__borrower=request.user)
+        tools = tools.filter(
+            Q(status=Tool.Status.AVAILABLE)
+            | Q(status=Tool.Status.LOANED, pk__in=pending.values("tool_id"))
+        )
+    tools = tools.annotate(
+        has_overdue_loan=Exists(pending.filter(
+            tool_id=OuterRef("pk"), loan__expected_return_at__lt=now,
+        ))
+    )
+    indicators = tools.aggregate(
+        total=Count("pk", filter=Q(is_active=True)),
+        available=Count("pk", filter=Q(status=Tool.Status.AVAILABLE)),
+        loaned=Count("pk", filter=Q(status=Tool.Status.LOANED)),
+        overdue=Count("pk", filter=Q(has_overdue_loan=True)),
+        repair=Count("pk", filter=Q(status=Tool.Status.REPAIR)),
+    )
+    categories = tools.exclude(category="").order_by("category").values_list("category", flat=True).distinct()
+    branches = Branch.objects.filter(pk__in=tools.values("branch_id")).order_by("name")
+    filters = {key: request.GET.get(key, "").strip() for key in ("q", "status", "category", "branch")}
+    filtered = tools
+    if filters["status"] == "OVERDUE":
+        filtered = filtered.filter(has_overdue_loan=True)
+    elif filters["status"] in Tool.Status.values:
+        filtered = filtered.filter(status=filters["status"])
+    if filters["category"]:
+        filtered = filtered.filter(category=filters["category"])
+    if filters["branch"]:
+        # Compare against visible options so malformed identifiers cannot raise a 500.
+        branch = next((branch for branch in branches if str(branch.pk) == filters["branch"]), None)
+        filtered = filtered.filter(branch=branch) if branch else filtered.none()
+    for term in filters["q"].split():
+        filtered = filtered.filter(
+            Q(code__icontains=term) | Q(name__icontains=term)
+            | Q(category__icontains=term) | Q(brand__icontains=term)
+            | Q(model__icontains=term) | Q(serial_number__icontains=term)
+        )
+    filtered = filtered.select_related("branch", "organizational_location__branch").prefetch_related(
+        Prefetch("loan_items", queryset=pending.select_related("loan__borrower").order_by("-loan__loaned_at", "pk"), to_attr="pending_loan_items")
+    ).order_by("code")
+    page = Paginator(filtered, 50).get_page(request.GET.get("page"))
+    for tool in page:
+        tool.display_loan = (
+            tool.pending_loan_items[0].loan
+            if tool.status == Tool.Status.LOANED and tool.pending_loan_items else None
+        )
+    query = request.GET.copy()
+    query.pop("page", None)
+    return render(request, "inventory/tool_loans/tool_list.html", {
+        "tools": page, "page_obj": page, "pagination_query": query.urlencode(),
+        "indicators": indicators, "categories": categories, "branches": branches,
+        "filters": filters, "status_choices": Tool.Status.choices,
+        "can_register": request.user.is_superuser or request.user.role in TOOL_MANAGEMENT_ROLES,
+    })
+
+
+@login_required
+@roles_required(*TOOL_READ_ROLES)
+@require_GET
+def tool_dashboard_view(request):
+    now = timezone.now()
+    today = timezone.localdate()
+    active_loans = _visible_active_tool_loans(request.user)
+    visible_tools = Tool.objects.filter(is_active=True)
+    if request.user.role == User.Role.TECHNICIAN and not request.user.is_superuser:
+        visible_tools = visible_tools.filter(
+            Q(status=Tool.Status.AVAILABLE)
+            | Q(
+                status=Tool.Status.LOANED,
+                pk__in=ToolLoanItem.objects.filter(
+                    loan__in=active_loans,
+                    returned_at__isnull=True,
+                ).values("tool_id"),
+            )
+        )
+
+    indicators = visible_tools.aggregate(
+        total=Count("pk"),
+        available=Count("pk", filter=Q(status=Tool.Status.AVAILABLE)),
+        loaned=Count("pk", filter=Q(status=Tool.Status.LOANED)),
+        repair=Count("pk", filter=Q(status=Tool.Status.REPAIR)),
+    )
+    indicators.update({
+        "overdue": active_loans.filter(expected_return_at__lt=now).count(),
+        "due_today": active_loans.filter(expected_return_at__date=today).count(),
+    })
+
+    loan_queryset = active_loans.select_related("borrower").prefetch_related(
+        "items__tool"
+    )
+    overdue_loans = loan_queryset.filter(expected_return_at__lt=now).order_by(
+        "expected_return_at"
+    )[:8]
+    due_today_loans = loan_queryset.filter(expected_return_at__date=today).order_by(
+        "expected_return_at"
+    )[:8]
+    recent_loans = (
+        ToolLoan.objects.filter(borrower=request.user)
+        if request.user.role == User.Role.TECHNICIAN and not request.user.is_superuser
+        else ToolLoan.objects.all()
+    ).select_related("borrower").prefetch_related("items__tool").order_by(
+        "-loaned_at", "-created_at"
+    )[:8]
+
+    return render(request, "inventory/tool_loans/dashboard.html", {
+        "indicators": indicators,
+        "overdue_loans": overdue_loans,
+        "due_today_loans": due_today_loans,
+        "recent_loans": recent_loans,
+        "can_register": request.user.is_superuser or request.user.role in TOOL_MANAGEMENT_ROLES,
+    })
+
+
 def _available_tools(filters):
     tools = (
         Tool.objects.filter(is_active=True, status=Tool.Status.AVAILABLE)
-        .exclude(loan_items__loan__status=ToolLoan.Status.ACTIVE)
+        .exclude(pk__in=ToolLoanItem.objects.filter(
+                loan__status=ToolLoan.Status.ACTIVE, returned_at__isnull=True,
+            ).values("tool_id"))
         .select_related("branch", "organizational_location")
         .order_by("code")
         .distinct()
@@ -737,7 +864,7 @@ def tool_loan_active_list_view(request):
         .distinct()
     )
     indicators = {
-        "borrowed_tools": base_loans.aggregate(total=Count("items"))["total"] or 0,
+        "borrowed_tools": base_loans.aggregate(total=Count("items", filter=Q(items__returned_at__isnull=True)))["total"] or 0,
         "active_loans": base_loans.count(),
         "overdue": base_loans.filter(expected_return_at__lt=now).count(),
         "due_today": base_loans.filter(expected_return_at__date=today).count(),
@@ -768,7 +895,7 @@ def tool_loan_detail_view(request, pk):
     loan = get_object_or_404(
         ToolLoan.objects.select_related(
             "borrower", "delivered_by", "received_by"
-        ).prefetch_related("items__tool__branch", "items__tool__organizational_location"),
+        ).prefetch_related("items__tool__branch", "items__tool__organizational_location", "items__received_by"),
         pk=pk,
     )
     if (
@@ -777,10 +904,27 @@ def tool_loan_detail_view(request, pk):
         and loan.borrower_id != request.user.pk
     ):
         raise PermissionDenied("Solo puede consultar sus propios préstamos.")
+    can_return = request.user.is_superuser or request.user.role in TOOL_MANAGEMENT_ROLES
+    if request.method == "POST" and not can_return:
+        raise PermissionDenied("No tiene permisos para registrar devoluciones.")
+    form = ToolPartialReturnForm(
+        request.POST if request.method == "POST" else None, loan=loan, user=request.user,
+    )
+    if request.method == "POST" and form.is_valid():
+        try:
+            register_tool_partial_return(
+                loan=loan, item_ids=[item.pk for item in form.cleaned_data["items"]],
+                received_by=form.cleaned_data["received_by"],
+                return_observations=form.cleaned_data["return_observations"],
+            )
+        except ValidationError as error:
+            _add_service_errors(form, error)
+        else:
+            messages.success(request, "Devolución registrada correctamente.")
+            return redirect("inventory:tool_loan_detail", pk=loan.pk)
     return render(
-        request,
-        "inventory/tool_loans/detail.html",
-        {"loan": loan},
+        request, "inventory/tool_loans/detail.html",
+        {"loan": loan, "return_form": form, "can_return": can_return},
     )
 
 

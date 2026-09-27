@@ -53,7 +53,7 @@ from .services.stock import (
     complete_stock_delivery,
     confirm_ticket_stock_usage,
 )
-from .services.tool_loans import register_tool_loan, register_tool_return
+from .services.tool_loans import register_tool_loan, register_tool_return, register_tool_partial_return
 from .stock_delivery_pdf import generate_stock_delivery_pdf
 from .services.notifications import generate_inventory_stock_notifications
 
@@ -2299,6 +2299,104 @@ class ToolLoanServiceTests(TestCase):
         )
 
 
+class ToolPartialReturnTests(TestCase):
+    setUp = ToolLoanServiceTests.setUp
+    create_tool = ToolLoanServiceTests.create_tool
+    create_loan = ToolLoanServiceTests.create_loan
+
+    def prepare(self):
+        tools = [self.create_tool(name) for name in ("A", "B", "C")]
+        loan = self.create_loan(tools)
+        register_tool_loan(loan=loan)
+        return loan, tools, list(loan.items.order_by("tool__name"))
+
+    def test_partial_then_final_return_and_history(self):
+        loan, tools, items = self.prepare()
+        first = register_tool_partial_return(
+            loan=loan, item_ids=[items[0].pk], received_by=self.user,
+            return_observations="Primera entrega",
+        )
+        self.assertEqual(first.status, ToolLoan.Status.ACTIVE)
+        self.assertIsNone(first.returned_at)
+        self.assertIsNone(first.received_by)
+        for tool, expected in zip(tools, [Tool.Status.AVAILABLE, Tool.Status.LOANED, Tool.Status.LOANED]):
+            tool.refresh_from_db()
+            self.assertEqual(tool.status, expected)
+        items[0].refresh_from_db()
+        first_date = items[0].returned_at
+        self.assertIsNotNone(first_date)
+        final = register_tool_partial_return(
+            loan=loan, item_ids=[item.pk for item in items[1:]], received_by=self.user,
+            return_observations="Ultima entrega",
+        )
+        self.assertEqual(final.status, ToolLoan.Status.RETURNED)
+        self.assertIsNotNone(final.returned_at)
+        self.assertEqual(final.received_by, self.user)
+        self.assertFalse(Tool.objects.exclude(status=Tool.Status.AVAILABLE).exists())
+        items[0].refresh_from_db()
+        self.assertEqual(items[0].returned_at, first_date)
+        self.assertEqual(items[0].return_observations, "Primera entrega")
+        self.assertEqual(items[0].received_by, self.user)
+
+    def test_duplicate_foreign_and_empty_selection_rejected(self):
+        loan, tools, items = self.prepare()
+        register_tool_partial_return(loan=loan, item_ids=[items[0].pk], received_by=self.user)
+        foreign = self.create_loan([self.create_tool("Other")]).items.get()
+        for selection in ([items[0].pk, items[1].pk], [foreign.pk], []):
+            with self.subTest(selection=selection), self.assertRaises(ValidationError):
+                register_tool_partial_return(loan=loan, item_ids=selection, received_by=self.user)
+        self.assertEqual(loan.items.filter(returned_at__isnull=True).count(), 2)
+
+    def test_rollback_after_tool_update(self):
+        from .services.tool_loans import _set_tool_status
+        loan, tools, items = self.prepare()
+        def fail_after_write(tool, status, **kwargs):
+            _set_tool_status(tool, status, **kwargs)
+            raise RuntimeError("simulated failure")
+        with patch("apps.inventory.services.tool_loans._set_tool_status", side_effect=fail_after_write):
+            with self.assertRaises(RuntimeError):
+                register_tool_partial_return(loan=loan, item_ids=[items[0].pk], received_by=self.user)
+        loan.refresh_from_db()
+        self.assertEqual(loan.status, ToolLoan.Status.ACTIVE)
+        self.assertIsNone(loan.returned_at)
+        self.assertEqual(loan.items.filter(returned_at__isnull=True).count(), 3)
+        self.assertEqual(Tool.objects.filter(status=Tool.Status.LOANED).count(), 3)
+
+    def test_migration_copies_legacy_returns_without_changing_active_items(self):
+        from importlib import import_module
+        from django.apps import apps
+        from django.db import connection
+        from types import SimpleNamespace
+        loan, tools, items = self.prepare()
+        legacy = self.create_loan([self.create_tool("Legacy")])
+        when = timezone.now()
+        ToolLoan.objects.filter(pk=legacy.pk).update(
+            status=ToolLoan.Status.RETURNED, returned_at=when,
+            received_by=self.user, return_observations="Legacy history",
+        )
+        migration = import_module("apps.inventory.migrations.0017_toolloanitem_received_by_and_more")
+        migration.copy_existing_returns(apps, SimpleNamespace(connection=connection))
+        item = legacy.items.get()
+        self.assertEqual(item.returned_at, when)
+        self.assertEqual(item.received_by, self.user)
+        self.assertEqual(item.return_observations, "Legacy history")
+        self.assertEqual(loan.items.filter(returned_at__isnull=True).count(), 3)
+
+    def test_returned_tool_can_be_reloaned_before_original_closes(self):
+        from .forms import ToolLoanQuickForm
+        loan, tools, items = self.prepare()
+        register_tool_partial_return(loan=loan, item_ids=[items[0].pk], received_by=self.user)
+        tools[0].refresh_from_db()
+        self.assertIsNone(tools[0].current_loan)
+        self.assertIn(tools[0], ToolLoanQuickForm(user=self.user).fields["tools"].queryset)
+        second = self.create_loan([tools[0]])
+        register_tool_loan(loan=second)
+        register_tool_return(loan=loan, received_by=self.user)
+        tools[0].refresh_from_db()
+        self.assertEqual(tools[0].status, Tool.Status.LOANED)
+        self.assertEqual(tools[0].current_loan, second)
+
+
 class ToolLoanAdminServiceIntegrationTests(TestCase):
     def setUp(self):
         self.admin_user = User.objects.create_superuser(
@@ -2575,3 +2673,203 @@ class ToolLoanPublicViewsTests(TestCase):
         self.assertEqual(response.context["indicators"]["active_loans"], 2)
         self.assertEqual(response.context["indicators"]["overdue"], 1)
         self.assertEqual(response.context["indicators"]["due_today"], 1)
+
+
+class ToolPartialReturnViewTests(TestCase):
+    setUp = ToolLoanPublicViewsTests.setUp
+    create_user = ToolLoanPublicViewsTests.create_user
+    create_active_loan = ToolLoanPublicViewsTests.create_active_loan
+
+    def test_manager_roles_and_pending_display(self):
+        loan = self.create_active_loan(self.technician, [self.tool, self.other_tool])
+        url = reverse("inventory:tool_loan_detail", args=[loan.pk])
+        items = list(loan.items.all())
+        for user, item in zip([self.admin_user, self.supervisor], items):
+            self.client.force_login(user)
+            response = self.client.post(url, {"items": [str(item.pk)], "received_by": user.pk, "return_observations": "Recibida"})
+            self.assertRedirects(response, url)
+            response = self.client.get(url)
+            self.assertContains(response, "Devuelta")
+            self.assertContains(response, "Recibida")
+            self.assertNotContains(response, f'value="{item.pk}"')
+            if user == self.admin_user:
+                self.assertContains(response, "Pendiente")
+                self.assertContains(response, f'value="{items[1].pk}"')
+        loan.refresh_from_db()
+        self.assertEqual(loan.status, ToolLoan.Status.RETURNED)
+        self.assertNotContains(response, "Registrar devoluci\u00f3n")
+
+    def test_technician_read_only_own_loan_and_client_denied(self):
+        loan = self.create_active_loan(self.technician, [self.tool])
+        url = reverse("inventory:tool_loan_detail", args=[loan.pk])
+        self.client.force_login(self.technician)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'id="tool-return-form"')
+        self.assertEqual(self.client.post(url, {"items": [loan.items.get().pk], "received_by": self.admin_user.pk}).status_code, 403)
+        other = self.create_active_loan(self.admin_user, [self.other_tool])
+        self.assertEqual(self.client.get(reverse("inventory:tool_loan_detail", args=[other.pk])).status_code, 403)
+        self.client.force_login(self.client_user)
+        self.assertEqual(self.client.post(url, {}).status_code, 403)
+        loan.refresh_from_db()
+        self.assertEqual(loan.status, ToolLoan.Status.ACTIVE)
+
+    def test_invalid_and_repeated_post_do_not_return_other_items(self):
+        loan = self.create_active_loan(self.technician, [self.tool, self.other_tool])
+        url = reverse("inventory:tool_loan_detail", args=[loan.pk])
+        self.client.force_login(self.admin_user)
+        self.assertEqual(self.client.post(url, {}).status_code, 200)
+        data = {"items": [str(loan.items.first().pk)], "received_by": self.admin_user.pk}
+        self.assertEqual(self.client.post(url, data).status_code, 302)
+        self.assertEqual(self.client.post(url, data).status_code, 200)
+        self.assertEqual(loan.items.filter(returned_at__isnull=True).count(), 1)
+
+
+class ToolCatalogViewTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.admin_user = User.objects.create_user(username="catalog-admin", email="catalog-admin@example.test", role=User.Role.ADMIN)
+        cls.supervisor = User.objects.create_user(username="catalog-supervisor", email="catalog-supervisor@example.test", role=User.Role.SUPERVISOR)
+        cls.technician = User.objects.create_user(username="catalog-tech", email="catalog-tech@example.test", role=User.Role.TECHNICIAN)
+        cls.other_user = User.objects.create_user(username="catalog-other", email="catalog-other@example.test", role=User.Role.TECHNICIAN)
+        cls.client_user = User.objects.create_user(username="catalog-client", email="catalog-client@example.test", role=User.Role.CLIENT)
+        cls.auditor = User.objects.create_user(username="catalog-auditor", email="catalog-auditor@example.test", role=User.Role.AUDITOR)
+        cls.branch = Branch.objects.create(code="CAT-A", name="Catalog A")
+        cls.other_branch = Branch.objects.create(code="CAT-B", name="Catalog B")
+        cls.location = OrganizationalLocation.objects.create(branch=cls.branch, code="CAT-LOC", name="Taller")
+        cls.available = Tool.objects.create(name="Tester digital", category="Medicion", brand="Fluke", model="117", serial_number="SER-991", branch=cls.branch, organizational_location=cls.location)
+        cls.own = Tool.objects.create(name="Pinza propia", branch=cls.branch)
+        cls.other = Tool.objects.create(name="Taladro ajeno", branch=cls.other_branch)
+        cls.returned = Tool.objects.create(name="Cutter devuelto", branch=cls.other_branch)
+        cls.repair = Tool.objects.create(name="En taller", status=Tool.Status.REPAIR, branch=cls.branch)
+        cls.orphan = Tool.objects.create(name="Sin cabecera", status=Tool.Status.LOANED, branch=cls.branch)
+        cls.retired = Tool.objects.create(name="Retirada", status=Tool.Status.RETIRED, is_active=False, branch=cls.branch)
+        now = timezone.now()
+        def loan(borrower, tools, expected):
+            record = ToolLoan.objects.create(borrower=borrower, delivered_by=cls.admin_user,
+                loaned_at=now-timedelta(days=3), expected_return_at=expected, purpose="Catalog test")
+            ToolLoanItem.objects.bulk_create([ToolLoanItem(loan=record, tool=tool) for tool in tools])
+            register_tool_loan(loan=record)
+            return record
+        cls.own_loan = loan(cls.technician, [cls.own], now+timedelta(days=1))
+        cls.other_loan = loan(cls.other_user, [cls.other, cls.returned], now-timedelta(days=1))
+        register_tool_partial_return(loan=cls.other_loan,
+            item_ids=[cls.other_loan.items.get(tool=cls.returned).pk], received_by=cls.admin_user)
+        cls.url = reverse("inventory:tool_list")
+
+    def rows(self, response):
+        return {tool.pk: tool for tool in response.context["tools"]}
+
+    def test_admin_and_supervisor_see_all_and_navigation(self):
+        for user in (self.admin_user, self.supervisor):
+            with self.subTest(role=user.role):
+                self.client.force_login(user)
+                response = self.client.get(self.url)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(set(self.rows(response)), set(Tool.objects.values_list("pk", flat=True)))
+                self.assertContains(response, 'href="/inventario/herramientas/" aria-current="page"')
+                self.assertContains(response, '+ Préstamo rápido', count=1)
+                self.assertNotContains(response, 'Próximamente')
+
+    def test_technician_scope_and_private_loan_information(self):
+        self.client.force_login(self.technician)
+        response = self.client.get(self.url)
+        self.assertEqual(set(self.rows(response)), {self.available.pk, self.own.pk, self.returned.pk})
+        self.assertContains(response, self.own_loan.borrower_name)
+        self.assertNotContains(response, self.other_loan.borrower_name)
+        self.assertNotContains(response, str(self.other_loan.pk))
+        self.assertNotContains(response, self.other.code)
+        self.assertEqual(response.context["indicators"], {"total": 3, "available": 2, "loaned": 1, "overdue": 0, "repair": 0})
+        self.assertNotContains(response, '+ Préstamo rápido')
+
+    def test_unauthorized_roles_and_anonymous(self):
+        self.assertEqual(self.client.get(self.url).status_code, 302)
+        for user in (self.client_user, self.auditor):
+            self.client.force_login(user)
+            self.assertEqual(self.client.get(self.url).status_code, 403)
+
+    def test_indicators_current_loan_and_partial_return(self):
+        self.client.force_login(self.admin_user)
+        response = self.client.get(self.url)
+        self.assertEqual(response.context["indicators"], {"total": 6, "available": 2, "loaned": 3, "overdue": 1, "repair": 1})
+        rows = self.rows(response)
+        self.assertEqual(rows[self.own.pk].display_loan.pk, self.own_loan.pk)
+        self.assertEqual(rows[self.own.pk].display_loan.borrower, self.technician)
+        self.assertEqual(rows[self.own.pk].display_loan.expected_return_at, self.own_loan.expected_return_at)
+        self.assertEqual(rows[self.other.pk].display_loan.pk, self.other_loan.pk)
+        self.assertTrue(rows[self.other.pk].has_overdue_loan)
+        self.assertContains(response, 'Vencida</span>')
+        self.assertContains(response, reverse("inventory:tool_loan_detail", args=[self.other_loan.pk]))
+        for tool in (self.available, self.returned, self.orphan):
+            self.assertIsNone(rows[tool.pk].display_loan)
+            self.assertFalse(rows[tool.pk].has_overdue_loan)
+        self.assertEqual(rows[self.orphan.pk].status, Tool.Status.LOANED)
+        self.orphan.refresh_from_db()
+        self.assertEqual(self.orphan.status, Tool.Status.LOANED)
+
+    def test_status_category_branch_and_combined_filters(self):
+        self.client.force_login(self.admin_user)
+        cases = [
+            ({"status": "AVAILABLE"}, {self.available.pk, self.returned.pk}),
+            ({"status": "LOANED"}, {self.own.pk, self.other.pk, self.orphan.pk}),
+            ({"status": "OVERDUE"}, {self.other.pk}),
+            ({"status": "REPAIR"}, {self.repair.pk}),
+            ({"status": "RETIRED"}, {self.retired.pk}),
+            ({"status": "OUT_OF_SERVICE"}, set()),
+            ({"status": "LOST"}, set()),
+            ({"category": "Medicion"}, {self.available.pk}),
+            ({"branch": str(self.other_branch.pk)}, {self.other.pk, self.returned.pk}),
+            ({"branch": "invalid"}, set()),
+            ({"q": "Fluke 117", "status": "AVAILABLE", "category": "Medicion", "branch": str(self.branch.pk)}, {self.available.pk}),
+        ]
+        for filters, expected in cases:
+            with self.subTest(filters=filters):
+                response = self.client.get(self.url, filters)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(set(self.rows(response)), expected)
+                self.assertEqual(response.context["indicators"]["total"], 6)
+
+    def test_search_fields_and_multiple_terms(self):
+        self.client.force_login(self.admin_user)
+        for query in (self.available.code, "Tester", "Medicion", "Fluke 117", "SER-991", "digital Fluke 117"):
+            with self.subTest(query=query):
+                self.assertEqual(set(self.rows(self.client.get(self.url, {"q": query}))), {self.available.pk})
+        self.assertEqual(set(self.rows(self.client.get(self.url, {"q": "Fluke unknown"}))), set())
+
+    def test_technician_filters_cannot_expose_other_loans(self):
+        self.client.force_login(self.technician)
+        for filters in ({"status": "OVERDUE"}, {"q": self.other.code}, {"status": "LOANED", "branch": str(self.other_branch.pk)}):
+            self.assertEqual(set(self.rows(self.client.get(self.url, filters))), set())
+        # Even an inconsistent AVAILABLE tool must not expose someone else's loan.
+        Tool.objects.filter(pk=self.other.pk).update(status=Tool.Status.AVAILABLE)
+        response = self.client.get(self.url)
+        self.assertIsNone(self.rows(response)[self.other.pk].display_loan)
+        self.assertNotContains(response, self.other_loan.borrower_name)
+        self.assertNotContains(response, str(self.other_loan.pk))
+
+    def test_query_count_does_not_grow_per_tool(self):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+        self.client.force_login(self.admin_user)
+        with CaptureQueriesContext(connection) as first:
+            self.client.get(self.url)
+        extra = []
+        for index in range(15):
+            extra.append(Tool.objects.create(name=f"Extra {index}", branch=self.branch, organizational_location=self.location))
+        loan = ToolLoan.objects.create(borrower=self.technician, delivered_by=self.admin_user,
+            expected_return_at=timezone.now()+timedelta(days=1), purpose="Query test")
+        ToolLoanItem.objects.bulk_create([ToolLoanItem(loan=loan, tool=tool) for tool in extra])
+        register_tool_loan(loan=loan)
+        with CaptureQueriesContext(connection) as second:
+            response = self.client.get(self.url)
+        self.assertEqual(len(self.rows(response)), 22)
+        self.assertEqual(len(second), len(first))
+
+    def test_pagination_preserves_filters(self):
+        self.client.force_login(self.admin_user)
+        Tool.objects.bulk_create([Tool(code=f"CAT-PAGE-{index:03}", name="Pagination", branch=self.branch) for index in range(55)])
+        response = self.client.get(self.url, {"q": "Pagination", "status": "AVAILABLE"})
+        self.assertEqual(len(self.rows(response)), 50)
+        self.assertContains(response, 'q=Pagination&amp;status=AVAILABLE&amp;page=2')
+        response = self.client.get(self.url, {"q": "Pagination", "status": "AVAILABLE", "page": 2})
+        self.assertEqual(len(self.rows(response)), 5)

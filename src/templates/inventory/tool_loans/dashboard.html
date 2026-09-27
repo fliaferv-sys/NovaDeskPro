@@ -1,0 +1,43 @@
+{% extends "inventory/tool_loans/base.html" %}
+{% block tools_heading %}Dashboard de Herramientas DTI{% endblock %}
+{% block tools_subtitle %}Disponibilidad y devoluciones que requieren seguimiento.{% endblock %}
+{% block tools_content %}
+<section class="tools-metrics tools-dashboard-metrics" aria-label="Indicadores de herramientas">
+    <div class="tools-metric"><strong>{{ indicators.total }}</strong><span>Total activas</span></div>
+    <div class="tools-metric"><strong>{{ indicators.available }}</strong><span>Disponibles</span></div>
+    <div class="tools-metric"><strong>{{ indicators.loaned }}</strong><span>Prestadas</span></div>
+    <div class="tools-metric"><strong>{{ indicators.overdue }}</strong><span>Vencidas</span></div>
+    <div class="tools-metric"><strong>{{ indicators.repair }}</strong><span>En reparación</span></div>
+    <div class="tools-metric"><strong>{{ indicators.due_today }}</strong><span>Devuelven hoy</span></div>
+</section>
+
+<div class="tools-dashboard-grid">
+    <section class="tools-card">
+        <div class="tools-card-header"><h2>Devoluciones vencidas</h2><p>Préstamos activos que superaron la fecha prevista.</p></div>
+        {% include "inventory/tool_loans/_dashboard_loan_list.html" with loans=overdue_loans empty_message="No hay devoluciones vencidas." overdue=True %}
+    </section>
+    <section class="tools-card">
+        <div class="tools-card-header"><h2>Devuelven hoy</h2><p>Préstamos con devolución prevista para hoy.</p></div>
+        {% include "inventory/tool_loans/_dashboard_loan_list.html" with loans=due_today_loans empty_message="No hay devoluciones previstas para hoy." %}
+    </section>
+</div>
+
+<section class="tools-card">
+    <div class="tools-card-header"><h2>Préstamos recientes</h2><p>Actividad más reciente del módulo.</p></div>
+    {% include "inventory/tool_loans/_dashboard_loan_list.html" with loans=recent_loans empty_message="No hay préstamos registrados." %}
+</section>
+
+<section class="tools-card tools-shortcuts">
+    <div class="tools-card-header"><h2>Accesos rápidos</h2></div>
+    <div class="tools-shortcut-grid">
+        <a class="tools-shortcut" href="{% url 'inventory:tool_list' %}"><strong>Todas las herramientas</strong><span>Consultar estados y disponibilidad</span></a>
+        <a class="tools-shortcut" href="{% url 'inventory:tool_loan_active_list' %}"><strong>Préstamos activos</strong><span>Revisar devoluciones pendientes</span></a>
+        {% if can_register %}<a class="tools-shortcut tools-shortcut-primary" href="{% url 'inventory:tool_loan_quick_create' %}"><strong>+ Préstamo rápido</strong><span>Registrar una nueva salida</span></a>{% endif %}
+    </div>
+</section>
+
+<style>
+.tools-dashboard-metrics{grid-template-columns:repeat(6,minmax(0,1fr))}.tools-dashboard-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.tools-dashboard-loans{list-style:none;margin:0;padding:0}.tools-dashboard-loans li{display:flex;justify-content:space-between;gap:12px;padding:13px 16px;border-top:1px solid #eef2f7}.tools-dashboard-loans li:first-child{border-top:0}.tools-dashboard-loans a{color:#175cd3;font-weight:800;text-decoration:none}.tools-dashboard-loan-meta{display:block;color:#667085;font-size:12px;margin-top:4px}.tools-dashboard-loan-date{white-space:nowrap;color:#344054;font-size:12px;font-weight:700}.tools-dashboard-empty{padding:18px 16px;color:#667085}.tools-shortcut-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:16px}.tools-shortcut{display:flex;flex-direction:column;gap:6px;padding:14px;border:1px solid #d0d5dd;border-radius:10px;color:#344054;text-decoration:none}.tools-shortcut strong{color:#175cd3}.tools-shortcut span{font-size:13px;color:#667085}.tools-shortcut-primary{background:#eff8ff;border-color:#84caff}
+@media(max-width:1100px){.tools-dashboard-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:850px){.tools-dashboard-grid,.tools-shortcut-grid{grid-template-columns:1fr}.tools-dashboard-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:480px){.tools-dashboard-metrics{grid-template-columns:1fr}}
+</style>
+{% endblock %}

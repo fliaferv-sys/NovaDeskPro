@@ -1673,7 +1673,7 @@ class Tool(models.Model):
     def current_loan(self):
         return (
             ToolLoan.objects
-            .filter(items__tool=self, status=ToolLoan.Status.ACTIVE)
+            .filter(items__tool=self, items__returned_at__isnull=True, status=ToolLoan.Status.ACTIVE)
             .select_related("borrower")
             .first()
         )
@@ -1867,6 +1867,14 @@ class ToolLoanItem(models.Model):
         verbose_name="Herramienta",
     )
 
+    returned_at = models.DateTimeField("Fecha de devolución", null=True, blank=True)
+    received_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name="tool_loan_items_received", verbose_name="Recibido por",
+        null=True, blank=True,
+    )
+    return_observations = models.TextField("Observaciones de devolución", blank=True)
+
     created_at = models.DateTimeField(
         "Fecha de registro",
         auto_now_add=True,
@@ -1900,6 +1908,7 @@ class ToolLoanItem(models.Model):
             .filter(
                 tool_id=self.tool_id,
                 loan__status=ToolLoan.Status.ACTIVE,
+                returned_at__isnull=True,
             )
         )
         if self.loan_id:
