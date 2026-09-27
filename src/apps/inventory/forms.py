@@ -5,6 +5,7 @@
 # ==========================================================
 
 from pathlib import Path
+from datetime import timedelta
 
 from django import forms
 from django.db import models
@@ -28,7 +29,89 @@ from .models import (
     TicketStockUsageLine,
     StockMovement,
     StockProduct,
+    Tool,
+    ToolLoan,
 )
+
+
+class ToolLoanQuickForm(forms.Form):
+    borrower = forms.ModelChoiceField(
+        label="Persona que retira",
+        queryset=User.objects.none(),
+    )
+    delivered_by = forms.ModelChoiceField(
+        label="Entregado por",
+        queryset=User.objects.none(),
+    )
+    loaned_at = forms.DateTimeField(
+        label="Fecha y hora de retiro",
+        widget=forms.DateTimeInput(
+            format="%Y-%m-%dT%H:%M",
+            attrs={"type": "datetime-local"},
+        ),
+        input_formats=["%Y-%m-%dT%H:%M"],
+    )
+    expected_return_at = forms.DateTimeField(
+        label="Devolución prevista",
+        widget=forms.DateTimeInput(
+            format="%Y-%m-%dT%H:%M",
+            attrs={"type": "datetime-local"},
+        ),
+        input_formats=["%Y-%m-%dT%H:%M"],
+    )
+    purpose = forms.CharField(
+        label="Motivo o destino",
+        widget=forms.Textarea(attrs={"rows": 3}),
+    )
+    observations = forms.CharField(
+        label="Observaciones",
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 2}),
+    )
+    tools = forms.ModelMultipleChoiceField(
+        label="Herramientas",
+        queryset=Tool.objects.none(),
+        error_messages={
+            "required": "Seleccione al menos una herramienta.",
+            "invalid_choice": "Una de las herramientas seleccionadas ya no está disponible.",
+        },
+    )
+
+    def __init__(self, *args, user=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        users = User.objects.filter(is_active=True).order_by(
+            "first_name", "last_name", "username"
+        )
+        self.fields["borrower"].queryset = users
+        self.fields["delivered_by"].queryset = users
+        self.fields["tools"].queryset = (
+            Tool.objects.filter(
+                is_active=True,
+                status=Tool.Status.AVAILABLE,
+            )
+            .exclude(loan_items__loan__status=ToolLoan.Status.ACTIVE)
+            .distinct()
+        )
+        if not self.is_bound:
+            now = timezone.localtime().replace(second=0, microsecond=0)
+            self.initial.setdefault("loaned_at", now.strftime("%Y-%m-%dT%H:%M"))
+            self.initial.setdefault(
+                "expected_return_at",
+                (now + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M"),
+            )
+            if user and user.is_authenticated:
+                self.initial.setdefault("delivered_by", user)
+
+    def clean(self):
+        cleaned_data = super().clean()
+        loaned_at = cleaned_data.get("loaned_at")
+        expected_return_at = cleaned_data.get("expected_return_at")
+        if loaned_at and expected_return_at and expected_return_at <= loaned_at:
+            self.add_error(
+                "expected_return_at",
+                "La devolución prevista debe ser posterior al retiro.",
+            )
+        return cleaned_data
 
 
 # ==========================================================

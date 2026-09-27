@@ -55,6 +55,9 @@ from .views import (
     ticket_stock_usage_delete_line_view,
     ticket_stock_usage_confirm_view,
     ticket_stock_usage_cancel_view,
+    tool_loan_quick_create_view,
+    tool_loan_active_list_view,
+    tool_loan_detail_view,
 )
 
 
@@ -62,6 +65,9 @@ app_name = "inventory"
 
 
 urlpatterns = [
+    path("herramientas/prestamos/", tool_loan_active_list_view, name="tool_loan_active_list"),
+    path("herramientas/prestamos/nuevo/", tool_loan_quick_create_view, name="tool_loan_quick_create"),
+    path("herramientas/prestamos/<uuid:pk>/", tool_loan_detail_view, name="tool_loan_detail"),
     path("qr/", asset_qr_center_view, name="asset_qr_center"),
     path("stock/consumos-tickets/", ticket_stock_usage_list_view, name="ticket_stock_usage_list"),
     path("stock/consumos-tickets/nuevo/", ticket_stock_usage_create_view, name="ticket_stock_usage_create"),

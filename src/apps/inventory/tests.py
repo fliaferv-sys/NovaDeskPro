@@ -1,5 +1,6 @@
 from unittest.mock import patch
 import tempfile
+from datetime import timedelta
 from decimal import Decimal
 from io import StringIO
 
@@ -10,8 +11,10 @@ from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.db import IntegrityError, transaction
+from django.forms import inlineformset_factory
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from apps.accounts.models import Branch
 from apps.core.models import Department
@@ -20,6 +23,7 @@ from apps.tickets.models import Ticket
 from apps.monitoring.models import DeviceHeartbeat
 
 from .forms import AssetForm
+from .admin import ToolAdminForm, ToolLoanItemAdminForm, ToolLoanItemInlineFormSet
 from .models import (
     AcquisitionBatch,
     Asset,
@@ -35,6 +39,9 @@ from .models import (
     StockDeliveryLine,
     TicketStockUsage,
     TicketStockUsageLine,
+    Tool,
+    ToolLoan,
+    ToolLoanItem,
 )
 from .services.stock import (
     register_stock_entry,
@@ -46,6 +53,7 @@ from .services.stock import (
     complete_stock_delivery,
     confirm_ticket_stock_usage,
 )
+from .services.tool_loans import register_tool_loan, register_tool_return
 from .stock_delivery_pdf import generate_stock_delivery_pdf
 from .services.notifications import generate_inventory_stock_notifications
 
@@ -2011,3 +2019,559 @@ class AssetQrTests(TestCase):
         ):
             with self.subTest(url=url):
                 self.assertEqual(self.client.post(url).status_code, 405)
+
+
+class ToolLoanItemAdminValidationTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="tool-loan-admin",
+            email="tool-loan-admin@example.test",
+            password="test-password-123",
+            role=User.Role.ADMIN,
+        )
+        self.branch = Branch.objects.create(
+            code="TOOLS-HQ",
+            name="Sede herramientas",
+        )
+        self.tool = Tool.objects.create(
+            name="Tester",
+            branch=self.branch,
+        )
+        self.formset_class = inlineformset_factory(
+            ToolLoan,
+            ToolLoanItem,
+            form=ToolLoanItemAdminForm,
+            formset=ToolLoanItemInlineFormSet,
+            fields=("tool",),
+            extra=0,
+            can_delete=True,
+        )
+
+    def create_loan(self, status=ToolLoan.Status.ACTIVE):
+        loaned_at = timezone.now()
+        return ToolLoan.objects.create(
+            borrower=self.user,
+            delivered_by=self.user,
+            loaned_at=loaned_at,
+            expected_return_at=loaned_at + timedelta(days=1),
+            purpose="Prueba de herramientas",
+            status=status,
+        )
+
+    def build_unsaved_loan(self, status=ToolLoan.Status.ACTIVE):
+        loaned_at = timezone.now()
+        loan = ToolLoan(
+            borrower=self.user,
+            delivered_by=self.user,
+            loaned_at=loaned_at,
+            expected_return_at=loaned_at + timedelta(days=1),
+            purpose="Prueba de herramientas",
+            status=status,
+        )
+        loan.pk = None
+        return loan
+
+    def build_formset(self, loan, tools):
+        prefix = "items"
+        data = {
+            f"{prefix}-TOTAL_FORMS": str(len(tools)),
+            f"{prefix}-INITIAL_FORMS": "0",
+            f"{prefix}-MIN_NUM_FORMS": "0",
+            f"{prefix}-MAX_NUM_FORMS": "1000",
+        }
+        for index, tool in enumerate(tools):
+            data[f"{prefix}-{index}-tool"] = str(tool.pk)
+        return self.formset_class(data=data, instance=loan, prefix=prefix)
+
+    def test_allows_available_tool(self):
+        loan = self.create_loan()
+        formset = self.build_formset(loan, [self.tool])
+
+        self.assertTrue(formset.is_valid(), formset.errors)
+        formset.save()
+        self.assertTrue(loan.items.filter(tool=self.tool).exists())
+
+    def test_rejects_repeated_tool_in_same_loan(self):
+        loan = self.build_unsaved_loan()
+        formset = self.build_formset(loan, [self.tool, self.tool])
+
+        self.assertFalse(formset.is_valid())
+        self.assertIn("tool", formset.forms[1].errors)
+        self.assertIn(self.tool.code, formset.forms[1].errors["tool"][0])
+
+    def test_rejects_tool_from_another_active_loan(self):
+        active_loan = self.create_loan()
+        ToolLoanItem.objects.create(loan=active_loan, tool=self.tool)
+        new_loan = self.build_unsaved_loan()
+        formset = self.build_formset(new_loan, [self.tool])
+
+        self.assertIsNone(new_loan.pk)
+        self.assertFalse(formset.is_valid())
+        message = formset.forms[0].errors["tool"][0]
+        self.assertIn(self.tool.code, message)
+        self.assertIn(active_loan.number, message)
+
+    def test_allows_tool_from_returned_loan(self):
+        returned_loan = self.create_loan(status=ToolLoan.Status.RETURNED)
+        ToolLoanItem.objects.create(loan=returned_loan, tool=self.tool)
+        new_loan = self.build_unsaved_loan()
+        formset = self.build_formset(new_loan, [self.tool])
+
+        self.assertTrue(formset.is_valid(), formset.errors)
+
+    def test_formset_returns_field_error_instead_of_raising(self):
+        active_loan = self.create_loan()
+        ToolLoanItem.objects.create(loan=active_loan, tool=self.tool)
+        formset = self.build_formset(self.build_unsaved_loan(), [self.tool])
+
+        try:
+            is_valid = formset.is_valid()
+        except ValidationError as error:  # pragma: no cover - regresión explícita
+            self.fail(f"El formset propagó ValidationError: {error}")
+
+        self.assertFalse(is_valid)
+        self.assertIn("tool", formset.forms[0].errors)
+
+
+class ToolLoanServiceTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="tool-service-user",
+            email="tool-service@example.test",
+            password="test-password-123",
+            role=User.Role.ADMIN,
+        )
+        self.branch = Branch.objects.create(
+            code="TOOL-SERVICE",
+            name="Sede servicio de herramientas",
+        )
+
+    def create_tool(self, name, **kwargs):
+        return Tool.objects.create(name=name, branch=self.branch, **kwargs)
+
+    def create_loan(self, tools):
+        loaned_at = timezone.now()
+        loan = ToolLoan.objects.create(
+            borrower=self.user,
+            delivered_by=self.user,
+            loaned_at=loaned_at,
+            expected_return_at=loaned_at + timedelta(days=1),
+            purpose="Préstamo de servicio",
+        )
+        for tool in tools:
+            ToolLoanItem.objects.create(loan=loan, tool=tool)
+        return loan
+
+    def test_register_loan_marks_one_available_tool_as_loaned(self):
+        tool = self.create_tool("Tester")
+        loan = self.create_loan([tool])
+
+        register_tool_loan(loan=loan)
+
+        tool.refresh_from_db()
+        loan.refresh_from_db()
+        self.assertEqual(tool.status, Tool.Status.LOANED)
+        self.assertEqual(loan.status, ToolLoan.Status.ACTIVE)
+
+    def test_register_loan_requires_at_least_one_tool(self):
+        loan = self.create_loan([])
+
+        with self.assertRaises(ValidationError):
+            register_tool_loan(loan=loan)
+
+    def test_register_loan_marks_all_tools_as_loaned(self):
+        tools = [self.create_tool("Tester"), self.create_tool("Taladro")]
+        loan = self.create_loan(tools)
+
+        register_tool_loan(loan=loan)
+
+        self.assertFalse(
+            Tool.objects.filter(pk__in=[tool.pk for tool in tools])
+            .exclude(status=Tool.Status.LOANED)
+            .exists()
+        )
+
+    def test_invalid_tool_leaves_every_tool_unchanged(self):
+        available = self.create_tool("Tester")
+        inactive = self.create_tool("Taladro", is_active=False)
+        loan = self.create_loan([available])
+        ToolLoanItem.objects.bulk_create(
+            [ToolLoanItem(loan=loan, tool=inactive)]
+        )
+
+        with self.assertRaises(ValidationError):
+            register_tool_loan(loan=loan)
+
+        available.refresh_from_db()
+        inactive.refresh_from_db()
+        self.assertEqual(available.status, Tool.Status.AVAILABLE)
+        self.assertEqual(inactive.status, Tool.Status.AVAILABLE)
+
+    def test_loaned_tool_cannot_be_registered_again(self):
+        tool = self.create_tool("Tester")
+        first_loan = self.create_loan([tool])
+        register_tool_loan(loan=first_loan)
+        second_loan = self.create_loan([])
+        ToolLoanItem.objects.bulk_create(
+            [ToolLoanItem(loan=second_loan, tool=tool)]
+        )
+
+        with self.assertRaises(ValidationError):
+            register_tool_loan(loan=second_loan)
+
+    def test_tool_admin_cannot_mark_active_loan_tool_as_available(self):
+        tool = self.create_tool("Tester")
+        loan = self.create_loan([tool])
+        register_tool_loan(loan=loan)
+        tool.refresh_from_db()
+        form = ToolAdminForm(
+            data={
+                "name": tool.name,
+                "category": tool.category,
+                "brand": tool.brand,
+                "model": tool.model,
+                "serial_number": tool.serial_number,
+                "branch": str(tool.branch_id),
+                "organizational_location": "",
+                "status": Tool.Status.AVAILABLE,
+                "description": "",
+                "observations": "",
+                "is_active": "on",
+            },
+            instance=tool,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("status", form.errors)
+
+    def test_return_updates_loan_tools_and_return_data(self):
+        tools = [self.create_tool("Tester"), self.create_tool("Taladro")]
+        loan = self.create_loan(tools)
+        register_tool_loan(loan=loan)
+
+        returned = register_tool_return(
+            loan=loan,
+            received_by=self.user,
+            return_observations="Sin novedades",
+        )
+
+        self.assertEqual(returned.status, ToolLoan.Status.RETURNED)
+        self.assertIsNotNone(returned.returned_at)
+        self.assertEqual(returned.received_by, self.user)
+        self.assertFalse(
+            Tool.objects.filter(pk__in=[tool.pk for tool in tools])
+            .exclude(status=Tool.Status.AVAILABLE)
+            .exists()
+        )
+
+    def test_cannot_return_same_loan_twice(self):
+        tool = self.create_tool("Tester")
+        loan = self.create_loan([tool])
+        register_tool_loan(loan=loan)
+        register_tool_return(loan=loan, received_by=self.user)
+
+        with self.assertRaises(ValidationError):
+            register_tool_return(loan=loan, received_by=self.user)
+
+    def test_register_loan_rolls_back_if_status_update_fails(self):
+        tools = [self.create_tool("Tester"), self.create_tool("Taladro")]
+        loan = self.create_loan(tools)
+        original_update = Tool.objects.filter(pk=tools[0].pk).update
+        call_count = 0
+
+        def failing_status_update(tool, status, *, updated_at):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 2:
+                raise RuntimeError("fallo simulado")
+            original_update(status=status, updated_at=updated_at)
+
+        with patch(
+            "apps.inventory.services.tool_loans._set_tool_status",
+            side_effect=failing_status_update,
+        ), self.assertRaises(RuntimeError):
+            register_tool_loan(loan=loan)
+
+        self.assertFalse(
+            Tool.objects.filter(pk__in=[tool.pk for tool in tools])
+            .exclude(status=Tool.Status.AVAILABLE)
+            .exists()
+        )
+
+
+class ToolLoanAdminServiceIntegrationTests(TestCase):
+    def setUp(self):
+        self.admin_user = User.objects.create_superuser(
+            username="tool-admin-service",
+            email="tool-admin-service@example.test",
+            password="test-password-123",
+        )
+        self.borrower = User.objects.create_user(
+            username="tool-borrower",
+            email="tool-borrower@example.test",
+            password="test-password-123",
+        )
+        self.branch = Branch.objects.create(
+            code="TOOL-ADMIN-SERVICE",
+            name="Sede Admin herramientas",
+        )
+        self.tool = Tool.objects.create(name="Tester Admin", branch=self.branch)
+        self.client.force_login(self.admin_user)
+
+    def loan_form_data(self, *, status, received_by="", returned_at=None):
+        loaned_at = timezone.now().replace(microsecond=0)
+        expected_at = loaned_at + timedelta(days=1)
+        data = {
+            "borrower": str(self.borrower.pk),
+            "delivered_by": str(self.admin_user.pk),
+            "loaned_at_0": loaned_at.date().isoformat(),
+            "loaned_at_1": loaned_at.time().isoformat(),
+            "expected_return_at_0": expected_at.date().isoformat(),
+            "expected_return_at_1": expected_at.time().isoformat(),
+            "purpose": "Préstamo desde Admin",
+            "observations": "",
+            "returned_at_0": "",
+            "returned_at_1": "",
+            "received_by": received_by,
+            "return_observations": "Devuelta desde Admin" if received_by else "",
+            "status": status,
+            "items-TOTAL_FORMS": "1",
+            "items-INITIAL_FORMS": "0",
+            "items-MIN_NUM_FORMS": "0",
+            "items-MAX_NUM_FORMS": "1000",
+            "items-0-tool": str(self.tool.pk),
+        }
+        if returned_at:
+            data["returned_at_0"] = returned_at.date().isoformat()
+            data["returned_at_1"] = returned_at.time().isoformat()
+        return data
+
+    def test_admin_creates_loan_and_marks_tool_as_loaned(self):
+        response = self.client.post(
+            reverse("admin:inventory_toolloan_add"),
+            self.loan_form_data(status=ToolLoan.Status.ACTIVE),
+        )
+
+        self.assertEqual(response.status_code, 302, response.context and response.context["errors"])
+        self.tool.refresh_from_db()
+        self.assertEqual(self.tool.status, Tool.Status.LOANED)
+
+    def test_admin_returns_loan_and_marks_tool_as_available(self):
+        loaned_at = timezone.now()
+        loan = ToolLoan.objects.create(
+            borrower=self.borrower,
+            delivered_by=self.admin_user,
+            loaned_at=loaned_at,
+            expected_return_at=loaned_at + timedelta(days=1),
+            purpose="Préstamo para devolución Admin",
+        )
+        ToolLoanItem.objects.create(loan=loan, tool=self.tool)
+        register_tool_loan(loan=loan)
+        returned_at = timezone.now()
+        data = self.loan_form_data(
+            status=ToolLoan.Status.RETURNED,
+            received_by=str(self.admin_user.pk),
+            returned_at=returned_at,
+        )
+        data.update({
+            "items-INITIAL_FORMS": "1",
+            "items-0-id": str(loan.items.get().pk),
+        })
+
+        response = self.client.post(
+            reverse("admin:inventory_toolloan_change", args=[loan.pk]),
+            data,
+        )
+
+        self.assertEqual(response.status_code, 302, response.context and response.context["errors"])
+        loan.refresh_from_db()
+        self.tool.refresh_from_db()
+        self.assertEqual(loan.status, ToolLoan.Status.RETURNED)
+        self.assertEqual(self.tool.status, Tool.Status.AVAILABLE)
+
+
+class ToolLoanPublicViewsTests(TestCase):
+    def setUp(self):
+        self.admin_user = self.create_user("tools-public-admin", User.Role.ADMIN)
+        self.supervisor = self.create_user("tools-public-supervisor", User.Role.SUPERVISOR)
+        self.technician = self.create_user("tools-public-tech", User.Role.TECHNICIAN)
+        self.client_user = self.create_user("tools-public-client", User.Role.CLIENT)
+        self.branch = Branch.objects.create(code="TOOLS-PUBLIC", name="Sede pública")
+        self.other_branch = Branch.objects.create(code="TOOLS-OTHER", name="Otra sede")
+        self.tool = Tool.objects.create(
+            name="Tester digital",
+            category="Medición",
+            brand="Fluke",
+            model="117",
+            branch=self.branch,
+        )
+        self.other_tool = Tool.objects.create(
+            name="Taladro",
+            category="Eléctrica",
+            brand="Bosch",
+            model="GSB",
+            branch=self.other_branch,
+        )
+
+    def create_user(self, username, role):
+        return User.objects.create_user(
+            username=username,
+            email=f"{username}@example.test",
+            password="test-password-123",
+            role=role,
+        )
+
+    def loan_data(self, tools):
+        loaned_at = timezone.localtime().replace(second=0, microsecond=0)
+        return {
+            "borrower": str(self.technician.pk),
+            "delivered_by": str(self.admin_user.pk),
+            "loaned_at": loaned_at.strftime("%Y-%m-%dT%H:%M"),
+            "expected_return_at": (loaned_at + timedelta(days=1)).strftime(
+                "%Y-%m-%dT%H:%M"
+            ),
+            "purpose": "Trabajo en sede",
+            "observations": "",
+            "tools": [str(tool.pk) for tool in tools],
+        }
+
+    def create_active_loan(self, borrower, tools, expected_return_at=None):
+        loaned_at = timezone.now()
+        if expected_return_at and expected_return_at <= loaned_at:
+            loaned_at = expected_return_at - timedelta(days=1)
+        loan = ToolLoan.objects.create(
+            borrower=borrower,
+            delivered_by=self.admin_user,
+            loaned_at=loaned_at,
+            expected_return_at=(
+                expected_return_at or loaned_at + timedelta(days=1)
+            ),
+            purpose="Trabajo de campo",
+        )
+        ToolLoanItem.objects.bulk_create(
+            ToolLoanItem(loan=loan, tool=tool) for tool in tools
+        )
+        register_tool_loan(loan=loan)
+        return loan
+
+    def test_access_by_role(self):
+        quick_url = reverse("inventory:tool_loan_quick_create")
+        list_url = reverse("inventory:tool_loan_active_list")
+        for user in (self.admin_user, self.supervisor, self.technician):
+            with self.subTest(role=user.role):
+                self.client.force_login(user)
+                self.assertEqual(self.client.get(quick_url).status_code, 200)
+                self.assertEqual(self.client.get(list_url).status_code, 200)
+
+        self.client.force_login(self.client_user)
+        self.assertEqual(self.client.get(quick_url).status_code, 403)
+        self.client.force_login(self.technician)
+        self.assertEqual(
+            self.client.post(quick_url, self.loan_data([self.tool])).status_code,
+            403,
+        )
+
+    def test_create_loan_with_one_tool(self):
+        self.client.force_login(self.admin_user)
+        response = self.client.post(
+            reverse("inventory:tool_loan_quick_create"),
+            self.loan_data([self.tool]),
+        )
+
+        loan = ToolLoan.objects.get()
+        self.assertRedirects(
+            response,
+            reverse("inventory:tool_loan_detail", args=[loan.pk]),
+        )
+        self.assertEqual(loan.items.count(), 1)
+        self.tool.refresh_from_db()
+        self.assertEqual(self.tool.status, Tool.Status.LOANED)
+
+    def test_create_loan_with_multiple_tools(self):
+        self.client.force_login(self.supervisor)
+        response = self.client.post(
+            reverse("inventory:tool_loan_quick_create"),
+            self.loan_data([self.tool, self.other_tool]),
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(ToolLoan.objects.get().items.count(), 2)
+        self.assertEqual(
+            Tool.objects.filter(status=Tool.Status.LOANED).count(),
+            2,
+        )
+
+    def test_rejects_submission_without_tools(self):
+        self.client.force_login(self.admin_user)
+        data = self.loan_data([])
+        response = self.client.post(
+            reverse("inventory:tool_loan_quick_create"), data
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Seleccione al menos una herramienta")
+        self.assertFalse(ToolLoan.objects.exists())
+
+    def test_rejects_tool_that_is_no_longer_available(self):
+        self.create_active_loan(self.technician, [self.tool])
+        self.client.force_login(self.admin_user)
+        response = self.client.post(
+            reverse("inventory:tool_loan_quick_create"),
+            self.loan_data([self.tool]),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "ya no está disponible")
+        self.assertEqual(ToolLoan.objects.count(), 1)
+
+    def test_available_tool_search(self):
+        self.client.force_login(self.admin_user)
+        response = self.client.get(
+            reverse("inventory:tool_loan_quick_create"), {"q": "Fluke 117"}
+        )
+
+        self.assertContains(response, self.tool.code)
+        self.assertNotContains(response, self.other_tool.code)
+
+    def test_available_tool_filters_by_category_and_branch(self):
+        self.client.force_login(self.admin_user)
+        response = self.client.get(
+            reverse("inventory:tool_loan_quick_create"),
+            {"category": "Medición", "branch": str(self.branch.pk)},
+        )
+
+        self.assertContains(response, self.tool.code)
+        self.assertNotContains(response, self.other_tool.code)
+
+    def test_active_list_and_technician_scope(self):
+        own = self.create_active_loan(self.technician, [self.tool])
+        other = self.create_active_loan(self.supervisor, [self.other_tool])
+        self.client.force_login(self.technician)
+        response = self.client.get(reverse("inventory:tool_loan_active_list"))
+
+        self.assertContains(response, own.number)
+        self.assertNotContains(response, other.number)
+
+    def test_active_list_filters_and_indicators(self):
+        overdue = self.create_active_loan(
+            self.technician,
+            [self.tool],
+            expected_return_at=timezone.now() - timedelta(days=1, hours=1),
+        )
+        due_today = self.create_active_loan(
+            self.supervisor,
+            [self.other_tool],
+            expected_return_at=timezone.now() + timedelta(hours=1),
+        )
+        self.client.force_login(self.admin_user)
+        response = self.client.get(
+            reverse("inventory:tool_loan_active_list"),
+            {"scope": "overdue", "tool": self.tool.code},
+        )
+
+        self.assertContains(response, overdue.number)
+        self.assertNotContains(response, due_today.number)
+        self.assertEqual(response.context["indicators"]["borrowed_tools"], 2)
+        self.assertEqual(response.context["indicators"]["active_loans"], 2)
+        self.assertEqual(response.context["indicators"]["overdue"], 1)
+        self.assertEqual(response.context["indicators"]["due_today"], 1)

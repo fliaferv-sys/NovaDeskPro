@@ -1,0 +1,8 @@
+{% extends "inventory/tool_loans/base.html" %}
+{% block tools_heading %}{{ loan.number }}{% endblock %}
+{% block tools_subtitle %}Detalle del préstamo de herramientas.{% endblock %}
+{% block tools_actions %}<a class="tools-button" href="{% url 'inventory:tool_loan_active_list' %}">Volver al listado</a>{% endblock %}
+{% block tools_content %}
+<section class="tools-card"><div class="tools-card-header"><h2>Préstamo</h2></div><dl class="tools-detail-grid"><div><dt>Responsable</dt><dd>{{ loan.borrower_name|default:loan.borrower }}</dd></div><div><dt>Entregado por</dt><dd>{{ loan.delivered_by }}</dd></div><div><dt>Retiro</dt><dd>{{ loan.loaned_at|date:"d/m/Y H:i" }}</dd></div><div><dt>Devolución prevista</dt><dd>{{ loan.expected_return_at|date:"d/m/Y H:i" }}</dd></div><div><dt>Estado</dt><dd>{{ loan.get_status_display }}</dd></div><div><dt>Vencido</dt><dd>{% if loan.is_overdue %}Sí{% else %}No{% endif %}</dd></div><div><dt>Motivo / destino</dt><dd>{{ loan.purpose }}</dd></div><div><dt>Observaciones</dt><dd>{{ loan.observations|default:"-" }}</dd></div></dl></section>
+<section class="tools-card"><div class="tools-card-header"><h2>Herramientas prestadas</h2></div><div class="tools-table-wrap"><table class="tools-table"><thead><tr><th>Código</th><th>Nombre</th><th>Categoría</th><th>Marca / modelo</th><th>Sede</th><th>Ubicación</th></tr></thead><tbody>{% for item in loan.items.all %}<tr><td class="tools-code">{{ item.tool.code }}</td><td>{{ item.tool.name }}</td><td>{{ item.tool.category|default:"-" }}</td><td>{{ item.tool.brand|default:"-" }} {{ item.tool.model }}</td><td>{{ item.tool.branch.name }}</td><td>{{ item.tool.organizational_location|default:"-" }}</td></tr>{% endfor %}</tbody></table></div></section>
+{% endblock %}

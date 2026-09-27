@@ -3,7 +3,10 @@
 # NOVADESK PRO — SPRINT 19
 # ==========================================================
 
+from django import forms
 from django.contrib import admin
+from django.core.exceptions import ValidationError
+from django.forms.models import BaseInlineFormSet
 
 
 from .models import (
@@ -23,7 +26,11 @@ from .models import (
     StockDeliveryLine,
     TicketStockUsage,
     TicketStockUsageLine,
+    Tool,
+    ToolLoan,
+    ToolLoanItem,
 )
+from .services.tool_loans import register_tool_loan, register_tool_return
 
 
 # ==========================================================
@@ -724,3 +731,324 @@ class TicketStockUsageAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return bool(obj and obj.status == TicketStockUsage.Status.DRAFT and super().has_delete_permission(request, obj))
+
+
+# ==========================================================
+# HERRAMIENTAS DTI
+# ==========================================================
+
+class ToolAdminForm(forms.ModelForm):
+    class Meta:
+        model = Tool
+        fields = "__all__"
+
+    def clean_status(self):
+        status = self.cleaned_data.get("status")
+        if (
+            self.instance.pk
+            and status == Tool.Status.AVAILABLE
+            and self.instance.loan_items.filter(
+                loan__status=ToolLoan.Status.ACTIVE
+            ).exists()
+        ):
+            raise ValidationError(
+                "No puede marcarse como disponible una herramienta que "
+                "pertenece a un préstamo activo."
+            )
+        return status
+
+
+@admin.register(Tool)
+class ToolAdmin(admin.ModelAdmin):
+    form = ToolAdminForm
+    list_display = (
+        "code",
+        "name",
+        "category",
+        "brand",
+        "model",
+        "branch",
+        "organizational_location",
+        "status",
+        "is_active",
+    )
+    list_filter = (
+        "status",
+        "is_active",
+        "category",
+        "branch",
+        "organizational_location",
+    )
+    search_fields = (
+        "code",
+        "name",
+        "category",
+        "brand",
+        "model",
+        "serial_number",
+        "branch__code",
+        "branch__name",
+        "organizational_location__code",
+        "organizational_location__name",
+    )
+    list_select_related = (
+        "branch",
+        "organizational_location",
+    )
+    autocomplete_fields = (
+        "branch",
+        "organizational_location",
+    )
+    readonly_fields = (
+        "code",
+        "created_at",
+        "updated_at",
+    )
+    ordering = ("name", "code")
+
+
+class ToolLoanItemAdminForm(forms.ModelForm):
+    class Meta:
+        model = ToolLoanItem
+        fields = "__all__"
+
+    def __init__(self, *args, parent_loan=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.parent_loan = parent_loan
+
+    def clean_tool(self):
+        tool = self.cleaned_data.get("tool")
+        loan = self.parent_loan
+        if not tool or not loan:
+            return tool
+
+        if self.instance.pk and self.instance.tool_id == tool.pk:
+            return tool
+
+        duplicate = False
+        if loan.pk and not loan._state.adding:
+            duplicate = (
+                ToolLoanItem.objects
+                .filter(loan=loan, tool=tool)
+                .exclude(pk=self.instance.pk)
+                .exists()
+            )
+        if duplicate:
+            raise ValidationError(
+                f"La herramienta {tool.code} ya está incluida en este préstamo."
+            )
+
+        if loan.status == ToolLoan.Status.ACTIVE:
+            candidate = ToolLoanItem(loan=loan, tool=tool)
+            try:
+                candidate.validate_for_active_loan()
+            except ValidationError as error:
+                raise ValidationError(error.message_dict["tool"]) from error
+
+        return tool
+
+
+class ToolLoanItemInlineFormSet(BaseInlineFormSet):
+    def get_form_kwargs(self, index):
+        kwargs = super().get_form_kwargs(index)
+        kwargs["parent_loan"] = self.instance
+        return kwargs
+
+    def clean(self):
+        seen_tools = set()
+        for form in self.forms:
+            if not hasattr(form, "cleaned_data") or form.cleaned_data.get("DELETE"):
+                continue
+
+            tool = form.cleaned_data.get("tool")
+            if not tool:
+                continue
+
+            if tool.pk in seen_tools:
+                form.add_error(
+                    "tool",
+                    f"La herramienta {tool.code} ya está incluida en este préstamo.",
+                )
+            else:
+                seen_tools.add(tool.pk)
+
+        super().clean()
+
+
+class ToolLoanItemInline(admin.TabularInline):
+    model = ToolLoanItem
+    form = ToolLoanItemAdminForm
+    formset = ToolLoanItemInlineFormSet
+    verbose_name = "Herramienta prestada"
+    verbose_name_plural = "HERRAMIENTAS PRESTADAS"
+    extra = 1
+    autocomplete_fields = ("tool",)
+    readonly_fields = ("created_at",)
+    can_delete = False
+
+
+class ToolLoanAdminForm(forms.ModelForm):
+    class Meta:
+        model = ToolLoan
+        fields = "__all__"
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if (
+            cleaned_data.get("status") == ToolLoan.Status.RETURNED
+            and not cleaned_data.get("received_by")
+        ):
+            self.add_error(
+                "received_by",
+                "Debe indicar quién recibe la devolución.",
+            )
+        return cleaned_data
+
+
+@admin.register(ToolLoan)
+class ToolLoanAdmin(admin.ModelAdmin):
+    form = ToolLoanAdminForm
+    list_display = (
+        "number",
+        "borrower",
+        "tools_display",
+        "loaned_at",
+        "expected_return_at",
+        "status",
+        "overdue_display",
+        "returned_at",
+    )
+    list_filter = (
+        "status",
+        "loaned_at",
+        "expected_return_at",
+        "returned_at",
+        "items__tool__branch",
+    )
+    search_fields = (
+        "number",
+        "items__tool__code",
+        "items__tool__name",
+        "items__tool__serial_number",
+        "borrower_name",
+        "borrower__username",
+        "borrower__first_name",
+        "borrower__last_name",
+        "borrower__email",
+        "purpose",
+    )
+    list_select_related = (
+        "borrower",
+        "delivered_by",
+        "received_by",
+    )
+    autocomplete_fields = (
+        "borrower",
+        "delivered_by",
+        "received_by",
+    )
+    readonly_fields = (
+        "number",
+        "borrower_name",
+        "overdue_display",
+        "created_at",
+        "updated_at",
+    )
+    fieldsets = (
+        (
+            "PRÉSTAMO",
+            {
+                "fields": (
+                    "number",
+                    "borrower",
+                    "borrower_name",
+                    "delivered_by",
+                    "loaned_at",
+                    "expected_return_at",
+                    "purpose",
+                    "observations",
+                ),
+            },
+        ),
+        (
+            "DEVOLUCIÓN",
+            {
+                "fields": (
+                    "returned_at",
+                    "received_by",
+                    "return_observations",
+                    "status",
+                    "overdue_display",
+                ),
+            },
+        ),
+        (
+            "AUDITORÍA",
+            {
+                "fields": (
+                    "created_at",
+                    "updated_at",
+                ),
+                "classes": ("collapse",),
+            },
+        ),
+    )
+    ordering = ("-loaned_at", "-created_at")
+    inlines = (ToolLoanItemInline,)
+
+    def save_model(self, request, obj, form, change):
+        obj._tool_loan_return_data = None
+        obj._previously_loaned_tool_ids = set()
+
+        if change:
+            previous = ToolLoan.objects.get(pk=obj.pk)
+            if previous.status == ToolLoan.Status.ACTIVE:
+                obj._previously_loaned_tool_ids = set(
+                    previous.items.values_list("tool_id", flat=True)
+                )
+
+            if (
+                previous.status == ToolLoan.Status.ACTIVE
+                and obj.status == ToolLoan.Status.RETURNED
+            ):
+                obj._tool_loan_return_data = {
+                    "received_by": obj.received_by,
+                    "return_observations": obj.return_observations,
+                    "returned_at": obj.returned_at,
+                }
+                obj.status = ToolLoan.Status.ACTIVE
+                obj.received_by = previous.received_by
+                obj.returned_at = previous.returned_at
+                obj.return_observations = previous.return_observations
+
+        super().save_model(request, obj, form, change)
+
+    def save_related(self, request, form, formsets, change):
+        super().save_related(request, form, formsets, change)
+        obj = form.instance
+        return_data = getattr(obj, "_tool_loan_return_data", None)
+
+        if return_data:
+            register_tool_return(loan=obj, **return_data)
+        elif obj.status == ToolLoan.Status.ACTIVE:
+            register_tool_loan(
+                loan=obj,
+                already_loaned_tool_ids=getattr(
+                    obj, "_previously_loaned_tool_ids", set()
+                ),
+            )
+
+        obj.refresh_from_db()
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).prefetch_related("items__tool").distinct()
+
+    @admin.display(description="Herramientas")
+    def tools_display(self, obj):
+        return ", ".join(item.tool.code for item in obj.items.all()) or "-"
+
+    @admin.display(description="Vencido", boolean=True)
+    def overdue_display(self, obj):
+        if not obj:
+            return False
+        return obj.is_overdue

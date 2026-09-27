@@ -1,0 +1,39 @@
+{% extends "inventory/tool_loans/base.html" %}
+
+{% block tools_heading %}Préstamo rápido de herramientas{% endblock %}
+{% block tools_subtitle %}Seleccione varias unidades físicas y regístrelas en un único préstamo.{% endblock %}
+{% block tools_actions %}<a class="tools-button" href="{% url 'inventory:tool_loan_active_list' %}">Ver préstamos activos</a>{% endblock %}
+
+{% block tools_content %}
+{% if not can_register %}<div class="tools-readonly-note">Puede consultar la disponibilidad. El registro está habilitado para ADMIN y SUPERVISOR.</div>{% endif %}
+
+<form method="get" class="tools-card">
+    <div class="tools-card-header"><h2>Buscar herramientas disponibles</h2><p>Los filtros se aplican únicamente a unidades disponibles para préstamo.</p></div>
+    <div class="tools-filter-grid">
+        <input name="q" value="{{ filters.q }}" placeholder="Código, nombre, categoría, marca o modelo">
+        <select name="category"><option value="">Todas las categorías</option>{% for category in categories %}<option value="{{ category }}"{% if filters.category == category %} selected{% endif %}>{{ category }}</option>{% endfor %}</select>
+        <select name="branch"><option value="">Todas las sedes</option>{% for branch in branches %}<option value="{{ branch.pk }}"{% if filters.branch == branch.pk|stringformat:"s" %} selected{% endif %}>{{ branch.name }}</option>{% endfor %}</select>
+        <button class="tools-button tools-button-primary" type="submit">Filtrar</button>
+    </div>
+</form>
+
+<form method="post" class="tools-card" id="tool-loan-form">
+    {% csrf_token %}
+    <input type="hidden" name="q" value="{{ filters.q }}"><input type="hidden" name="category" value="{{ filters.category }}"><input type="hidden" name="branch" value="{{ filters.branch }}">
+    <div class="tools-card-header"><h2>Datos del préstamo</h2></div>
+    {{ form.non_field_errors }}
+    <div class="tools-form-grid">
+        {% for field in form %}{% if field.name != "tools" %}<div class="tools-field{% if field.name == 'purpose' or field.name == 'observations' %} tools-field-wide{% endif %}">{{ field.label_tag }}{{ field }}{{ field.errors }}</div>{% endif %}{% endfor %}
+    </div>
+    <div class="tools-card-header"><h2>Herramientas disponibles</h2><p>Seleccione una o varias unidades físicas.</p>{{ form.tools.errors }}</div>
+    <div class="tools-select-bar"><strong><span id="selected-count">0</span> seleccionadas</strong><div class="tools-select-buttons"><button type="button" class="tools-button tools-button-secondary" id="select-all">Seleccionar todas</button><button type="button" class="tools-button tools-button-secondary" id="clear-selection">Limpiar selección</button></div></div>
+    <div class="tools-table-wrap"><table class="tools-table"><thead><tr><th></th><th>Código</th><th>Nombre</th><th>Categoría</th><th>Marca / modelo</th><th>Sede</th><th>Ubicación</th></tr></thead><tbody>
+        {% for tool in available_tools %}<tr><td><input class="tool-checkbox" type="checkbox" name="tools" value="{{ tool.pk }}"{% if tool.pk|stringformat:"s" in selected_tool_ids %} checked{% endif %}></td><td class="tools-code">{{ tool.code }}</td><td>{{ tool.name }}</td><td>{{ tool.category|default:"-" }}</td><td>{{ tool.brand|default:"-" }} {{ tool.model }}</td><td>{{ tool.branch.name }}</td><td>{{ tool.organizational_location|default:"-" }}</td></tr>{% empty %}<tr><td colspan="7" class="tools-empty">No hay herramientas disponibles con estos filtros.</td></tr>{% endfor %}
+    </tbody></table></div>
+    {% if can_register %}<div class="tools-submit"><button class="tools-button tools-button-primary" type="submit">Registrar préstamo</button></div>{% endif %}
+</form>
+{% endblock %}
+
+{% block tools_extra_js %}<script>
+document.addEventListener("DOMContentLoaded",()=>{const boxes=[...document.querySelectorAll(".tool-checkbox")],count=document.getElementById("selected-count");const refresh=()=>count.textContent=boxes.filter(box=>box.checked).length;boxes.forEach(box=>box.addEventListener("change",refresh));document.getElementById("select-all")?.addEventListener("click",()=>{boxes.forEach(box=>box.checked=true);refresh()});document.getElementById("clear-selection")?.addEventListener("click",()=>{boxes.forEach(box=>box.checked=false);refresh()});refresh()});
+</script>{% endblock %}

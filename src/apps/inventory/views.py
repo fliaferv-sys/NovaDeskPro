@@ -5,6 +5,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.http import FileResponse, HttpResponse
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.db import transaction
 from django.db.models import Count, F, Q, Sum
 from django.db.models.functions import Coalesce
 from django.shortcuts import (
@@ -15,6 +16,7 @@ from django.shortcuts import (
 
 from apps.deliveries.models import AssetCustodyMovement
 from apps.accounts.models import User
+from apps.accounts.models import Branch
 from apps.accounts.access import (
     can_manage_deliveries,
     can_manage_inventory,
@@ -39,6 +41,7 @@ from .forms import (
     StockExitForm,
     StockProductForm,
     StockTransferForm,
+    ToolLoanQuickForm,
 )
 from django.urls import reverse
 from django.views.decorators.http import require_GET
@@ -56,6 +59,9 @@ from .models import (
     StockDeliveryLine,
     TicketStockUsage,
     TicketStockUsageLine,
+    Tool,
+    ToolLoan,
+    ToolLoanItem,
 )
 from .services.stock import (
     register_stock_entry,
@@ -66,6 +72,7 @@ from .services.stock import (
     complete_stock_delivery,
     confirm_ticket_stock_usage,
 )
+from .services.tool_loans import register_tool_loan
 from .stock_delivery_pdf import generate_stock_delivery_pdf
 
 
@@ -595,6 +602,186 @@ def _add_service_errors(form, error):
                 form.add_error(target, message)
     else:
         form.add_error(None, error)
+
+
+TOOL_READ_ROLES = ("ADMIN", "SUPERVISOR", "TECHNICIAN")
+TOOL_MANAGEMENT_ROLES = {"ADMIN", "SUPERVISOR"}
+
+
+def _available_tools(filters):
+    tools = (
+        Tool.objects.filter(is_active=True, status=Tool.Status.AVAILABLE)
+        .exclude(loan_items__loan__status=ToolLoan.Status.ACTIVE)
+        .select_related("branch", "organizational_location")
+        .order_by("code")
+        .distinct()
+    )
+    search = filters.get("q", "").strip()
+    category = filters.get("category", "").strip()
+    branch = filters.get("branch", "").strip()
+    if search:
+        for term in search.split():
+            tools = tools.filter(
+                Q(code__icontains=term)
+                | Q(name__icontains=term)
+                | Q(category__icontains=term)
+                | Q(brand__icontains=term)
+                | Q(model__icontains=term)
+            )
+    if category:
+        tools = tools.filter(category=category)
+    if branch:
+        tools = tools.filter(branch_id=branch)
+    return tools
+
+
+@login_required
+@roles_required(*TOOL_READ_ROLES)
+def tool_loan_quick_create_view(request):
+    can_register = (
+        request.user.is_superuser
+        or request.user.role in TOOL_MANAGEMENT_ROLES
+    )
+    if request.method == "POST" and not can_register:
+        raise PermissionDenied("No tiene permisos para registrar préstamos.")
+
+    form = ToolLoanQuickForm(request.POST or None, user=request.user)
+    filters = request.POST if request.method == "POST" else request.GET
+    available_tools = _available_tools(filters)
+
+    if request.method == "POST" and form.is_valid():
+        data = form.cleaned_data
+        try:
+            with transaction.atomic():
+                loan = ToolLoan.objects.create(
+                    borrower=data["borrower"],
+                    delivered_by=data["delivered_by"],
+                    loaned_at=data["loaned_at"],
+                    expected_return_at=data["expected_return_at"],
+                    purpose=data["purpose"],
+                    observations=data["observations"],
+                    status=ToolLoan.Status.ACTIVE,
+                )
+                ToolLoanItem.objects.bulk_create(
+                    ToolLoanItem(loan=loan, tool=tool)
+                    for tool in data["tools"]
+                )
+                register_tool_loan(loan=loan)
+        except ValidationError as error:
+            _add_service_errors(form, error)
+        else:
+            messages.success(
+                request,
+                f"Préstamo {loan.number} registrado correctamente.",
+            )
+            return redirect("inventory:tool_loan_detail", pk=loan.pk)
+
+    selected_tool_ids = {
+        str(value) for value in request.POST.getlist("tools")
+    } if request.method == "POST" else set()
+    return render(
+        request,
+        "inventory/tool_loans/quick_create.html",
+        {
+            "form": form,
+            "available_tools": available_tools,
+            "categories": (
+                Tool.objects.filter(is_active=True)
+                .exclude(category="")
+                .order_by("category")
+                .values_list("category", flat=True)
+                .distinct()
+            ),
+            "branches": Branch.objects.filter(is_active=True).order_by("name"),
+            "filters": filters,
+            "selected_tool_ids": selected_tool_ids,
+            "can_register": can_register,
+        },
+    )
+
+
+def _visible_active_tool_loans(user):
+    loans = ToolLoan.objects.filter(status=ToolLoan.Status.ACTIVE)
+    if user.role == User.Role.TECHNICIAN and not user.is_superuser:
+        loans = loans.filter(borrower=user)
+    return loans
+
+
+@login_required
+@roles_required(*TOOL_READ_ROLES)
+def tool_loan_active_list_view(request):
+    now = timezone.now()
+    today = timezone.localdate()
+    base_loans = _visible_active_tool_loans(request.user)
+    scope = request.GET.get("scope", "all").strip()
+    responsible = request.GET.get("responsible", "").strip()
+    tool_search = request.GET.get("tool", "").strip()
+
+    loans = base_loans
+    if scope == "overdue":
+        loans = loans.filter(expected_return_at__lt=now)
+    elif scope == "today":
+        loans = loans.filter(expected_return_at__date=today)
+    if responsible:
+        loans = loans.filter(borrower_id=responsible)
+    if tool_search:
+        loans = loans.filter(
+            Q(items__tool__code__icontains=tool_search)
+            | Q(items__tool__name__icontains=tool_search)
+        )
+
+    loans = (
+        loans.select_related("borrower")
+        .prefetch_related("items__tool")
+        .order_by("expected_return_at")
+        .distinct()
+    )
+    indicators = {
+        "borrowed_tools": base_loans.aggregate(total=Count("items"))["total"] or 0,
+        "active_loans": base_loans.count(),
+        "overdue": base_loans.filter(expected_return_at__lt=now).count(),
+        "due_today": base_loans.filter(expected_return_at__date=today).count(),
+    }
+    responsible_users = User.objects.filter(
+        tool_loans__in=base_loans
+    ).order_by("first_name", "last_name", "username").distinct()
+    return render(
+        request,
+        "inventory/tool_loans/active_list.html",
+        {
+            "loans": loans,
+            "indicators": indicators,
+            "responsible_users": responsible_users,
+            "filters": request.GET,
+            "can_register": (
+                request.user.is_superuser
+                or request.user.role in TOOL_MANAGEMENT_ROLES
+            ),
+            "now": now,
+        },
+    )
+
+
+@login_required
+@roles_required(*TOOL_READ_ROLES)
+def tool_loan_detail_view(request, pk):
+    loan = get_object_or_404(
+        ToolLoan.objects.select_related(
+            "borrower", "delivered_by", "received_by"
+        ).prefetch_related("items__tool__branch", "items__tool__organizational_location"),
+        pk=pk,
+    )
+    if (
+        request.user.role == User.Role.TECHNICIAN
+        and not request.user.is_superuser
+        and loan.borrower_id != request.user.pk
+    ):
+        raise PermissionDenied("Solo puede consultar sus propios préstamos.")
+    return render(
+        request,
+        "inventory/tool_loans/detail.html",
+        {"loan": loan},
+    )
 
 
 @login_required

@@ -4,7 +4,7 @@ from decimal import Decimal
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.core.validators import MinValueValidator
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 
 from apps.accounts.models import Branch
@@ -1519,7 +1519,419 @@ class TicketStockUsageLine(models.Model):
         if self.usage.status != TicketStockUsage.Status.DRAFT:
             raise ValidationError("No puede eliminarse una línea confirmada.")
         return super().delete(*args, **kwargs)
-    
+
+# ==========================================================
+# HERRAMIENTAS DTI
+# ==========================================================
+
+class Tool(models.Model):
+    """
+    Herramienta física individual perteneciente a DTI.
+
+    A diferencia del stock genérico, cada herramienta tiene
+    identidad propia y puede ser prestada y posteriormente devuelta.
+    """
+
+    class Status(models.TextChoices):
+        AVAILABLE = "AVAILABLE", "Disponible"
+        LOANED = "LOANED", "Prestada"
+        REPAIR = "REPAIR", "En reparación"
+        OUT_OF_SERVICE = "OUT_OF_SERVICE", "Fuera de servicio"
+        LOST = "LOST", "Extraviada"
+        RETIRED = "RETIRED", "Dada de baja"
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+    )
+
+    code = models.CharField(
+        "Código",
+        max_length=20,
+        unique=True,
+        editable=False,
+    )
+
+    name = models.CharField(
+        "Nombre",
+        max_length=180,
+    )
+
+    category = models.CharField(
+        "Categoría",
+        max_length=120,
+        blank=True,
+    )
+
+    brand = models.CharField(
+        "Marca",
+        max_length=120,
+        blank=True,
+    )
+
+    model = models.CharField(
+        "Modelo",
+        max_length=120,
+        blank=True,
+    )
+
+    serial_number = models.CharField(
+        "Número de serie",
+        max_length=120,
+        blank=True,
+    )
+
+    branch = models.ForeignKey(
+        Branch,
+        on_delete=models.PROTECT,
+        related_name="tools",
+        verbose_name="Sede o planta",
+    )
+
+    organizational_location = models.ForeignKey(
+        OrganizationalLocation,
+        on_delete=models.PROTECT,
+        related_name="tools",
+        verbose_name="Ubicación",
+        blank=True,
+        null=True,
+    )
+
+    status = models.CharField(
+        "Estado",
+        max_length=30,
+        choices=Status.choices,
+        default=Status.AVAILABLE,
+    )
+
+    description = models.TextField(
+        "Descripción",
+        blank=True,
+    )
+
+    photo = models.ImageField(
+        "Fotografía",
+        upload_to="inventory/tools/%Y/%m/",
+        blank=True,
+        null=True,
+    )
+
+    observations = models.TextField(
+        "Observaciones",
+        blank=True,
+    )
+
+    is_active = models.BooleanField(
+        "Activo",
+        default=True,
+    )
+
+    created_at = models.DateTimeField(
+        "Fecha de creación",
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        "Última actualización",
+        auto_now=True,
+    )
+
+    class Meta:
+        verbose_name = "Herramienta"
+        verbose_name_plural = "Herramientas"
+        ordering = ["name", "code"]
+
+    def clean(self):
+        super().clean()
+
+        if (
+            self.organizational_location_id
+            and self.branch_id
+            and self.organizational_location.branch_id != self.branch_id
+        ):
+            raise ValidationError(
+                {
+                    "organizational_location":
+                        "La ubicación debe pertenecer a la sede seleccionada."
+                }
+            )
+
+    def save(self, *args, **kwargs):
+        if not self.code:
+            self.code = (
+                f"HER-{next_business_number('inventory-tool'):06d}"
+            )
+
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.code} - {self.name}"
+
+    @property
+    def current_loan(self):
+        return (
+            ToolLoan.objects
+            .filter(items__tool=self, status=ToolLoan.Status.ACTIVE)
+            .select_related("borrower")
+            .first()
+        )
+
+
+class ToolLoan(models.Model):
+    """
+    Registra la cabecera de un préstamo y su devolución.
+
+    Los préstamos permanecen como historial después de la devolución.
+    """
+
+    class Status(models.TextChoices):
+        ACTIVE = "ACTIVE", "Prestada"
+        RETURNED = "RETURNED", "Devuelta"
+        CANCELLED = "CANCELLED", "Cancelada"
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+    )
+
+    number = models.CharField(
+        "Número",
+        max_length=30,
+        unique=True,
+        editable=False,
+    )
+
+    borrower = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="tool_loans",
+        verbose_name="Persona que retira",
+    )
+
+    borrower_name = models.CharField(
+        "Nombre histórico del responsable",
+        max_length=180,
+        blank=True,
+    )
+
+    delivered_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="tool_loans_delivered",
+        verbose_name="Entregado por",
+    )
+
+    loaned_at = models.DateTimeField(
+        "Fecha y hora de retiro",
+        default=timezone.now,
+    )
+
+    expected_return_at = models.DateTimeField(
+        "Devolución prevista",
+    )
+
+    returned_at = models.DateTimeField(
+        "Fecha real de devolución",
+        blank=True,
+        null=True,
+    )
+
+    received_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="tool_loans_received",
+        verbose_name="Recibido por",
+        blank=True,
+        null=True,
+    )
+
+    purpose = models.TextField(
+        "Motivo o destino",
+    )
+
+    observations = models.TextField(
+        "Observaciones del préstamo",
+        blank=True,
+    )
+
+    return_observations = models.TextField(
+        "Observaciones de devolución",
+        blank=True,
+    )
+
+    status = models.CharField(
+        "Estado",
+        max_length=20,
+        choices=Status.choices,
+        default=Status.ACTIVE,
+    )
+
+    created_at = models.DateTimeField(
+        "Fecha de registro",
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        "Última actualización",
+        auto_now=True,
+    )
+
+    class Meta:
+        verbose_name = "Préstamo de herramienta"
+        verbose_name_plural = "Préstamos de herramientas"
+        ordering = ["-loaned_at", "-created_at"]
+
+    def clean(self):
+        super().clean()
+
+        if (
+            self.loaned_at
+            and self.expected_return_at
+            and self.expected_return_at <= self.loaned_at
+        ):
+            raise ValidationError(
+                {
+                    "expected_return_at": (
+                        "La devolución prevista debe ser posterior "
+                        "a la fecha y hora de retiro."
+                    )
+                }
+            )
+
+    def save(self, *args, **kwargs):
+        with transaction.atomic():
+            if self.pk and self.status == self.Status.ACTIVE:
+                tool_ids = self.items.values_list("tool_id", flat=True)
+                list(Tool.objects.select_for_update().filter(pk__in=tool_ids))
+
+            if not self.number:
+                self.number = (
+                    f"HER-PRE-{next_business_number('tool-loan'):06d}"
+                )
+
+            if not self.borrower_name and self.borrower_id:
+                full_name = self.borrower.get_full_name().strip()
+                self.borrower_name = full_name or self.borrower.username
+
+            self.full_clean()
+            return super().save(*args, **kwargs)
+
+    @property
+    def is_overdue(self):
+        if (
+            self.status != self.Status.ACTIVE
+            or not self.expected_return_at
+        ):
+            return False
+
+        return self.expected_return_at < timezone.now()
+
+    @property
+    def overdue_days(self):
+        if not self.is_overdue:
+            return 0
+
+        delta = timezone.now() - self.expected_return_at
+        return max(delta.days, 0)
+
+    def __str__(self):
+        return (
+            f"{self.number} - "
+            f"{self.borrower_name or self.borrower}"
+        )
+
+
+class ToolLoanItem(models.Model):
+    """Herramienta física incluida en un préstamo."""
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+    )
+
+    loan = models.ForeignKey(
+        ToolLoan,
+        on_delete=models.CASCADE,
+        related_name="items",
+        verbose_name="Préstamo",
+    )
+
+    tool = models.ForeignKey(
+        Tool,
+        on_delete=models.PROTECT,
+        related_name="loan_items",
+        verbose_name="Herramienta",
+    )
+
+    created_at = models.DateTimeField(
+        "Fecha de registro",
+        auto_now_add=True,
+    )
+
+    class Meta:
+        verbose_name = "Herramienta del préstamo"
+        verbose_name_plural = "Herramientas del préstamo"
+        ordering = ["created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["loan", "tool"],
+                name="unique_tool_per_loan",
+            ),
+        ]
+
+    def validate_for_active_loan(self):
+        if not self.tool.is_active:
+            raise ValidationError(
+                {"tool": "No puede prestarse una herramienta inactiva."}
+            )
+
+        if self.tool.status != Tool.Status.AVAILABLE:
+            raise ValidationError(
+                {"tool": "La herramienta debe estar disponible."}
+            )
+
+        active_loans = (
+            type(self).objects
+            .select_related("loan")
+            .filter(
+                tool_id=self.tool_id,
+                loan__status=ToolLoan.Status.ACTIVE,
+            )
+        )
+        if self.loan_id:
+            active_loans = active_loans.exclude(loan_id=self.loan_id)
+
+        active_loan = active_loans.first()
+        if active_loan:
+            raise ValidationError(
+                {
+                    "tool": (
+                        f"La herramienta {self.tool.code} ya pertenece al "
+                        f"préstamo activo {active_loan.loan.number}."
+                    )
+                }
+            )
+
+    def clean(self):
+        super().clean()
+
+        if self.loan_id and self.tool_id and self.loan.status == ToolLoan.Status.ACTIVE:
+            self.validate_for_active_loan()
+
+    def save(self, *args, **kwargs):
+        with transaction.atomic():
+            if self.tool_id:
+                self.tool = Tool.objects.select_for_update().get(pk=self.tool_id)
+            if self.loan_id and self.loan.status == ToolLoan.Status.ACTIVE:
+                self.validate_for_active_loan()
+            return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.loan.number} - {self.tool}"
 
     
     
