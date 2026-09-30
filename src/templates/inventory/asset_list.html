@@ -25,6 +25,14 @@ Inventario
 
         <div class="inventory-header-actions">
 
+            {% if request.user.is_superuser or request.user.role == "ADMIN" or request.user.role == "SUPERVISOR" %}
+            <a
+                href="{% url 'inventory:asset_create' %}"
+                class="btn-primary">
+                + Nuevo equipo
+            </a>
+            {% endif %}
+
             <a
                 href="{% url 'inventory:asset_import' %}"
                 class="btn-secondary">
