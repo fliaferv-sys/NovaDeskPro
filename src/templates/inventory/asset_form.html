@@ -147,6 +147,22 @@
 
             </div>
 
+            <div class="form-group">
+
+                <label for="{{ form.condition.id_for_label }}">
+                    {{ form.condition.label }}
+                </label>
+
+                {{ form.condition }}
+
+                {% for error in form.condition.errors %}
+                    <small class="form-field-error">
+                        {{ error }}
+                    </small>
+                {% endfor %}
+
+            </div>
+
             <div
                 class="form-group"
                 id="parent-asset-field"

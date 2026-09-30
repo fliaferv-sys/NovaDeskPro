@@ -21,6 +21,7 @@ from apps.core.models import Department
 from apps.notifications.models import Notification
 from apps.tickets.models import Ticket
 from apps.monitoring.models import DeviceHeartbeat
+from apps.deliveries.models import AssetCustodyMovement
 
 from .forms import AssetForm
 from .admin import ToolAdminForm, ToolLoanItemAdminForm, ToolLoanItemInlineFormSet
@@ -327,6 +328,7 @@ class InventoryPermissionsTests(TestCase):
             "internal_code": "ACT-TEST-001",
             "patrimonial_code": "PAT-TEST-001",
             "asset_type": Asset.AssetType.DESKTOP,
+            "condition": Asset.Condition.NEW,
             "brand": "Dell",
             "model": "OptiPlex Test",
             "serial_number": "SERIAL-TEST-001",
@@ -537,6 +539,204 @@ class InventoryPermissionsTests(TestCase):
 
                 self.assertEqual(response.status_code, 200)
                 self.assertContains(response, self.asset.internal_code)
+
+    def test_inventory_shows_used_custody_card_only_to_managers(self):
+        auditor = User.objects.create_user(
+            username="auditor_inventario_usados",
+            email="auditor_inventario_usados@example.com",
+            password="test-password-123",
+            role="AUDITOR",
+        )
+
+        for user in (self.admin_user, self.supervisor_user):
+            with self.subTest(role=user.role):
+                self.client.force_login(user)
+                response = self.client.get(reverse("inventory:asset_list"))
+                self.assertContains(response, "Custodia Usados")
+
+        self.client.force_login(auditor)
+        response = self.client.get(reverse("inventory:asset_list"))
+        self.assertNotContains(response, "Custodia Usados")
+
+
+class UsedAssetCustodyTests(TestCase):
+    def setUp(self):
+        self.admin_user = User.objects.create_user(
+            username="admin_custodia_usados",
+            email="admin_custodia_usados@example.com",
+            password="test-password-123",
+            role="ADMIN",
+        )
+        self.supervisor_user = User.objects.create_user(
+            username="supervisor_custodia_usados",
+            email="supervisor_custodia_usados@example.com",
+            password="test-password-123",
+            role="SUPERVISOR",
+        )
+        self.client_user = User.objects.create_user(
+            username="cliente_custodia_usados",
+            email="cliente_custodia_usados@example.com",
+            password="test-password-123",
+            role="CLIENT",
+        )
+
+    def create_recovered_asset(self, internal_code, **overrides):
+        return Asset.objects.create(
+            internal_code=internal_code,
+            condition=Asset.Condition.RECOVERED,
+            **overrides,
+        )
+
+    def create_movement(self, asset, movement_type, status):
+        return AssetCustodyMovement.objects.create(
+            asset=asset,
+            movement_type=movement_type,
+            status=status,
+            delivery_responsible=self.admin_user,
+            created_by=self.admin_user,
+        )
+
+    def get_asset_situation(self, asset):
+        self.client.force_login(self.admin_user)
+        response = self.client.get(reverse("inventory:used_asset_list"))
+        self.assertEqual(response.status_code, 200)
+        matching_asset = next(
+            item
+            for item in response.context["assets"]
+            if item.pk == asset.pk
+        )
+        return matching_asset.used_custody_situation_label
+
+    def test_condition_defaults_to_new_and_recovered_is_saved(self):
+        new_asset = Asset.objects.create(internal_code="USED-CONDITION-NEW")
+        recovered_asset = self.create_recovered_asset("USED-CONDITION-RECOVERED")
+
+        self.assertEqual(new_asset.condition, Asset.Condition.NEW)
+        recovered_asset.refresh_from_db()
+        self.assertEqual(recovered_asset.condition, Asset.Condition.RECOVERED)
+
+    def test_admin_can_access_used_asset_list(self):
+        self.client.force_login(self.admin_user)
+        response = self.client.get(reverse("inventory:used_asset_list"))
+        self.assertEqual(response.status_code, 200)
+
+    def test_supervisor_can_access_used_asset_list(self):
+        self.client.force_login(self.supervisor_user)
+        response = self.client.get(reverse("inventory:used_asset_list"))
+        self.assertEqual(response.status_code, 200)
+
+    def test_client_cannot_access_used_asset_list(self):
+        self.client.force_login(self.client_user)
+        response = self.client.get(reverse("inventory:used_asset_list"))
+        self.assertEqual(response.status_code, 403)
+
+    def test_list_contains_only_recovered_assets(self):
+        recovered_asset = self.create_recovered_asset("USED-ONLY-RECOVERED")
+        new_asset = Asset.objects.create(internal_code="USED-ONLY-NEW")
+        self.client.force_login(self.admin_user)
+
+        response = self.client.get(reverse("inventory:used_asset_list"))
+
+        self.assertContains(response, recovered_asset.internal_code)
+        self.assertNotContains(response, new_asset.internal_code)
+
+    def test_observation_asset_is_in_review(self):
+        asset = self.create_recovered_asset(
+            "USED-REVIEW",
+            operational_status=Asset.OperationalStatus.OBSERVATION,
+        )
+        self.assertEqual(self.get_asset_situation(asset), "En revisión")
+
+    def test_maintenance_asset_is_in_repair(self):
+        asset = self.create_recovered_asset(
+            "USED-REPAIR",
+            operational_status=Asset.OperationalStatus.MAINTENANCE,
+        )
+        self.assertEqual(self.get_asset_situation(asset), "En reparación")
+
+    def test_operational_unassigned_asset_is_ready_for_delivery(self):
+        asset = self.create_recovered_asset(
+            "USED-READY",
+            operational_status=Asset.OperationalStatus.OPERATIONAL,
+        )
+        self.assertEqual(self.get_asset_situation(asset), "Listo para entrega")
+
+    def test_out_of_service_asset_is_classified(self):
+        asset = self.create_recovered_asset(
+            "USED-OUT-OF-SERVICE",
+            operational_status=Asset.OperationalStatus.OUT_OF_SERVICE,
+        )
+        self.assertEqual(self.get_asset_situation(asset), "Fuera de servicio")
+
+    def test_active_delivery_is_in_delivery_process(self):
+        asset = self.create_recovered_asset("USED-DELIVERY")
+        self.create_movement(
+            asset,
+            AssetCustodyMovement.MovementType.DELIVERY,
+            AssetCustodyMovement.MovementStatus.PENDING_SIGNATURE,
+        )
+        self.assertEqual(
+            self.get_asset_situation(asset),
+            "En proceso de entrega",
+        )
+
+    def test_active_delivery_has_priority_over_delivered_history(self):
+        asset = self.create_recovered_asset("USED-DELIVERY-PRIORITY")
+        self.create_movement(
+            asset,
+            AssetCustodyMovement.MovementType.DELIVERY,
+            AssetCustodyMovement.MovementStatus.DELIVERED,
+        )
+        self.create_movement(
+            asset,
+            AssetCustodyMovement.MovementType.DELIVERY,
+            AssetCustodyMovement.MovementStatus.IN_DELIVERY_PROCESS,
+        )
+        self.assertEqual(
+            self.get_asset_situation(asset),
+            "En proceso de entrega",
+        )
+
+    def test_assigned_recovered_asset_is_classified_as_delivered(self):
+        asset = self.create_recovered_asset(
+            "USED-DELIVERED-ASSIGNED",
+            assigned_user=self.admin_user,
+        )
+
+        self.assertEqual(self.get_asset_situation(asset), "Entregado")
+
+    def test_old_delivered_movement_does_not_override_repair_status(self):
+        asset = self.create_recovered_asset(
+            "USED-REPAIR-OLD-DELIVERY",
+            operational_status=Asset.OperationalStatus.MAINTENANCE,
+        )
+        self.create_movement(
+            asset,
+            AssetCustodyMovement.MovementType.DELIVERY,
+            AssetCustodyMovement.MovementStatus.DELIVERED,
+        )
+
+        self.assertEqual(self.get_asset_situation(asset), "En reparación")
+
+    def test_search_and_situation_filter(self):
+        review_asset = self.create_recovered_asset(
+            "USED-SEARCH-REVIEW",
+            operational_status=Asset.OperationalStatus.OBSERVATION,
+        )
+        self.create_recovered_asset("USED-SEARCH-READY")
+        self.client.force_login(self.admin_user)
+
+        response = self.client.get(
+            reverse("inventory:used_asset_list"),
+            {"q": "SEARCH", "estado": "review"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [asset.internal_code for asset in response.context["assets"]],
+            [review_asset.internal_code],
+        )
+        self.assertContains(response, review_asset.internal_code)
 
 
 class GenericStockTests(TestCase):

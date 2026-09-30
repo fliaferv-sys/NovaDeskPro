@@ -1,0 +1,109 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}Custodia Usados{% endblock %}
+
+{% block content %}
+<div class="inventory-page">
+    <div class="page-header">
+        <div>
+            <h1 class="page-title">Custodia Usados</h1>
+            <p class="page-subtitle">Control de equipos recuperados y reacondicionados pendientes de una nueva asignación.</p>
+        </div>
+        <a href="{% url 'inventory:asset_list' %}" class="btn-secondary">Volver al inventario</a>
+    </div>
+
+    <section class="used-asset-metrics" aria-label="Indicadores de Custodia Usados">
+        <article class="used-asset-metric"><span>Total recuperados</span><strong>{{ situation_counts.total }}</strong></article>
+        <article class="used-asset-metric"><span>En revisión</span><strong>{{ situation_counts.review }}</strong></article>
+        <article class="used-asset-metric"><span>En reparación</span><strong>{{ situation_counts.repair }}</strong></article>
+        <article class="used-asset-metric"><span>Listos para entrega</span><strong>{{ situation_counts.ready }}</strong></article>
+        <article class="used-asset-metric"><span>En proceso de entrega</span><strong>{{ situation_counts.delivery }}</strong></article>
+        <article class="used-asset-metric"><span>Entregados</span><strong>{{ situation_counts.delivered }}</strong></article>
+    </section>
+
+    <form method="get" class="used-asset-filters">
+        <div class="used-asset-filter-search">
+            <label for="used-asset-search">Buscar equipo</label>
+            <input
+                id="used-asset-search"
+                type="search"
+                name="q"
+                value="{{ search }}"
+                placeholder="Código, patrimonio, serie o hostname">
+        </div>
+        <div>
+            <label for="used-asset-status">Situación</label>
+            <select id="used-asset-status" name="estado">
+                <option value="" {% if not selected_status %}selected{% endif %}>Todos</option>
+                {% for value, label in status_filters %}
+                    <option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <button type="submit" class="btn-primary">Filtrar</button>
+        <a href="{% url 'inventory:used_asset_list' %}" class="btn-secondary">Limpiar</a>
+    </form>
+
+    <div class="table-card used-asset-table-card">
+        <div class="used-asset-table-wrap">
+            <table class="used-asset-table">
+                <thead>
+                    <tr>
+                        <th>Código</th>
+                        <th>Tipo</th>
+                        <th>Marca / modelo</th>
+                        <th>Serie</th>
+                        <th>Estado técnico</th>
+                        <th>Ubicación</th>
+                        <th>Situación</th>
+                        <th>Custodio</th>
+                        <th>Acción</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for asset in assets %}
+                        <tr>
+                            <td><strong>{{ asset.internal_code }}</strong></td>
+                            <td>{{ asset.get_asset_type_display }}</td>
+                            <td>{{ asset.brand|default:"—" }} {{ asset.model }}</td>
+                            <td>{{ asset.serial_number|default:"—" }}</td>
+                            <td>{{ asset.get_operational_status_display }}</td>
+                            <td>{{ asset.full_location }}</td>
+                            <td>{{ asset.used_custody_situation_label }}</td>
+                            <td>
+                                {% if asset.assigned_user %}
+                                    {{ asset.assigned_user.get_full_name|default:asset.assigned_user.username }}
+                                {% else %}
+                                    —
+                                {% endif %}
+                            </td>
+                            <td><a href="{% url 'inventory:asset_detail' asset.pk %}" class="btn-secondary">Ver equipo</a></td>
+                        </tr>
+                    {% empty %}
+                        <tr><td colspan="9">No hay equipos recuperados que coincidan con los filtros.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<style>
+    .used-asset-metrics { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .used-asset-metric { display: flex; min-width: 0; flex-direction: column; gap: 8px; padding: 16px; border: 1px solid #e3e8ef; border-radius: 10px; background: #fff; }
+    .used-asset-metric span { color: #667085; font-size: 13px; }
+    .used-asset-metric strong { color: var(--primary-color); font-size: 24px; }
+    .used-asset-table-card { overflow-x: auto; }
+    .used-asset-filters { display: grid; grid-template-columns: minmax(240px, 2fr) minmax(180px, 1fr) auto auto; align-items: end; gap: 10px 12px; margin-bottom: 16px; padding: 14px; border: 1px solid #e4e7ec; border-radius: 12px; background: #fff; }
+    .used-asset-filters label { display: block; margin-bottom: 5px; color: #344054; font-size: 12px; font-weight: 700; }
+    .used-asset-filters input, .used-asset-filters select { width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid #d0d5dd; border-radius: 8px; background: #fff; box-sizing: border-box; }
+    .used-asset-table-wrap { width: 100%; overflow-x: auto; }
+    .used-asset-table { width: 100%; min-width: 1050px; border-collapse: collapse; }
+    .used-asset-table th { padding: 14px 12px; background: #f8fafc; color: #344054; font-size: 13px; text-align: left; }
+    .used-asset-table td { padding: 12px; border-top: 1px solid #eef2f7; color: #101828; }
+    @media (max-width: 1100px) { .used-asset-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+    @media (max-width: 760px) { .used-asset-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } .used-asset-filter-search { grid-column: 1 / -1; } }
+    @media (max-width: 650px) { .used-asset-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 480px) { .used-asset-metrics, .used-asset-filters { grid-template-columns: 1fr; } .used-asset-filter-search { grid-column: auto; } }
+</style>
+{% endblock %}

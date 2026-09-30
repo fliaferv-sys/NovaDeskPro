@@ -24,6 +24,7 @@ from .views import (
     stock_product_detail_view,
     stock_product_list_view,
     stock_product_update_view,
+    used_asset_list_view,
     stock_transfer_view,
     documented_stock_entry_list_view,
     documented_stock_entry_create_view,
@@ -118,6 +119,11 @@ urlpatterns = [
         "",
         asset_list_view,
         name="asset_list",
+    ),
+    path(
+        "usados/",
+        used_asset_list_view,
+        name="used_asset_list",
     ),
     path('my-assets/', my_asset_list, name='my_asset_list'),  # ✅ CORREGIDO (sin views.)
 

@@ -163,6 +163,7 @@ class AssetForm(forms.ModelForm):
             "internal_code",
             "patrimonial_code",
             "asset_type",
+            "condition",
             "parent_asset",
             "brand",
             "model",
@@ -216,6 +217,12 @@ class AssetForm(forms.ModelForm):
             ),
 
             "asset_type": forms.Select(
+                attrs={
+                    "class": "form-control",
+                }
+            ),
+
+            "condition": forms.Select(
                 attrs={
                     "class": "form-control",
                 }

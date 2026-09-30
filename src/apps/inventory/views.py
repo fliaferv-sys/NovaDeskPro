@@ -91,6 +91,53 @@ from .stock_delivery_pdf import generate_stock_delivery_pdf
 
 ASSET_READ_ROLES = ("ADMIN", "SUPERVISOR", "AUDITOR", "TECHNICIAN")
 
+ACTIVE_CUSTODY_DELIVERY_STATUSES = (
+    AssetCustodyMovement.MovementStatus.IN_DELIVERY_PROCESS,
+    AssetCustodyMovement.MovementStatus.PREPARED,
+    AssetCustodyMovement.MovementStatus.PENDING_SIGNATURE,
+)
+
+USED_ASSET_SITUATION_LABELS = {
+    "review": "En revisión",
+    "repair": "En reparación",
+    "out_of_service": "Fuera de servicio",
+    "ready": "Listo para entrega",
+    "delivery": "En proceso de entrega",
+    "delivered": "Entregado",
+    "unclassified": "Sin clasificar",
+}
+
+USED_ASSET_STATUS_FILTERS = (
+    ("review", "En revisión"),
+    ("repair", "En reparación"),
+    ("ready", "Listos para entrega"),
+    ("delivery", "En proceso de entrega"),
+    ("delivered", "Entregados"),
+)
+
+
+def _used_asset_situation(asset):
+    movements = asset.custody_movements.all()
+    active_delivery = any(
+        movement.movement_type == AssetCustodyMovement.MovementType.DELIVERY
+        and movement.status in ACTIVE_CUSTODY_DELIVERY_STATUSES
+        for movement in movements
+    )
+
+    if active_delivery:
+        return "delivery"
+    if asset.assigned_user_id:
+        return "delivered"
+    if asset.operational_status == Asset.OperationalStatus.MAINTENANCE:
+        return "repair"
+    if asset.operational_status == Asset.OperationalStatus.OBSERVATION:
+        return "review"
+    if asset.operational_status == Asset.OperationalStatus.OUT_OF_SERVICE:
+        return "out_of_service"
+    if asset.operational_status == Asset.OperationalStatus.OPERATIONAL:
+        return "ready"
+    return "unclassified"
+
 
 def _asset_detail_absolute_url(request, asset):
     return request.build_absolute_uri(
@@ -169,15 +216,9 @@ def asset_list_view(request):
         .all()
     )
 
-    active_custody_statuses = [
-        AssetCustodyMovement.MovementStatus.IN_DELIVERY_PROCESS,
-        AssetCustodyMovement.MovementStatus.PREPARED,
-        AssetCustodyMovement.MovementStatus.PENDING_SIGNATURE,
-    ]
-
     assets_in_custody_process = set(
         AssetCustodyMovement.objects.filter(
-            status__in=active_custody_statuses,
+            status__in=ACTIVE_CUSTODY_DELIVERY_STATUSES,
             movement_type=(
                 AssetCustodyMovement
                 .MovementType
@@ -258,6 +299,94 @@ def asset_list_view(request):
             "active_filters": request.GET,
         },
     )
+
+
+@login_required
+def used_asset_list_view(request):
+    if not can_manage_inventory(request.user):
+        raise PermissionDenied(
+            "No tiene permisos para acceder a Custodia Usados."
+        )
+
+    relevant_movements = (
+        AssetCustodyMovement.objects
+        .filter(
+            movement_type=AssetCustodyMovement.MovementType.DELIVERY,
+            status__in=ACTIVE_CUSTODY_DELIVERY_STATUSES,
+        )
+        .only("asset_id", "movement_type", "status")
+    )
+    recovered_assets = list(
+        Asset.objects
+        .filter(condition=Asset.Condition.RECOVERED)
+        .select_related(
+            "assigned_user",
+            "branch",
+            "physical_location",
+        )
+        .prefetch_related(
+            Prefetch(
+                "custody_movements",
+                queryset=relevant_movements,
+            )
+        )
+    )
+
+    situation_counts = {
+        "total": len(recovered_assets),
+        "review": 0,
+        "repair": 0,
+        "ready": 0,
+        "delivery": 0,
+        "delivered": 0,
+    }
+    for asset in recovered_assets:
+        asset.used_custody_situation = _used_asset_situation(asset)
+        asset.used_custody_situation_label = USED_ASSET_SITUATION_LABELS[
+            asset.used_custody_situation
+        ]
+        if asset.used_custody_situation in situation_counts:
+            situation_counts[asset.used_custody_situation] += 1
+
+    selected_status = request.GET.get("estado", "").strip()
+    if selected_status not in dict(USED_ASSET_STATUS_FILTERS):
+        selected_status = ""
+
+    search = request.GET.get("q", "").strip()
+    search_term = search.casefold()
+    assets = [
+        asset
+        for asset in recovered_assets
+        if (
+            not selected_status
+            or asset.used_custody_situation == selected_status
+        )
+        and (
+            not search_term
+            or any(
+                search_term in str(value or "").casefold()
+                for value in (
+                    asset.internal_code,
+                    asset.patrimonial_code,
+                    asset.serial_number,
+                    asset.hostname,
+                )
+            )
+        )
+    ]
+
+    return render(
+        request,
+        "inventory/used_asset_list.html",
+        {
+            "assets": assets,
+            "search": search,
+            "selected_status": selected_status,
+            "status_filters": USED_ASSET_STATUS_FILTERS,
+            "situation_counts": situation_counts,
+        },
+    )
+
 
 # ==========================================================
 # CREAR ACTIVO

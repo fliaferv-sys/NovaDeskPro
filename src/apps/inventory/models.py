@@ -236,6 +236,10 @@ class Asset(models.Model):
             "Otro",
         )
 
+    class Condition(models.TextChoices):
+        NEW = "NEW", "Nuevo"
+        RECOVERED = "RECOVERED", "Recuperado / Reacondicionado"
+
 
     class OperationalStatus(models.TextChoices):
         OPERATIONAL = (
@@ -304,6 +308,13 @@ class Asset(models.Model):
         choices=AssetType.choices,
         default=AssetType.DESKTOP,
         verbose_name="Tipo de equipo",
+    )
+
+    condition = models.CharField(
+        max_length=20,
+        choices=Condition.choices,
+        default=Condition.NEW,
+        verbose_name="Condición del equipo",
     )
 
     parent_asset = models.ForeignKey(
