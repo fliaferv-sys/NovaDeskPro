@@ -61,6 +61,109 @@ from .services.notifications import generate_inventory_stock_notifications
 User = get_user_model()
 
 
+class AssetRelationshipTests(TestCase):
+    def create_asset(self, internal_code, asset_type):
+        return Asset.objects.create(
+            internal_code=internal_code,
+            asset_type=asset_type,
+        )
+
+    def assert_parent_asset_invalid(self, asset):
+        with self.assertRaises(ValidationError) as context:
+            asset.full_clean()
+
+        self.assertIn("parent_asset", context.exception.error_dict)
+
+    def test_desktop_label_and_internal_key(self):
+        self.assertEqual(Asset.AssetType.DESKTOP, "DESKTOP")
+        self.assertEqual(
+            dict(Asset.AssetType.choices)[Asset.AssetType.DESKTOP],
+            "CPU / Unidad de sistema",
+        )
+
+    def test_monitor_can_be_associated_with_desktop(self):
+        desktop = self.create_asset("REL-DESKTOP-VALID", Asset.AssetType.DESKTOP)
+        monitor = Asset(
+            internal_code="REL-MONITOR-VALID",
+            asset_type=Asset.AssetType.MONITOR,
+            parent_asset=desktop,
+        )
+
+        monitor.full_clean()
+
+    def test_monitor_cannot_be_associated_with_laptop(self):
+        laptop = self.create_asset("REL-LAPTOP-MONITOR", Asset.AssetType.LAPTOP)
+        monitor = Asset(
+            internal_code="REL-MONITOR-LAPTOP",
+            asset_type=Asset.AssetType.MONITOR,
+            parent_asset=laptop,
+        )
+
+        self.assert_parent_asset_invalid(monitor)
+
+    def test_desktop_cannot_be_associated_with_desktop(self):
+        parent = self.create_asset("REL-DESKTOP-PARENT", Asset.AssetType.DESKTOP)
+        desktop = Asset(
+            internal_code="REL-DESKTOP-CHILD",
+            asset_type=Asset.AssetType.DESKTOP,
+            parent_asset=parent,
+        )
+
+        self.assert_parent_asset_invalid(desktop)
+
+    def test_laptop_cannot_be_associated_with_desktop(self):
+        desktop = self.create_asset("REL-DESKTOP-LAPTOP", Asset.AssetType.DESKTOP)
+        laptop = Asset(
+            internal_code="REL-LAPTOP-CHILD",
+            asset_type=Asset.AssetType.LAPTOP,
+            parent_asset=desktop,
+        )
+
+        self.assert_parent_asset_invalid(laptop)
+
+    def test_asset_cannot_be_associated_with_itself(self):
+        monitor = self.create_asset("REL-MONITOR-SELF", Asset.AssetType.MONITOR)
+        monitor.parent_asset = monitor
+
+        self.assert_parent_asset_invalid(monitor)
+
+    def test_asset_form_parent_queryset_contains_only_desktops(self):
+        desktop = self.create_asset("REL-FORM-DESKTOP", Asset.AssetType.DESKTOP)
+        self.create_asset("REL-FORM-LAPTOP", Asset.AssetType.LAPTOP)
+        self.create_asset("REL-FORM-MONITOR", Asset.AssetType.MONITOR)
+
+        form = AssetForm()
+
+        self.assertEqual(
+            list(form.fields["parent_asset"].queryset.values_list("pk", flat=True)),
+            [desktop.pk],
+        )
+
+    def test_asset_form_rejects_manipulated_parent_for_laptop(self):
+        desktop = self.create_asset("REL-FORM-MANIPULATED-DESKTOP", Asset.AssetType.DESKTOP)
+        batch = AcquisitionBatch.objects.create(
+            code="REL-FORM-MANIPULATED-BATCH",
+            date=timezone.localdate(),
+        )
+        form = AssetForm(
+            data={
+                "internal_code": "REL-FORM-MANIPULATED-LAPTOP",
+                "patrimonial_code": "REL-FORM-MANIPULATED-PAT",
+                "asset_type": Asset.AssetType.LAPTOP,
+                "parent_asset": str(desktop.pk),
+                "brand": "Marca de prueba",
+                "model": "Modelo de prueba",
+                "serial_number": "REL-FORM-MANIPULATED-SERIAL",
+                "acquisition_batch": str(batch.pk),
+                "operational_status": Asset.OperationalStatus.OPERATIONAL,
+                "connection_status": Asset.ConnectionStatus.UNKNOWN,
+            }
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("parent_asset", form.errors)
+
+
 class AssetTechnicalSpecificationsTests(TestCase):
     def test_asset_without_technical_specifications_is_valid(self):
         asset = Asset(internal_code="TECH-EMPTY")
@@ -310,6 +413,46 @@ class InventoryPermissionsTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
+
+    def test_monitor_detail_links_to_its_desktop(self):
+        monitor = Asset.objects.create(
+            internal_code="ACT-DETAIL-MONITOR",
+            asset_type=Asset.AssetType.MONITOR,
+            parent_asset=self.asset,
+        )
+        self.client.force_login(self.admin_user)
+
+        response = self.client.get(
+            reverse("inventory:asset_detail", kwargs={"pk": monitor.pk})
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Equipo principal")
+        self.assertContains(
+            response,
+            reverse("inventory:asset_detail", kwargs={"pk": self.asset.pk}),
+        )
+        self.assertContains(response, self.asset.internal_code)
+
+    def test_desktop_detail_links_to_associated_monitors(self):
+        monitor = Asset.objects.create(
+            internal_code="ACT-DETAIL-CHILD-MONITOR",
+            asset_type=Asset.AssetType.MONITOR,
+            parent_asset=self.asset,
+        )
+        self.client.force_login(self.admin_user)
+
+        response = self.client.get(
+            reverse("inventory:asset_detail", kwargs={"pk": self.asset.pk})
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Componentes asociados")
+        self.assertContains(
+            response,
+            reverse("inventory:asset_detail", kwargs={"pk": monitor.pk}),
+        )
+        self.assertContains(response, monitor.internal_code)
 
     def test_admin_can_update_asset(self):
         self.client.force_login(self.admin_user)

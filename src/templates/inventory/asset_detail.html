@@ -15,6 +15,35 @@ Detalle del Equipo
         <!-- ✅ DATOS GENERALES (incluye el lote dentro) -->
         {% include "inventory/partials/asset_general.html" %}
 
+        {% if asset.asset_type == "DESKTOP" %}
+            <div class="table-card">
+                <h3>Componentes asociados</h3>
+
+                {% if associated_monitors %}
+                    <ul>
+                        {% for monitor in associated_monitors %}
+                            <li>
+                                <a href="{% url 'inventory:asset_detail' monitor.pk %}">
+                                    {{ monitor.internal_code }} - {{ monitor.get_asset_type_display }}
+                                </a>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p>No hay monitores asociados.</p>
+                {% endif %}
+            </div>
+        {% elif asset.asset_type == "MONITOR" and asset.parent_asset %}
+            <div class="table-card">
+                <h3>Equipo principal</h3>
+                <p>
+                    <a href="{% url 'inventory:asset_detail' asset.parent_asset.pk %}">
+                        {{ asset.parent_asset.internal_code }} - {{ asset.parent_asset.get_asset_type_display }}
+                    </a>
+                </p>
+            </div>
+        {% endif %}
+
         <!-- ✅ INFORMACIÓN TÉCNICA -->
         {% include "inventory/partials/asset_technical.html" %}
         

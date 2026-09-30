@@ -304,7 +304,8 @@ def asset_detail_view(request, pk):
     asset = get_object_or_404(
         Asset.objects.select_related(
             "assigned_user",
-            "acquisition_batch"
+            "acquisition_batch",
+            "parent_asset",
         ),
         pk=pk,
     )
@@ -379,11 +380,20 @@ def asset_detail_view(request, pk):
         )
     ).count()
 
+    associated_monitors = (
+        asset.components.filter(
+            asset_type=Asset.AssetType.MONITOR,
+        ).order_by("internal_code")
+        if asset.asset_type == Asset.AssetType.DESKTOP
+        else Asset.objects.none()
+    )
+
     return render(
         request,
         "inventory/asset_detail.html",
         {
             "asset": asset,
+            "associated_monitors": associated_monitors,
             
             # Tickets
             "tickets": tickets,

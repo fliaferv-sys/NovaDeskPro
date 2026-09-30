@@ -163,6 +163,7 @@ class AssetForm(forms.ModelForm):
             "internal_code",
             "patrimonial_code",
             "asset_type",
+            "parent_asset",
             "brand",
             "model",
             "serial_number",
@@ -215,6 +216,12 @@ class AssetForm(forms.ModelForm):
             ),
 
             "asset_type": forms.Select(
+                attrs={
+                    "class": "form-control",
+                }
+            ),
+
+            "parent_asset": forms.Select(
                 attrs={
                     "class": "form-control",
                 }
@@ -372,6 +379,13 @@ class AssetForm(forms.ModelForm):
 
         self.fields["acquisition_batch"].queryset = (
             AcquisitionBatch.objects.order_by("-date", "code")
+        )
+        self.fields["parent_asset"].queryset = (
+            Asset.objects.filter(
+                asset_type=Asset.AssetType.DESKTOP,
+            )
+            .exclude(pk=self.instance.pk)
+            .order_by("internal_code")
         )
 
         for field_name in (

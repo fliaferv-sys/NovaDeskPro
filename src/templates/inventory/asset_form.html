@@ -147,6 +147,31 @@
 
             </div>
 
+            <div
+                class="form-group"
+                id="parent-asset-field"
+                {% if form.asset_type.value != "MONITOR" %}hidden{% endif %}>
+
+                <label for="{{ form.parent_asset.id_for_label }}">
+                    {{ form.parent_asset.label }}
+                </label>
+
+                {{ form.parent_asset }}
+
+                {% if form.parent_asset.help_text %}
+                    <small class="form-help-text">
+                        {{ form.parent_asset.help_text }}
+                    </small>
+                {% endif %}
+
+                {% for error in form.parent_asset.errors %}
+                    <small class="form-field-error">
+                        {{ error }}
+                    </small>
+                {% endfor %}
+
+            </div>
+
 
             <div class="form-group">
 
@@ -597,5 +622,29 @@
     </div>
 
 </form>
+
+<script>
+    (() => {
+        const assetTypeField = document.getElementById("id_asset_type");
+        const parentAssetField = document.getElementById("id_parent_asset");
+        const parentAssetGroup = document.getElementById("parent-asset-field");
+
+        if (!assetTypeField || !parentAssetField || !parentAssetGroup) {
+            return;
+        }
+
+        const updateParentAssetField = () => {
+            const isMonitor = assetTypeField.value === "MONITOR";
+            parentAssetGroup.hidden = !isMonitor;
+
+            if (!isMonitor) {
+                parentAssetField.value = "";
+            }
+        };
+
+        assetTypeField.addEventListener("change", updateParentAssetField);
+        updateParentAssetField();
+    })();
+</script>
 
 {% endblock %}

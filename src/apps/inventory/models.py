@@ -197,7 +197,7 @@ class Asset(models.Model):
     class AssetType(models.TextChoices):
         DESKTOP = (
             "DESKTOP",
-            "Computadora de escritorio",
+            "CPU / Unidad de sistema",
         )
         LAPTOP = (
             "LAPTOP",
@@ -304,6 +304,16 @@ class Asset(models.Model):
         choices=AssetType.choices,
         default=AssetType.DESKTOP,
         verbose_name="Tipo de equipo",
+    )
+
+    parent_asset = models.ForeignKey(
+        "self",
+        on_delete=models.PROTECT,
+        related_name="components",
+        blank=True,
+        null=True,
+        verbose_name="Equipo principal asociado",
+        help_text="Asocie aquí un monitor con la CPU / unidad de sistema correspondiente.",
     )
 
     brand = models.CharField(
@@ -514,6 +524,47 @@ class Asset(models.Model):
         ordering = [
             "internal_code",
         ]
+
+    def clean(self):
+        super().clean()
+
+        parent_asset = self.parent_asset
+        if parent_asset is None:
+            return
+
+        errors = []
+        if self.asset_type != self.AssetType.MONITOR:
+            errors.append(
+                "Solo un monitor puede tener un equipo principal asociado."
+            )
+
+        if parent_asset.asset_type != self.AssetType.DESKTOP:
+            errors.append(
+                "El equipo principal asociado debe ser una CPU / unidad de sistema."
+            )
+
+        if parent_asset is self or (
+            self.pk and parent_asset.pk == self.pk
+        ):
+            errors.append("Un activo no puede asociarse consigo mismo.")
+        else:
+            visited_asset_ids = {self.pk} if self.pk else set()
+            current_asset = parent_asset
+
+            while current_asset is not None:
+                if current_asset.pk in visited_asset_ids:
+                    errors.append(
+                        "La asociación entre activos no puede formar ciclos."
+                    )
+                    break
+
+                if current_asset.pk:
+                    visited_asset_ids.add(current_asset.pk)
+
+                current_asset = current_asset.parent_asset
+
+        if errors:
+            raise ValidationError({"parent_asset": errors})
 
     def __str__(self):
         return (
