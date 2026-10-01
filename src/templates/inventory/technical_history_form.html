@@ -51,6 +51,11 @@ Nueva Intervención Técnica
 
     {% csrf_token %}
 
+    {% if workflow_origin == "usados" %}
+        <input type="hidden" name="workflow_origin" value="usados">
+        <input type="hidden" name="workflow_action" value="{{ workflow_action }}">
+    {% endif %}
+
     <div class="table-card">
 
         <h3>📋 Información de la intervención</h3>

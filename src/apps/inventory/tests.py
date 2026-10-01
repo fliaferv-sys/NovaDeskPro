@@ -28,6 +28,7 @@ from .admin import ToolAdminForm, ToolLoanItemAdminForm, ToolLoanItemInlineFormS
 from .models import (
     AcquisitionBatch,
     Asset,
+    AssetTechnicalHistory,
     OrganizationalLocation,
     StockBalance,
     StockCategory,
@@ -737,6 +738,295 @@ class UsedAssetCustodyTests(TestCase):
             [review_asset.internal_code],
         )
         self.assertContains(response, review_asset.internal_code)
+
+
+class UsedAssetTechnicalWorkflowTests(TestCase):
+    def setUp(self):
+        self.admin_user = User.objects.create_user(
+            username="admin_custodia_tecnica",
+            email="admin_custodia_tecnica@example.com",
+            password="test-password-123",
+            role=User.Role.ADMIN,
+        )
+        self.technician = User.objects.create_user(
+            username="tecnico_custodia_tecnica",
+            email="tecnico_custodia_tecnica@example.com",
+            password="test-password-123",
+            role=User.Role.TECHNICIAN,
+            approval_status=User.ApprovalStatus.APPROVED,
+        )
+        self.client.force_login(self.admin_user)
+
+    def create_asset(self, internal_code, condition=Asset.Condition.RECOVERED):
+        return Asset.objects.create(
+            internal_code=internal_code,
+            condition=condition,
+            operational_status=Asset.OperationalStatus.MAINTENANCE,
+        )
+
+    def valid_intervention_data(self, intervention_type, action=None):
+        data = {
+            "ticket": "",
+            "intervention_type": intervention_type,
+            "technician": str(self.technician.pk),
+            "diagnosis": "Diagnóstico de prueba",
+            "action_taken": "Trabajo técnico de prueba",
+            "components_replaced": "",
+            "duration_minutes": "30",
+            "cost": "0",
+            "intervention_date": timezone.localtime().strftime(
+                "%Y-%m-%dT%H:%M"
+            ),
+            "notes": "",
+        }
+        if action is not None:
+            data["workflow_origin"] = "usados"
+            data["workflow_action"] = action
+        return data
+
+    def test_used_actions_save_interventions_and_update_status(self):
+        workflows = {
+            "revision": (
+                AssetTechnicalHistory.InterventionType.DIAGNOSIS,
+                Asset.OperationalStatus.OBSERVATION,
+            ),
+            "reparacion": (
+                AssetTechnicalHistory.InterventionType.REPAIR,
+                Asset.OperationalStatus.MAINTENANCE,
+            ),
+            "listo": (
+                AssetTechnicalHistory.InterventionType.OTHER,
+                Asset.OperationalStatus.OPERATIONAL,
+            ),
+            "fuera_servicio": (
+                AssetTechnicalHistory.InterventionType.DIAGNOSIS,
+                Asset.OperationalStatus.OUT_OF_SERVICE,
+            ),
+        }
+
+        for action, (intervention_type, operational_status) in workflows.items():
+            with self.subTest(action=action):
+                asset = self.create_asset(f"USED-WORKFLOW-{action.upper()}")
+                response = self.client.post(
+                    reverse(
+                        "inventory:technical_history_create",
+                        args=[asset.pk],
+                    ),
+                    self.valid_intervention_data(intervention_type, action),
+                )
+
+                self.assertRedirects(
+                    response,
+                    reverse("inventory:used_asset_list"),
+                )
+                asset.refresh_from_db()
+                self.assertEqual(asset.condition, Asset.Condition.RECOVERED)
+                self.assertEqual(asset.operational_status, operational_status)
+                intervention = AssetTechnicalHistory.objects.get(asset=asset)
+                self.assertEqual(
+                    intervention.intervention_type,
+                    intervention_type,
+                )
+
+    def test_used_workflow_prefills_form_and_preserves_hidden_context(self):
+        asset = self.create_asset("USED-WORKFLOW-PREFILL")
+
+        response = self.client.get(
+            reverse("inventory:technical_history_create", args=[asset.pk]),
+            {"origen": "usados", "accion": "revision"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["workflow_origin"], "usados")
+        self.assertEqual(response.context["workflow_action"], "revision")
+        self.assertEqual(
+            response.context["form"].initial["intervention_type"],
+            AssetTechnicalHistory.InterventionType.DIAGNOSIS,
+        )
+        self.assertContains(response, 'name="workflow_origin" value="usados"')
+        self.assertContains(response, 'name="workflow_action" value="revision"')
+
+    def test_invalid_used_workflow_form_does_not_change_status(self):
+        asset = self.create_asset("USED-WORKFLOW-INVALID")
+        data = self.valid_intervention_data(
+            AssetTechnicalHistory.InterventionType.DIAGNOSIS,
+            "revision",
+        )
+        data["action_taken"] = ""
+
+        response = self.client.post(
+            reverse("inventory:technical_history_create", args=[asset.pk]),
+            data,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        asset.refresh_from_db()
+        self.assertEqual(
+            asset.operational_status,
+            Asset.OperationalStatus.MAINTENANCE,
+        )
+        self.assertFalse(AssetTechnicalHistory.objects.filter(asset=asset).exists())
+
+    def test_manipulated_used_workflow_does_not_change_new_asset_status(self):
+        asset = self.create_asset(
+            "NEW-ASSET-MANIPULATED-WORKFLOW",
+            condition=Asset.Condition.NEW,
+        )
+
+        response = self.client.post(
+            reverse("inventory:technical_history_create", args=[asset.pk]),
+            self.valid_intervention_data(
+                AssetTechnicalHistory.InterventionType.OTHER,
+                "listo",
+            ),
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("inventory:asset_detail", args=[asset.pk]),
+        )
+        asset.refresh_from_db()
+        self.assertEqual(asset.condition, Asset.Condition.NEW)
+        self.assertEqual(
+            asset.operational_status,
+            Asset.OperationalStatus.MAINTENANCE,
+        )
+
+    def test_technician_cannot_activate_manipulated_used_workflow(self):
+        asset = self.create_asset("USED-TECHNICIAN-MANIPULATED-WORKFLOW")
+        self.client.force_login(self.technician)
+
+        response = self.client.post(
+            reverse("inventory:technical_history_create", args=[asset.pk]),
+            self.valid_intervention_data(
+                AssetTechnicalHistory.InterventionType.OTHER,
+                "listo",
+            ),
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("inventory:asset_detail", args=[asset.pk]),
+        )
+        asset.refresh_from_db()
+        self.assertEqual(
+            asset.operational_status,
+            Asset.OperationalStatus.MAINTENANCE,
+        )
+        self.assertTrue(AssetTechnicalHistory.objects.filter(asset=asset).exists())
+
+    def test_normal_technical_history_flow_redirects_to_asset_detail(self):
+        asset = self.create_asset(
+            "USED-NORMAL-TECHNICAL-FLOW",
+            condition=Asset.Condition.NEW,
+        )
+
+        response = self.client.post(
+            reverse("inventory:technical_history_create", args=[asset.pk]),
+            self.valid_intervention_data(
+                AssetTechnicalHistory.InterventionType.REPAIR
+            ),
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("inventory:asset_detail", args=[asset.pk]),
+        )
+        self.assertTrue(AssetTechnicalHistory.objects.filter(asset=asset).exists())
+
+    def test_used_asset_list_contains_technical_workflow_actions(self):
+        self.create_asset("USED-WORKFLOW-ACTIONS")
+
+        response = self.client.get(reverse("inventory:used_asset_list"))
+
+        self.assertContains(response, "Registrar revisión")
+        self.assertContains(response, "Enviar a reparación")
+        self.assertContains(response, "Marcar listo para entrega")
+        self.assertContains(response, "Fuera de servicio")
+        self.assertContains(response, "origen=usados")
+        for action in ("revision", "reparacion", "listo", "fuera_servicio"):
+            with self.subTest(action=action):
+                self.assertContains(response, f"accion={action}")
+
+    def test_assigned_asset_does_not_activate_used_workflow(self):
+        asset = self.create_asset(
+            "USED-WORKFLOW-DELIVERED-ASSIGNED",
+        )
+        asset.assigned_user = self.admin_user
+        asset.save(update_fields=["assigned_user"])
+
+        response = self.client.post(
+            reverse("inventory:technical_history_create", args=[asset.pk]),
+            self.valid_intervention_data(
+                AssetTechnicalHistory.InterventionType.OTHER,
+                "listo",
+            ),
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("inventory:asset_detail", args=[asset.pk]),
+        )
+        asset.refresh_from_db()
+        self.assertEqual(
+            asset.operational_status,
+            Asset.OperationalStatus.MAINTENANCE,
+        )
+
+    def test_active_delivery_does_not_activate_used_workflow(self):
+        asset = self.create_asset("USED-WORKFLOW-ACTIVE-DELIVERY")
+        AssetCustodyMovement.objects.create(
+            asset=asset,
+            movement_type=AssetCustodyMovement.MovementType.DELIVERY,
+            status=AssetCustodyMovement.MovementStatus.PENDING_SIGNATURE,
+            delivery_responsible=self.admin_user,
+            created_by=self.admin_user,
+        )
+
+        response = self.client.post(
+            reverse("inventory:technical_history_create", args=[asset.pk]),
+            self.valid_intervention_data(
+                AssetTechnicalHistory.InterventionType.OTHER,
+                "listo",
+            ),
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("inventory:asset_detail", args=[asset.pk]),
+        )
+        asset.refresh_from_db()
+        self.assertEqual(
+            asset.operational_status,
+            Asset.OperationalStatus.MAINTENANCE,
+        )
+
+    def test_delivery_and_delivered_assets_hide_technical_actions(self):
+        delivery_asset = self.create_asset("USED-WORKFLOW-LIST-DELIVERY")
+        AssetCustodyMovement.objects.create(
+            asset=delivery_asset,
+            movement_type=AssetCustodyMovement.MovementType.DELIVERY,
+            status=AssetCustodyMovement.MovementStatus.PENDING_SIGNATURE,
+            delivery_responsible=self.admin_user,
+            created_by=self.admin_user,
+        )
+        delivered_asset = self.create_asset("USED-WORKFLOW-LIST-DELIVERED")
+        delivered_asset.assigned_user = self.admin_user
+        delivered_asset.save(update_fields=["assigned_user"])
+
+        response = self.client.get(reverse("inventory:used_asset_list"))
+
+        for asset in (delivery_asset, delivered_asset):
+            with self.subTest(asset=asset.internal_code):
+                for action in ("revision", "reparacion", "listo", "fuera_servicio"):
+                    self.assertNotContains(
+                        response,
+                        f"{reverse('inventory:technical_history_create', args=[asset.pk])}?origen=usados&amp;accion={action}",
+                    )
+                self.assertContains(
+                    response,
+                    f'href="{reverse("inventory:asset_detail", args=[asset.pk])}"',
+                )
 
 
 class GenericStockTests(TestCase):

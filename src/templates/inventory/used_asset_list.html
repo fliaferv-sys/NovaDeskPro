@@ -57,7 +57,7 @@
                         <th>Ubicación</th>
                         <th>Situación</th>
                         <th>Custodio</th>
-                        <th>Acción</th>
+                        <th>Acciones</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -77,7 +77,15 @@
                                     —
                                 {% endif %}
                             </td>
-                            <td><a href="{% url 'inventory:asset_detail' asset.pk %}" class="btn-secondary">Ver equipo</a></td>
+                            <td>
+                                {% if asset.used_custody_situation != "delivery" and asset.used_custody_situation != "delivered" %}
+                                    <a href="{% url 'inventory:technical_history_create' asset.pk %}?origen=usados&amp;accion=revision" class="btn-secondary">Registrar revisión</a>
+                                    <a href="{% url 'inventory:technical_history_create' asset.pk %}?origen=usados&amp;accion=reparacion" class="btn-secondary">Enviar a reparación</a>
+                                    <a href="{% url 'inventory:technical_history_create' asset.pk %}?origen=usados&amp;accion=listo" class="btn-secondary">Marcar listo para entrega</a>
+                                    <a href="{% url 'inventory:technical_history_create' asset.pk %}?origen=usados&amp;accion=fuera_servicio" class="btn-secondary">Fuera de servicio</a>
+                                {% endif %}
+                                <a href="{% url 'inventory:asset_detail' asset.pk %}" class="btn-secondary">Ver equipo</a>
+                            </td>
                         </tr>
                     {% empty %}
                         <tr><td colspan="9">No hay equipos recuperados que coincidan con los filtros.</td></tr>

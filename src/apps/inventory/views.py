@@ -50,6 +50,7 @@ from django.views.decorators.http import require_GET
 from django.utils import timezone
 from .models import (
     Asset,
+    AssetTechnicalHistory,
     StockBalance,
     StockCategory,
     StockMovement,
@@ -630,6 +631,45 @@ def technical_history_create_view(request, asset_pk):
         pk=asset_pk,
     )
 
+    used_asset_workflows = {
+        "revision": (
+            AssetTechnicalHistory.InterventionType.DIAGNOSIS,
+            Asset.OperationalStatus.OBSERVATION,
+        ),
+        "reparacion": (
+            AssetTechnicalHistory.InterventionType.REPAIR,
+            Asset.OperationalStatus.MAINTENANCE,
+        ),
+        "listo": (
+            AssetTechnicalHistory.InterventionType.OTHER,
+            Asset.OperationalStatus.OPERATIONAL,
+        ),
+        "fuera_servicio": (
+            AssetTechnicalHistory.InterventionType.DIAGNOSIS,
+            Asset.OperationalStatus.OUT_OF_SERVICE,
+        ),
+    }
+
+    if request.method == "POST":
+        requested_origin = request.POST.get("workflow_origin")
+        requested_action = request.POST.get("workflow_action")
+    else:
+        requested_origin = request.GET.get("origen")
+        requested_action = request.GET.get("accion")
+
+    if (
+        requested_origin == "usados"
+        and requested_action in used_asset_workflows
+        and asset.condition == Asset.Condition.RECOVERED
+        and can_manage_inventory(request.user)
+        and _used_asset_situation(asset) not in {"delivery", "delivered"}
+    ):
+        workflow_origin = "usados"
+        workflow_action = requested_action
+    else:
+        workflow_origin = ""
+        workflow_action = ""
+
     if request.method == "POST":
         form = AssetTechnicalHistoryForm(
             request.POST,
@@ -641,17 +681,21 @@ def technical_history_create_view(request, asset_pk):
         form.instance.asset = asset
 
         if form.is_valid():
-            intervention = form.save(
-                commit=False
-            )
+            with transaction.atomic():
+                intervention = form.save(commit=False)
+                intervention.asset = asset
+                intervention.save()
 
-            intervention.asset = asset
-            intervention.save()
+                if workflow_origin == "usados":
+                    asset.operational_status = used_asset_workflows[
+                        workflow_action
+                    ][1]
+                    asset.save(update_fields=["operational_status"])
 
-            return redirect(
-                "inventory:asset_detail",
-                pk=asset.pk,
-            )
+            if workflow_origin == "usados":
+                return redirect("inventory:used_asset_list")
+
+            return redirect("inventory:asset_detail", pk=asset.pk)
 
     else:
         initial = {}
@@ -660,6 +704,11 @@ def technical_history_create_view(request, asset_pk):
         # queda seleccionado automáticamente.
         if request.user.role == "TECHNICIAN":
             initial["technician"] = request.user
+
+        if workflow_origin == "usados":
+            initial["intervention_type"] = used_asset_workflows[
+                workflow_action
+            ][0]
 
         # Permite abrir el formulario desde un ticket
         # y dejarlo preseleccionado.
@@ -689,6 +738,8 @@ def technical_history_create_view(request, asset_pk):
             "asset": asset,
             "form": form,
             "editing": False,
+            "workflow_origin": workflow_origin,
+            "workflow_action": workflow_action,
         },
     )
 
