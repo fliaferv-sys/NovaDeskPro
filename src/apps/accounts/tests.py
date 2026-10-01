@@ -2,6 +2,7 @@ from datetime import timedelta
 import re
 
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -215,6 +216,43 @@ class TechnicianAvailabilityRequestServiceTests(TestCase):
             object_id=str(availability_request.pk),
         )
         self.assertIn("rechazada", notification.message)
+
+
+class UserDirectoryIdPersonalTests(TestCase):
+    def test_user_can_be_created_without_id_personal(self):
+        user = User.objects.create_user(
+            username="directory-link-optional",
+            email="directory-link-optional@example.test",
+            password="test-password",
+        )
+
+        self.assertIsNone(user.id_personal)
+
+    def test_user_can_be_created_with_id_personal(self):
+        user = User.objects.create_user(
+            username="directory-link-present",
+            email="directory-link-present@example.test",
+            password="test-password",
+            id_personal=1234,
+        )
+
+        self.assertEqual(user.id_personal, 1234)
+
+    def test_id_personal_must_be_unique(self):
+        User.objects.create_user(
+            username="directory-link-unique-first",
+            email="directory-link-unique-first@example.test",
+            password="test-password",
+            id_personal=1234,
+        )
+
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            User.objects.create_user(
+                username="directory-link-unique-second",
+                email="directory-link-unique-second@example.test",
+                password="test-password",
+                id_personal=1234,
+            )
 
 
 class AccountAccessTests(TestCase):

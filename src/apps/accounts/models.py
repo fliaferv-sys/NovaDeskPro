@@ -268,6 +268,16 @@ class User(AbstractUser):
         verbose_name="Número de funcionario",
     )
 
+    id_personal = models.PositiveIntegerField(
+        unique=True,
+        null=True,
+        blank=True,
+        verbose_name="IdPersonal RR.HH.",
+        help_text=(
+            "Identificador único del funcionario en la fuente institucional de RR.HH."
+        ),
+    )
+
     # ======================================================
     # ROL Y VÍNCULO
     # ======================================================
