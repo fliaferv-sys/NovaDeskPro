@@ -63,6 +63,21 @@ SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 
 # ==========================================================
+# DIRECTORIO INSTITUCIONAL - SQL SERVER
+# ==========================================================
+
+DIRECTORY_SQL_HOST = os.environ.get("DIRECTORY_SQL_HOST", "")
+DIRECTORY_SQL_PORT = os.environ.get("DIRECTORY_SQL_PORT", "1433")
+DIRECTORY_SQL_DATABASE = os.environ.get("DIRECTORY_SQL_DATABASE", "")
+DIRECTORY_SQL_USER = os.environ.get("DIRECTORY_SQL_USER", "")
+DIRECTORY_SQL_PASSWORD = os.environ.get("DIRECTORY_SQL_PASSWORD", "")
+DIRECTORY_SQL_DRIVER = os.environ.get(
+    "DIRECTORY_SQL_DRIVER",
+    "ODBC Driver 18 for SQL Server",
+)
+
+
+# ==========================================================
 # APLICACIONES INSTALADAS
 # ==========================================================
 
@@ -81,6 +96,7 @@ INSTALLED_APPS = [
     "apps.inventory.apps.InventoryConfig",
     "apps.deliveries.apps.DeliveriesConfig",
     "apps.institution.apps.InstitutionConfig",
+    "apps.directory.apps.DirectoryConfig",
     "apps.dashboard.apps.DashboardConfig",
     "apps.reports.apps.ReportsConfig",
     "apps.activity.apps.ActivityConfig",

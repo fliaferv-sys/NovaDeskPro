@@ -1,0 +1,76 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}Directorio Institucional{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Directorio Institucional</h1>
+        <p class="page-subtitle">Consulta de funcionarios y datos institucionales.</p>
+    </div>
+</div>
+
+<form method="get" class="directory-search" style="display: flex; align-items: end; gap: 10px; flex-wrap: wrap; margin-bottom: 16px;">
+    <div style="flex: 1 1 280px;">
+        <label for="directory-search-query">Buscar funcionarios</label>
+        <input
+            id="directory-search-query"
+            class="form-control"
+            type="search"
+            name="q"
+            value="{{ search_query }}"
+            placeholder="Legajo, nombre, ubicación o correo">
+    </div>
+    <button type="submit" class="btn-primary">Buscar</button>
+    {% if search_query %}
+        <a href="{% url 'directory:home' %}" class="btn-secondary">Limpiar</a>
+    {% endif %}
+</form>
+
+{% if directory_error %}
+    <div class="table-card" role="alert" style="border-left: 4px solid #b42318;">
+        <p>{{ directory_error }}</p>
+    </div>
+{% endif %}
+
+<div class="table-card" style="overflow-x: auto;">
+    <table style="width: 100%; min-width: 900px; border-collapse: collapse;">
+        <thead>
+            <tr>
+                <th>Legajo</th>
+                <th>Nombre y apellido</th>
+                <th>Cargo</th>
+                <th>Ubicación</th>
+                <th>Teléfono</th>
+                <th>Correo</th>
+                <th>Estado</th>
+                <th>Vínculo</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for employee in employees %}
+                <tr data-personal-id="{{ employee.IdPersonal }}">
+                    <td>{{ employee.LegajoNro|default:"—" }}</td>
+                    <td>{{ employee.NombresApellidos|default:"—" }}</td>
+                    <td>{{ employee.Cargo|default:"—" }}</td>
+                    <td>{{ employee.Ubicacion|default:"—" }}</td>
+                    <td>{{ employee.Telefono|default:"—" }}</td>
+                    <td>{{ employee.Mail|default:"—" }}</td>
+                    <td>{{ employee.Estado|default:"—" }}</td>
+                    <td>{{ employee.Vinculo|default:"—" }}</td>
+                </tr>
+            {% empty %}
+                <tr>
+                    <td colspan="8">
+                        {% if search_query %}
+                            No se encontraron funcionarios que coincidan con la búsqueda.
+                        {% else %}
+                            No hay funcionarios para mostrar.
+                        {% endif %}
+                    </td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
