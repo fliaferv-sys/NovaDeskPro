@@ -50,6 +50,10 @@ from apps.accounts.services import (
     get_user_department,
     start_technician_workday,
 )
+from apps.directory.services import (
+    DirectoryDatabaseError,
+    get_directory_employee_by_id_personal,
+)
 
 from .authorization_pdf import generate_authorization_pdf
 
@@ -1452,6 +1456,42 @@ def ticket_detail_view(request, pk):
         reverse=True,
     )
 
+    requester_profile = {
+        "full_name": ticket.requester.get_full_name().strip()
+        or ticket.requester.email,
+        "email": ticket.requester.email,
+        "phone": ticket.requester.phone,
+        "location": (
+            str(ticket.requester.department)
+            if ticket.requester.department
+            else None
+        ),
+        "position": ticket.requester.position,
+        "id_personal": ticket.requester.id_personal,
+        "source": "local",
+    }
+
+    if ticket.requester.id_personal:
+        try:
+            directory_employee = get_directory_employee_by_id_personal(
+                ticket.requester.id_personal
+            )
+        except DirectoryDatabaseError:
+            directory_employee = None
+
+        if directory_employee:
+            requester_profile.update(
+                {
+                    "full_name": directory_employee["NombresApellidos"],
+                    "email": directory_employee["Mail"],
+                    "phone": directory_employee["Telefono"],
+                    "location": directory_employee["Ubicacion"],
+                    "position": directory_employee["Cargo"],
+                    "id_personal": directory_employee["IdPersonal"],
+                    "source": "directory",
+                }
+            )
+
     return render(
         request,
         "tickets/ticket_detail.html",
@@ -1473,6 +1513,7 @@ def ticket_detail_view(request, pk):
             "queue_position": queue_position,        # 👈 NUEVO
             "tickets_before": tickets_before,        # 👈 NUEVO
             "estimated_time": estimated_time,        # 👈 NUEVO
+            "requester_profile": requester_profile,
 
             # ==================================================
             # SOLICITUD FORMAL DE ACCESO

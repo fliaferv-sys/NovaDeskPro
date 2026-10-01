@@ -1874,11 +1874,11 @@ Detalle del Ticket #{{ ticket.ticket_number }}
                     {% endif %}
                 </div>
                 <div class="requester-details">
-                    <div class="requester-name">{{ ticket.requester.first_name }} {{ ticket.requester.last_name }}</div>
-                    <p><i class="bi bi-envelope"></i> {{ ticket.requester.email }}</p>
-                    <p><i class="bi bi-telephone"></i> {{ ticket.requester.phone|default:"No registrado" }}</p>
-                    <p><i class="bi bi-building"></i> {{ ticket.requester.department|default:"No registrada" }}</p>
-                    <p><i class="bi bi-briefcase"></i> {{ ticket.requester.position|default:"No registrado" }}</p>
+                    <div class="requester-name">{{ requester_profile.full_name }}</div>
+                    <p><i class="bi bi-envelope"></i> {{ requester_profile.email|default:"No registrado" }}</p>
+                    <p><i class="bi bi-telephone"></i> {{ requester_profile.phone|default:"No registrado" }}</p>
+                    <p><i class="bi bi-building"></i> {{ requester_profile.location|default:"No registrada" }}</p>
+                    <p><i class="bi bi-briefcase"></i> {{ requester_profile.position|default:"No registrado" }}</p>
                 </div>
             </div>
         </div>
