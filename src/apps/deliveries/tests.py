@@ -16,6 +16,7 @@ from .models import (
     DeliveryBatchDocument,
     DeliveryDocument,
 )
+from .views import update_asset_custody
 
 
 def grant_delivery_permissions(user, *codenames):
@@ -29,6 +30,86 @@ def grant_delivery_permissions(user, *codenames):
 def grant_all_delivery_permissions(user):
     permissions = Permission.objects.filter(content_type__app_label="deliveries")
     user.user_permissions.add(*permissions)
+
+
+class AssetCustodyUpdateTests(TestCase):
+    def setUp(self):
+        self.custodian = User.objects.create_user(
+            username="custody-update-custodian",
+            email="custody-update-custodian@example.com",
+            password="test-password",
+            role=User.Role.CLIENT,
+        )
+        self.recipient = User.objects.create_user(
+            username="custody-update-recipient",
+            email="custody-update-recipient@example.com",
+            password="test-password",
+            role=User.Role.CLIENT,
+        )
+        self.asset = Asset.objects.create(
+            internal_code="CUSTODY-UPDATE-ASSET",
+            assigned_user=self.custodian,
+            condition=Asset.Condition.NEW,
+            operational_status=Asset.OperationalStatus.OPERATIONAL,
+        )
+
+    def test_delivered_return_moves_asset_to_used_custody(self):
+        movement = AssetCustodyMovement.objects.create(
+            asset=self.asset,
+            movement_type=AssetCustodyMovement.MovementType.RETURN,
+            status=AssetCustodyMovement.MovementStatus.DELIVERED,
+            delivery_responsible=self.custodian,
+            created_by=self.custodian,
+        )
+
+        update_asset_custody(movement)
+
+        self.asset.refresh_from_db()
+        self.assertIsNone(self.asset.assigned_user)
+        self.assertEqual(self.asset.condition, Asset.Condition.RECOVERED)
+        self.assertEqual(
+            self.asset.operational_status,
+            Asset.OperationalStatus.OBSERVATION,
+        )
+
+    def test_return_not_delivered_does_not_change_asset(self):
+        movement = AssetCustodyMovement.objects.create(
+            asset=self.asset,
+            movement_type=AssetCustodyMovement.MovementType.RETURN,
+            status=AssetCustodyMovement.MovementStatus.PENDING_SIGNATURE,
+            delivery_responsible=self.custodian,
+            created_by=self.custodian,
+        )
+
+        update_asset_custody(movement)
+
+        self.asset.refresh_from_db()
+        self.assertEqual(self.asset.assigned_user, self.custodian)
+        self.assertEqual(self.asset.condition, Asset.Condition.NEW)
+        self.assertEqual(
+            self.asset.operational_status,
+            Asset.OperationalStatus.OPERATIONAL,
+        )
+
+    def test_delivered_delivery_assigns_recipient_without_changing_condition(self):
+        movement = AssetCustodyMovement.objects.create(
+            asset=self.asset,
+            movement_type=AssetCustodyMovement.MovementType.DELIVERY,
+            status=AssetCustodyMovement.MovementStatus.DELIVERED,
+            recipient=self.recipient,
+            delivery_responsible=self.custodian,
+            created_by=self.custodian,
+        )
+
+        update_asset_custody(movement)
+
+        self.asset.refresh_from_db()
+        self.assertEqual(self.asset.assigned_user, self.recipient)
+        self.assertEqual(self.asset.condition, Asset.Condition.NEW)
+        self.assertEqual(
+            self.asset.operational_status,
+            Asset.OperationalStatus.OPERATIONAL,
+        )
 
 
 class DeliveryAuthorizationTests(TestCase):

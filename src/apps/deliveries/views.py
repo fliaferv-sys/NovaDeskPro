@@ -131,6 +131,8 @@ def update_asset_custody(movement):
 
     elif movement.movement_type == AssetCustodyMovement.MovementType.RETURN:
         asset.assigned_user = None
+        asset.condition = Asset.Condition.RECOVERED
+        asset.operational_status = Asset.OperationalStatus.OBSERVATION
 
     if movement.department:
         asset.department = movement.department
