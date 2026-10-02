@@ -1,10 +1,18 @@
+from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 import pyodbc
+from ldap3.core.exceptions import LDAPException
+from ldap3.utils.conv import escape_filter_chars
 from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 
+from apps.core.models import Department
+
+from . import ad_services
+from . import identity_services
+from .ad_services import ActiveDirectoryError
 from .services import (
     DirectoryDatabaseError,
     get_directory_employees,
@@ -12,6 +20,36 @@ from .services import (
     search_directory_employees,
     test_directory_connection,
 )
+
+
+def make_rrhh_employee(**overrides):
+    employee = {
+        "IdPersonal": 1234,
+        "LegajoNro": "RRHH-1234",
+        "NombresApellidos": "Nombre RRHH",
+        "Mail": "rrhh@example.test",
+        "Telefono": "555-0100",
+        "Ubicacion": "Sede RRHH",
+        "Cargo": "Cargo RRHH",
+        "Vinculo": "Permanente",
+        "Estado": "Activo",
+    }
+    employee.update(overrides)
+    return employee
+
+
+def make_ad_user(**overrides):
+    user = {
+        "name": "Nombre AD",
+        "first_name": "Nombre",
+        "last_name": "AD",
+        "email": "ad@example.test",
+        "username": "ad-user",
+        "user_principal_name": "ad-user@example.test",
+        "is_active": True,
+    }
+    user.update(overrides)
+    return user
 
 
 @override_settings(
@@ -272,6 +310,985 @@ class DirectoryDatabaseServiceTests(SimpleTestCase):
         connection.close.assert_called_once_with()
 
 
+@override_settings(
+    DIRECTORY_AD_HOST="mock-ad.example.test",
+    DIRECTORY_AD_PORT=636,
+    DIRECTORY_AD_BASE_DN="DC=example,DC=test",
+    DIRECTORY_AD_DOMAIN="example.test",
+    DIRECTORY_AD_USER="mock-user",
+    DIRECTORY_AD_PASSWORD="mock-password",
+    DIRECTORY_AD_USE_SSL=True,
+    DIRECTORY_AD_TLS_VALIDATE=True,
+    DIRECTORY_AD_CA_CERT_FILE="",
+)
+class ActiveDirectoryServiceTests(SimpleTestCase):
+    def make_entry(self, **overrides):
+        attributes = {
+            "displayName": "Ada Lovelace",
+            "givenName": "Ada",
+            "sn": "Lovelace",
+            "mail": "ada@example.test",
+            "sAMAccountName": "alovelace",
+            "userPrincipalName": "alovelace@example.test",
+            "userAccountControl": 512,
+        }
+        attributes.update(overrides)
+        entry = MagicMock()
+        entry.entry_attributes_as_dict = attributes
+        return entry
+
+    @contextmanager
+    def bound_connection(self, connection):
+        yield connection
+
+    def test_validate_ad_configuration_accepts_complete_settings(self):
+        ad_services._validate_ad_configuration()
+
+    def test_validate_ad_configuration_rejects_missing_user(self):
+        with override_settings(DIRECTORY_AD_USER=""):
+            with self.assertRaises(ad_services.ActiveDirectoryError):
+                ad_services._validate_ad_configuration()
+
+    def test_validate_ad_configuration_rejects_missing_password(self):
+        with override_settings(DIRECTORY_AD_PASSWORD=""):
+            with self.assertRaises(ad_services.ActiveDirectoryError):
+                ad_services._validate_ad_configuration()
+
+    def test_entry_to_user_returns_only_allowed_profile_fields(self):
+        user = ad_services._entry_to_user(self.make_entry())
+
+        self.assertEqual(
+            user,
+            {
+                "name": "Ada Lovelace",
+                "first_name": "Ada",
+                "last_name": "Lovelace",
+                "email": "ada@example.test",
+                "username": "alovelace",
+                "user_principal_name": "alovelace@example.test",
+                "is_active": True,
+            },
+        )
+
+    def test_entry_to_user_marks_disabled_account_inactive(self):
+        user = ad_services._entry_to_user(
+            self.make_entry(userAccountControl=514)
+        )
+
+        self.assertFalse(user["is_active"])
+
+    def test_get_ad_user_by_email_rejects_invalid_email(self):
+        with patch("apps.directory.ad_services._bound_ad_connection") as bound:
+            for email in (None, "", "  ", 123):
+                with self.subTest(email=email):
+                    with self.assertRaises(ValueError):
+                        ad_services.get_ad_user_by_email(email)
+
+        bound.assert_not_called()
+
+    def test_get_ad_user_by_email_returns_none_when_not_found(self):
+        connection = MagicMock()
+        connection.entries = []
+        bound = self.bound_connection(connection)
+
+        with patch(
+            "apps.directory.ad_services._bound_ad_connection",
+            return_value=bound,
+        ):
+            user = ad_services.get_ad_user_by_email("ada@example.test")
+
+        self.assertIsNone(user)
+        connection.search.assert_called_once()
+
+    def test_get_ad_user_by_email_returns_user_and_escapes_filter(self):
+        connection = MagicMock()
+        connection.entries = [self.make_entry()]
+        bound = self.bound_connection(connection)
+        email = "ada*(test)@example.test"
+
+        with patch(
+            "apps.directory.ad_services._bound_ad_connection",
+            return_value=bound,
+        ):
+            user = ad_services.get_ad_user_by_email(email)
+
+        self.assertEqual(user["name"], "Ada Lovelace")
+        connection.search.assert_called_once_with(
+            search_base="DC=example,DC=test",
+            search_filter=(
+                "(&(objectCategory=person)(objectClass=user)"
+                f"(mail={escape_filter_chars(email)}))"
+            ),
+            attributes=ad_services._AD_USER_ATTRIBUTES,
+            size_limit=1,
+        )
+
+    def test_search_ad_users_rejects_invalid_query_and_limit(self):
+        with patch("apps.directory.ad_services._bound_ad_connection") as bound:
+            with self.assertRaises(ValueError):
+                ad_services.search_ad_users(None)
+            self.assertEqual(ad_services.search_ad_users(" A "), [])
+            for limit in (0, 101, True, 1.5, "2"):
+                with self.subTest(limit=limit):
+                    with self.assertRaises(ValueError):
+                        ad_services.search_ad_users("Ada", limit=limit)
+
+        bound.assert_not_called()
+
+    def test_search_ad_users_returns_users_and_uses_expected_filter(self):
+        connection = MagicMock()
+        connection.entries = [
+            self.make_entry(),
+            self.make_entry(
+                displayName="Grace Hopper",
+                givenName="Grace",
+                sn="Hopper",
+                mail="grace@example.test",
+                sAMAccountName="ghopper",
+                userPrincipalName="ghopper@example.test",
+            ),
+        ]
+        bound = self.bound_connection(connection)
+
+        with patch(
+            "apps.directory.ad_services._bound_ad_connection",
+            return_value=bound,
+        ):
+            users = ad_services.search_ad_users(" Ada* ", limit=2)
+
+        self.assertEqual([user["name"] for user in users], ["Ada Lovelace", "Grace Hopper"])
+        search_call = connection.search.call_args.kwargs
+        self.assertEqual(search_call["search_base"], "DC=example,DC=test")
+        self.assertEqual(search_call["attributes"], ad_services._AD_USER_ATTRIBUTES)
+        self.assertEqual(search_call["size_limit"], 2)
+        search_filter = search_call["search_filter"]
+        escaped_query = escape_filter_chars("Ada*")
+        for attribute in (
+            "displayName",
+            "mail",
+            "sAMAccountName",
+            "userPrincipalName",
+        ):
+            self.assertIn(f"({attribute}=*{escaped_query}*)", search_filter)
+
+    @patch("apps.directory.ad_services._open_ad_connection")
+    def test_bound_ad_connection_unbinds_on_normal_exit(self, open_connection):
+        connection = MagicMock()
+        open_connection.return_value = connection
+
+        with ad_services._bound_ad_connection() as bound:
+            self.assertIs(bound, connection)
+
+        connection.unbind.assert_called_once_with()
+
+    @patch("apps.directory.ad_services._open_ad_connection")
+    def test_bound_ad_connection_wraps_ldap_error_from_operation(
+        self,
+        open_connection,
+    ):
+        connection = MagicMock()
+        open_connection.return_value = connection
+
+        with self.assertRaises(ad_services.ActiveDirectoryError):
+            with ad_services._bound_ad_connection():
+                raise LDAPException("mock operation failure")
+
+        connection.unbind.assert_called_once_with()
+
+    @patch("apps.directory.ad_services._open_ad_connection")
+    def test_unbind_error_does_not_replace_normal_exit(self, open_connection):
+        connection = MagicMock()
+        connection.unbind.side_effect = LDAPException("mock unbind failure")
+        open_connection.return_value = connection
+
+        with ad_services._bound_ad_connection():
+            pass
+
+        connection.unbind.assert_called_once_with()
+
+    @patch("apps.directory.ad_services._open_ad_connection")
+    def test_test_ad_connection_returns_true_when_bound(self, open_connection):
+        connection = MagicMock()
+        connection.bound = True
+        open_connection.return_value = connection
+
+        self.assertTrue(ad_services.test_ad_connection())
+
+        connection.unbind.assert_called_once_with()
+
+    @patch("apps.directory.ad_services._open_ad_connection")
+    def test_test_ad_connection_raises_when_not_bound(self, open_connection):
+        connection = MagicMock()
+        connection.bound = False
+        open_connection.return_value = connection
+
+        with self.assertRaises(ad_services.ActiveDirectoryError):
+            ad_services.test_ad_connection()
+
+        connection.unbind.assert_called_once_with()
+
+
+class InstitutionalIdentityServiceTests(SimpleTestCase):
+    def test_rrhh_normalization_maps_fields_and_active_state(self):
+        employee = make_rrhh_employee()
+
+        identity = identity_services._normalize_rrhh_employee(employee)
+
+        self.assertEqual(identity["source"], "RRHH")
+        self.assertEqual(identity["id_personal"], 1234)
+        self.assertEqual(identity["employee_number"], "RRHH-1234")
+        self.assertEqual(identity["name"], "Nombre RRHH")
+        self.assertEqual(identity["email"], "rrhh@example.test")
+        self.assertEqual(identity["phone"], "555-0100")
+        self.assertEqual(identity["location"], "Sede RRHH")
+        self.assertEqual(identity["position"], "Cargo RRHH")
+        self.assertEqual(identity["employment_type"], "Permanente")
+        self.assertEqual(identity["status"], "Activo")
+        self.assertEqual(identity["first_name"], "")
+        self.assertEqual(identity["last_name"], "")
+        self.assertEqual(identity["username"], "")
+        self.assertTrue(identity["is_active"])
+
+        inactive = identity_services._normalize_rrhh_employee(
+            make_rrhh_employee(Estado="Inactivo")
+        )
+        self.assertFalse(inactive["is_active"])
+
+    def test_active_directory_normalization_maps_only_identity_fields(self):
+        identity = identity_services._normalize_ad_user(make_ad_user())
+
+        self.assertEqual(identity["source"], "ACTIVE_DIRECTORY")
+        self.assertIsNone(identity["id_personal"])
+        self.assertEqual(identity["employee_number"], "")
+        self.assertEqual(identity["name"], "Nombre AD")
+        self.assertEqual(identity["first_name"], "Nombre")
+        self.assertEqual(identity["last_name"], "AD")
+        self.assertEqual(identity["email"], "ad@example.test")
+        self.assertEqual(identity["username"], "ad-user")
+        self.assertEqual(identity["phone"], "")
+        self.assertEqual(identity["location"], "")
+        self.assertEqual(identity["position"], "")
+        self.assertEqual(identity["employment_type"], "")
+        self.assertEqual(identity["status"], "Activo")
+        self.assertTrue(identity["is_active"])
+
+        inactive = identity_services._normalize_ad_user(
+            make_ad_user(is_active=False)
+        )
+        self.assertEqual(inactive["status"], "Inactivo")
+        self.assertFalse(inactive["is_active"])
+
+    @patch("apps.directory.identity_services._normalize_local_user")
+    @patch("apps.directory.identity_services.get_ad_user_by_email")
+    @patch("apps.directory.identity_services.search_directory_employees")
+    @patch("apps.directory.identity_services.get_directory_employee_by_id_personal")
+    def test_id_personal_rrhh_match_returns_immediately(
+        self,
+        find_by_id,
+        search_rrhh,
+        find_ad_user,
+        normalize_local,
+    ):
+        employee = make_rrhh_employee()
+        find_by_id.return_value = employee
+        local_user = MagicMock()
+
+        identity = identity_services.resolve_institutional_identity(
+            id_personal=1234,
+            email="local@example.test",
+            local_user=local_user,
+        )
+
+        self.assertEqual(identity["source"], "RRHH")
+        find_by_id.assert_called_once_with(1234)
+        search_rrhh.assert_not_called()
+        find_ad_user.assert_not_called()
+        normalize_local.assert_not_called()
+
+    @patch("apps.directory.identity_services.get_ad_user_by_email")
+    @patch("apps.directory.identity_services.search_directory_employees")
+    @patch("apps.directory.identity_services.get_directory_employee_by_id_personal")
+    def test_id_miss_uses_exact_case_insensitive_rrhh_email_match(
+        self,
+        find_by_id,
+        search_rrhh,
+        find_ad_user,
+    ):
+        find_by_id.return_value = None
+        search_rrhh.return_value = [
+            make_rrhh_employee(Mail="  RRHH@Example.Test ")
+        ]
+
+        identity = identity_services.resolve_institutional_identity(
+            id_personal=1234,
+            email="  rrhh@example.test  ",
+        )
+
+        self.assertEqual(identity["source"], "RRHH")
+        search_rrhh.assert_called_once_with("rrhh@example.test", limit=20)
+        find_ad_user.assert_not_called()
+
+    @patch("apps.directory.identity_services.get_ad_user_by_email")
+    @patch("apps.directory.identity_services.search_directory_employees")
+    def test_partial_rrhh_email_match_continues_to_active_directory(
+        self,
+        search_rrhh,
+        find_ad_user,
+    ):
+        search_rrhh.return_value = [
+            make_rrhh_employee(Mail="ana.otro@empresa.test")
+        ]
+        find_ad_user.return_value = make_ad_user(email="ana@empresa.test")
+
+        identity = identity_services.resolve_institutional_identity(
+            email="ana@empresa.test",
+        )
+
+        self.assertEqual(identity["source"], "ACTIVE_DIRECTORY")
+        find_ad_user.assert_called_once_with("ana@empresa.test")
+
+    @patch("apps.directory.identity_services.get_ad_user_by_email")
+    @patch("apps.directory.identity_services.search_directory_employees", return_value=[])
+    def test_active_directory_is_used_when_rrhh_has_no_email_match(
+        self,
+        search_rrhh,
+        find_ad_user,
+    ):
+        find_ad_user.return_value = make_ad_user()
+
+        identity = identity_services.resolve_institutional_identity(
+            email="ad@example.test",
+        )
+
+        self.assertEqual(identity["source"], "ACTIVE_DIRECTORY")
+        search_rrhh.assert_called_once_with("ad@example.test", limit=20)
+        find_ad_user.assert_called_once_with("ad@example.test")
+
+    @patch("apps.directory.identity_services.get_ad_user_by_email")
+    @patch(
+        "apps.directory.identity_services.search_directory_employees",
+        side_effect=DirectoryDatabaseError("mock HR failure"),
+    )
+    def test_rrhh_search_error_continues_to_active_directory(
+        self,
+        search_rrhh,
+        find_ad_user,
+    ):
+        find_ad_user.return_value = make_ad_user()
+
+        identity = identity_services.resolve_institutional_identity(
+            email="ad@example.test",
+        )
+
+        self.assertEqual(identity["source"], "ACTIVE_DIRECTORY")
+        search_rrhh.assert_called_once_with("ad@example.test", limit=20)
+        find_ad_user.assert_called_once_with("ad@example.test")
+
+    @patch("apps.directory.identity_services.User.objects.filter")
+    @patch("apps.directory.identity_services.get_ad_user_by_email", return_value=None)
+    @patch("apps.directory.identity_services.search_directory_employees", return_value=[])
+    def test_no_source_match_returns_none(self, search_rrhh, find_ad_user, user_filter):
+        user_filter.return_value.first.return_value = None
+
+        identity = identity_services.resolve_institutional_identity(
+            email="missing@example.test",
+        )
+
+        self.assertIsNone(identity)
+        search_rrhh.assert_called_once()
+        find_ad_user.assert_called_once()
+        user_filter.assert_called_once_with(email__iexact="missing@example.test")
+
+    @patch(
+        "apps.directory.identity_services.get_directory_employee_by_id_personal",
+        side_effect=RuntimeError("unexpected failure"),
+    )
+    def test_unexpected_dependency_error_is_wrapped(self, find_by_id):
+        with self.assertRaises(identity_services.InstitutionalIdentityError) as context:
+            identity_services.resolve_institutional_identity(id_personal=1234)
+
+        self.assertIsInstance(context.exception.__cause__, RuntimeError)
+        find_by_id.assert_called_once_with(1234)
+
+    def test_resolve_identity_for_user_rejects_none(self):
+        with self.assertRaises(ValueError):
+            identity_services.resolve_identity_for_user(None)
+
+
+class InstitutionalIdentityLocalFallbackTests(TestCase):
+    def setUp(self):
+        self.department = Department.objects.create(
+            code="IDENTITY-LOCAL-TEST",
+            name="Departamento de prueba",
+        )
+
+    def create_user(self, username, email, **overrides):
+        return get_user_model().objects.create_user(
+            username=username,
+            email=email,
+            password="test-password",
+            first_name="Nombre local",
+            last_name="Apellido local",
+            phone="555-0200",
+            employee_number=f"EMP-{username}",
+            id_personal=5678,
+            department=self.department,
+            position="Cargo local",
+            **overrides,
+        )
+
+    def test_local_normalization_maps_user_fields(self):
+        user = self.create_user("identity-local-normalize", "local@example.test")
+
+        identity = identity_services._normalize_local_user(user)
+
+        self.assertEqual(identity["source"], "LOCAL")
+        self.assertEqual(identity["id_personal"], 5678)
+        self.assertEqual(identity["employee_number"], "EMP-identity-local-normalize")
+        self.assertEqual(identity["name"], "Nombre local Apellido local")
+        self.assertEqual(identity["first_name"], "Nombre local")
+        self.assertEqual(identity["last_name"], "Apellido local")
+        self.assertEqual(identity["email"], "local@example.test")
+        self.assertEqual(identity["phone"], "555-0200")
+        self.assertEqual(identity["location"], str(self.department))
+        self.assertEqual(identity["position"], "Cargo local")
+        self.assertEqual(identity["employment_type"], user.get_employment_type_display())
+        self.assertEqual(identity["username"], "identity-local-normalize")
+        self.assertTrue(identity["is_active"])
+        self.assertEqual(identity["status"], "Activo")
+
+    @patch("apps.directory.identity_services.get_ad_user_by_email", side_effect=ActiveDirectoryError("mock AD failure"))
+    @patch("apps.directory.identity_services.search_directory_employees", return_value=[])
+    @patch("apps.directory.identity_services.get_directory_employee_by_id_personal", side_effect=DirectoryDatabaseError("mock HR failure"))
+    def test_explicit_local_user_is_fallback_after_known_source_errors(
+        self,
+        find_by_id,
+        search_rrhh,
+        find_ad_user,
+    ):
+        user = self.create_user("identity-local-explicit", "explicit@example.test")
+
+        identity = identity_services.resolve_institutional_identity(
+            id_personal=user.id_personal,
+            email=user.email,
+            local_user=user,
+        )
+
+        self.assertEqual(identity["source"], "LOCAL")
+        self.assertEqual(identity["email"], user.email)
+        find_by_id.assert_called_once_with(user.id_personal)
+        search_rrhh.assert_called_once_with(user.email, limit=20)
+        find_ad_user.assert_called_once_with(user.email)
+
+    @patch("apps.directory.identity_services.get_ad_user_by_email", return_value=None)
+    @patch("apps.directory.identity_services.search_directory_employees", return_value=[])
+    def test_local_user_is_found_by_case_insensitive_email(self, search_rrhh, find_ad_user):
+        user = self.create_user("identity-local-email", "person@example.test")
+
+        identity = identity_services.resolve_institutional_identity(
+            email="PERSON@EXAMPLE.TEST",
+        )
+
+        self.assertEqual(identity["source"], "LOCAL")
+        self.assertEqual(identity["id_personal"], user.id_personal)
+        search_rrhh.assert_called_once_with("PERSON@EXAMPLE.TEST", limit=20)
+        find_ad_user.assert_called_once_with("PERSON@EXAMPLE.TEST")
+
+    def test_resolve_identity_for_user_passes_user_fields_to_resolver(self):
+        user = self.create_user("identity-resolve-user", "user@example.test")
+
+        with patch(
+            "apps.directory.identity_services.resolve_institutional_identity",
+            return_value={"source": "LOCAL"},
+        ) as resolve:
+            result = identity_services.resolve_identity_for_user(user)
+
+        self.assertEqual(result, {"source": "LOCAL"})
+        resolve.assert_called_once_with(
+            id_personal=user.id_personal,
+            email=user.email,
+            local_user=user,
+        )
+
+
+class InstitutionalIdentitySearchTests(SimpleTestCase):
+    @contextmanager
+    def mock_local_users(self, users=()):
+        with patch(
+            "apps.directory.identity_services.User.objects.filter"
+        ) as local_filter:
+            local_filter.return_value.distinct.return_value = list(users)
+            yield local_filter
+
+    def test_search_validation(self):
+        with (
+            patch("apps.directory.identity_services.search_directory_employees") as rrhh,
+            patch("apps.directory.identity_services.search_ad_users") as ad,
+            self.mock_local_users() as local_filter,
+        ):
+            with self.assertRaises(ValueError):
+                identity_services.search_institutional_identities(None)
+
+            self.assertEqual(
+                identity_services.search_institutional_identities("  A  "),
+                [],
+            )
+
+            for limit in (0, 101, True, 1.5, "20"):
+                with self.subTest(limit=limit):
+                    with self.assertRaises(ValueError):
+                        identity_services.search_institutional_identities(
+                            "query",
+                            limit=limit,
+                        )
+
+        rrhh.assert_not_called()
+        ad.assert_not_called()
+        local_filter.assert_not_called()
+
+    def test_rrhh_and_ad_duplicate_by_case_insensitive_email(self):
+        rrhh_employee = make_rrhh_employee(Mail="person@example.test")
+        ad_user = make_ad_user(email="PERSON@EXAMPLE.TEST")
+
+        with (
+            patch(
+                "apps.directory.identity_services.search_directory_employees",
+                return_value=[rrhh_employee],
+            ) as rrhh,
+            patch(
+                "apps.directory.identity_services.search_ad_users",
+                return_value=[ad_user],
+            ) as ad,
+            self.mock_local_users(),
+        ):
+            identities = identity_services.search_institutional_identities("person")
+
+        self.assertEqual([item["source"] for item in identities], ["RRHH"])
+        rrhh.assert_called_once_with("person", limit=20)
+        ad.assert_called_once_with("person", limit=20)
+
+    def test_duplicate_id_personal_without_email_keeps_rrhh(self):
+        rrhh_identity = {
+            "source": "RRHH",
+            "email": "",
+            "id_personal": 4444,
+            "username": "",
+            "name": "RRHH",
+            "employee_number": "",
+        }
+        ad_identity = {
+            **rrhh_identity,
+            "source": "ACTIVE_DIRECTORY",
+            "name": "AD",
+        }
+
+        with (
+            patch(
+                "apps.directory.identity_services.search_directory_employees",
+                return_value=[make_rrhh_employee()],
+            ),
+            patch(
+                "apps.directory.identity_services.search_ad_users",
+                return_value=[make_ad_user()],
+            ),
+            patch(
+                "apps.directory.identity_services._normalize_rrhh_employee",
+                return_value=rrhh_identity,
+            ),
+            patch(
+                "apps.directory.identity_services._normalize_ad_user",
+                return_value=ad_identity,
+            ),
+            self.mock_local_users(),
+        ):
+            identities = identity_services.search_institutional_identities("same")
+
+        self.assertEqual(identities, [rrhh_identity])
+
+    def test_duplicate_username_without_email_or_id_keeps_first_identity(self):
+        rrhh_identity = {
+            "source": "RRHH",
+            "email": "",
+            "id_personal": None,
+            "username": "SharedUser",
+            "name": "Primera fuente",
+            "employee_number": "",
+        }
+        ad_identity = {
+            **rrhh_identity,
+            "source": "ACTIVE_DIRECTORY",
+            "username": "shareduser",
+            "name": "Segunda fuente",
+        }
+
+        with (
+            patch(
+                "apps.directory.identity_services.search_directory_employees",
+                return_value=[make_rrhh_employee()],
+            ),
+            patch(
+                "apps.directory.identity_services.search_ad_users",
+                return_value=[make_ad_user()],
+            ),
+            patch(
+                "apps.directory.identity_services._normalize_rrhh_employee",
+                return_value=rrhh_identity,
+            ),
+            patch(
+                "apps.directory.identity_services._normalize_ad_user",
+                return_value=ad_identity,
+            ),
+            self.mock_local_users(),
+        ):
+            identities = identity_services.search_institutional_identities("same")
+
+        self.assertEqual(identities, [rrhh_identity])
+
+    def test_rrhh_error_continues_to_ad_and_returns_ad_identity(self):
+        with (
+            patch(
+                "apps.directory.identity_services.search_directory_employees",
+                side_effect=DirectoryDatabaseError("mock RRHH failure"),
+            ) as rrhh,
+            patch(
+                "apps.directory.identity_services.search_ad_users",
+                return_value=[make_ad_user()],
+            ) as ad,
+            self.mock_local_users(),
+        ):
+            identities = identity_services.search_institutional_identities("ad")
+
+        self.assertEqual([item["source"] for item in identities], ["ACTIVE_DIRECTORY"])
+        rrhh.assert_called_once_with("ad", limit=20)
+        ad.assert_called_once_with("ad", limit=20)
+
+    def test_unexpected_source_error_is_wrapped(self):
+        with patch(
+            "apps.directory.identity_services.search_directory_employees",
+            side_effect=RuntimeError("unexpected failure"),
+        ):
+            with self.assertRaises(identity_services.InstitutionalIdentityError):
+                identity_services.search_institutional_identities("unexpected")
+
+    def test_final_limit_is_applied_after_collecting_sources(self):
+        rrhh_employees = [
+            make_rrhh_employee(
+                IdPersonal=index,
+                Mail=f"rrhh-{index}@example.test",
+                NombresApellidos=f"RRHH {index}",
+            )
+            for index in range(1, 4)
+        ]
+        ad_users = [
+            make_ad_user(
+                email=f"ad-{index}@example.test",
+                name=f"AD {index}",
+            )
+            for index in range(1, 4)
+        ]
+
+        with (
+            patch(
+                "apps.directory.identity_services.search_directory_employees",
+                return_value=rrhh_employees,
+            ) as rrhh,
+            patch(
+                "apps.directory.identity_services.search_ad_users",
+                return_value=ad_users,
+            ) as ad,
+            self.mock_local_users(),
+        ):
+            identities = identity_services.search_institutional_identities(
+                "source",
+                limit=2,
+            )
+
+        self.assertEqual(len(identities), 2)
+        self.assertEqual([item["name"] for item in identities], ["RRHH 1", "RRHH 2"])
+        rrhh.assert_called_once_with("source", limit=2)
+        ad.assert_called_once_with("source", limit=2)
+
+
+class InstitutionalIdentityLocalSearchTests(TestCase):
+    def create_user(self, username, email, **fields):
+        user_fields = {
+            "first_name": "BaseFirst",
+            "last_name": "BaseLast",
+            "employee_number": f"EMP-{username}",
+            "id_personal": None,
+        }
+        user_fields.update(fields)
+        return get_user_model().objects.create_user(
+            username=username,
+            email=email,
+            password="test-password",
+            **user_fields,
+        )
+
+    def search_with_external_sources_mocked(self, query, limit=20):
+        with (
+            patch(
+                "apps.directory.identity_services.search_directory_employees",
+                return_value=[],
+            ),
+            patch(
+                "apps.directory.identity_services.search_ad_users",
+                return_value=[],
+            ),
+        ):
+            return identity_services.search_institutional_identities(
+                query,
+                limit=limit,
+            )
+
+    def test_source_priority_is_rrhh_then_ad_then_local(self):
+        local_user = self.create_user(
+            "priority-local-account",
+            "priority-local@example.test",
+        )
+
+        with (
+            patch(
+                "apps.directory.identity_services.search_directory_employees",
+                return_value=[make_rrhh_employee(Mail="priority-rrhh@example.test")],
+            ) as rrhh,
+            patch(
+                "apps.directory.identity_services.search_ad_users",
+                return_value=[make_ad_user(email="priority-ad@example.test")],
+            ) as ad,
+        ):
+            identities = identity_services.search_institutional_identities("priority")
+
+        self.assertEqual(
+            [item["source"] for item in identities],
+            ["RRHH", "ACTIVE_DIRECTORY", "LOCAL"],
+        )
+        self.assertEqual(identities[2]["email"], local_user.email)
+        rrhh.assert_called_once_with("priority", limit=20)
+        ad.assert_called_once_with("priority", limit=20)
+
+    def test_ad_and_local_duplicate_by_email_keeps_ad(self):
+        self.create_user("shared-local-account", "shared@example.test")
+
+        with (
+            patch(
+                "apps.directory.identity_services.search_directory_employees",
+                return_value=[],
+            ),
+            patch(
+                "apps.directory.identity_services.search_ad_users",
+                return_value=[make_ad_user(email="SHARED@EXAMPLE.TEST")],
+            ),
+        ):
+            identities = identity_services.search_institutional_identities("shared")
+
+        self.assertEqual([item["source"] for item in identities], ["ACTIVE_DIRECTORY"])
+
+    def test_distinct_people_from_all_sources_are_retained(self):
+        self.create_user("all-sources-local", "all-sources-local@example.test")
+
+        with (
+            patch(
+                "apps.directory.identity_services.search_directory_employees",
+                return_value=[make_rrhh_employee(Mail="all-sources-rrhh@example.test")],
+            ),
+            patch(
+                "apps.directory.identity_services.search_ad_users",
+                return_value=[make_ad_user(email="all-sources-ad@example.test")],
+            ),
+        ):
+            identities = identity_services.search_institutional_identities(
+                "all-sources"
+            )
+
+        self.assertEqual(
+            [item["source"] for item in identities],
+            ["RRHH", "ACTIVE_DIRECTORY", "LOCAL"],
+        )
+
+    def test_local_search_matches_text_fields(self):
+        cases = (
+            (
+                self.create_user(
+                    "email-account",
+                    "needle-email@example.test",
+                ),
+                "needle-email",
+            ),
+            (
+                self.create_user(
+                    "needle-username",
+                    "username-search@example.test",
+                ),
+                "needle-username",
+            ),
+            (
+                self.create_user(
+                    "first-name-account",
+                    "first-name-search@example.test",
+                    first_name="NeedleFirst",
+                ),
+                "needlefirst",
+            ),
+            (
+                self.create_user(
+                    "last-name-account",
+                    "last-name-search@example.test",
+                    last_name="NeedleLast",
+                ),
+                "needlelast",
+            ),
+            (
+                self.create_user(
+                    "employee-number-account",
+                    "employee-number-search@example.test",
+                    employee_number="NEEDLE-EMPLOYEE",
+                ),
+                "needle-employee",
+            ),
+        )
+
+        for expected_user, query in cases:
+            with self.subTest(field=query):
+                identities = self.search_with_external_sources_mocked(query)
+                self.assertEqual(len(identities), 1)
+                self.assertEqual(identities[0]["email"], expected_user.email)
+                self.assertEqual(identities[0]["source"], "LOCAL")
+
+    def test_numeric_query_matches_local_id_personal(self):
+        user = self.create_user(
+            "numeric-personal-account",
+            "numeric-personal@example.test",
+            id_personal=987654321,
+        )
+
+        identities = self.search_with_external_sources_mocked("987654321")
+
+        self.assertEqual(len(identities), 1)
+        self.assertEqual(identities[0]["source"], "LOCAL")
+        self.assertEqual(identities[0]["id_personal"], user.id_personal)
+
+    def test_ad_error_continues_to_local_user(self):
+        user = self.create_user("local-fallback-account", "local-fallback@example.test")
+
+        with (
+            patch(
+                "apps.directory.identity_services.search_directory_employees",
+                return_value=[],
+            ),
+            patch(
+                "apps.directory.identity_services.search_ad_users",
+                side_effect=ActiveDirectoryError("mock AD failure"),
+            ),
+        ):
+            identities = identity_services.search_institutional_identities(
+                "local-fallback"
+            )
+
+        self.assertEqual([item["source"] for item in identities], ["LOCAL"])
+        self.assertEqual(identities[0]["email"], user.email)
+
+
+class DirectoryEmployeeSearchApiTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            username="directory-api-user",
+            email="directory-api-user@example.test",
+            password="test-password",
+        )
+        self.url = reverse("directory:employee_search_api")
+
+    def test_anonymous_user_is_redirected_to_login(self):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response["Location"],
+            f"{reverse('login')}?next={self.url}",
+        )
+
+    @patch("apps.directory.views.search_institutional_identities")
+    def test_short_query_returns_empty_list_without_searching(self, search):
+        self.client.force_login(self.user)
+
+        response = self.client.get(self.url, {"q": "A"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"employees": []})
+        search.assert_not_called()
+
+    @patch("apps.directory.views.search_institutional_identities")
+    def test_search_returns_safe_employee_json(self, search):
+        search.return_value = [
+            {
+                "source": "RRHH",
+                "id_personal": 1234,
+                "employee_number": "999",
+                "name": "Funcionario Institucional",
+                "first_name": "",
+                "last_name": "",
+                "location": "Ubicacion institucional",
+                "phone": "0981000000",
+                "email": "persona@example.test",
+                "status": "Activo",
+                "employment_type": "Permanente",
+                "position": "Cargo institucional",
+                "username": "",
+                "is_active": True,
+            }
+        ]
+        self.client.force_login(self.user)
+
+        response = self.client.get(self.url, {"q": "Ariel"})
+
+        self.assertEqual(response.status_code, 200)
+        search.assert_called_once_with("Ariel", limit=20)
+        employee = response.json()["employees"][0]
+        self.assertEqual(
+            set(employee),
+            {
+                "source",
+                "id_personal",
+                "employee_number",
+                "name",
+                "first_name",
+                "last_name",
+                "location",
+                "phone",
+                "email",
+                "status",
+                "employment_type",
+                "position",
+                "username",
+                "is_active",
+            },
+        )
+        self.assertEqual(employee["source"], "RRHH")
+        self.assertEqual(employee["id_personal"], 1234)
+        self.assertEqual(employee["employee_number"], "999")
+        self.assertEqual(employee["name"], "Funcionario Institucional")
+        self.assertIs(employee["is_active"], True)
+        self.assertNotIn("DesvinculacionFecha", employee)
+
+    @patch("apps.directory.views.search_institutional_identities")
+    def test_search_error_returns_service_unavailable(self, search):
+        search.side_effect = identity_services.InstitutionalIdentityError(
+            "mock failure"
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(self.url, {"q": "Ariel"})
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(
+            response.json(),
+            {
+                "employees": [],
+                "error": "No fue posible consultar el Directorio Institucional.",
+            },
+        )
+
+
 class DirectoryHomeViewTests(TestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user(
@@ -280,7 +1297,7 @@ class DirectoryHomeViewTests(TestCase):
             password="test-password",
         )
 
-    @patch("apps.directory.views.search_directory_employees", return_value=[])
+    @patch("apps.directory.views.search_institutional_identities")
     def test_authenticated_user_can_access_directory_home(self, search):
         self.client.force_login(self.user)
 
@@ -288,34 +1305,40 @@ class DirectoryHomeViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Directorio Institucional")
-        search.assert_called_once_with("", limit=100)
+        search.assert_not_called()
 
-    @patch("apps.directory.views.search_directory_employees")
+    @patch("apps.directory.views.search_institutional_identities")
     def test_directory_home_displays_mocked_employees(self, search):
         search.return_value = [
             {
-                "LegajoNro": "TEST-002",
-                "NombresApellidos": "Persona de prueba",
-                "IdPersonal": 2002,
-                "Ubicacion": "Sede de prueba",
-                "Telefono": "000000001",
-                "Mail": "persona@example.invalid",
-                "Estado": "Activo",
-                "Vinculo": "Permanente",
-                "DesvinculacionFecha": None,
-                "Cargo": "Cargo de prueba",
+                "source": "RRHH",
+                "id_personal": 2002,
+                "employee_number": "TEST-002",
+                "name": "Persona de prueba",
+                "first_name": "",
+                "last_name": "",
+                "location": "Sede de prueba",
+                "phone": "000000001",
+                "email": "persona@example.invalid",
+                "status": "Activo",
+                "employment_type": "Permanente",
+                "position": "Cargo de prueba",
+                "username": "",
+                "is_active": True,
             }
         ]
         self.client.force_login(self.user)
 
-        response = self.client.get(reverse("directory:home"))
+        response = self.client.get(reverse("directory:home"), {"q": "Persona"})
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Persona de prueba")
         self.assertContains(response, "TEST-002")
+        self.assertContains(response, "RR.HH.")
         self.assertEqual(response.context["employees"], search.return_value)
+        search.assert_called_once_with("Persona", limit=100)
 
-    @patch("apps.directory.views.search_directory_employees", return_value=[])
+    @patch("apps.directory.views.search_institutional_identities", return_value=[])
     def test_directory_home_preserves_search_query(self, search):
         self.client.force_login(self.user)
 
@@ -325,12 +1348,14 @@ class DirectoryHomeViewTests(TestCase):
         self.assertEqual(response.context["search_query"], "Ana")
         search.assert_called_once_with("Ana", limit=100)
 
-    @patch("apps.directory.views.search_directory_employees")
-    def test_directory_database_error_renders_friendly_message(self, search):
-        search.side_effect = DirectoryDatabaseError("technical secret details")
+    @patch("apps.directory.views.search_institutional_identities")
+    def test_institutional_identity_error_renders_friendly_message(self, search):
+        search.side_effect = identity_services.InstitutionalIdentityError(
+            "technical secret details"
+        )
         self.client.force_login(self.user)
 
-        response = self.client.get(reverse("directory:home"))
+        response = self.client.get(reverse("directory:home"), {"q": "Ariel"})
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["employees"], [])

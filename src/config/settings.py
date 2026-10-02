@@ -78,6 +78,31 @@ DIRECTORY_SQL_DRIVER = os.environ.get(
 
 
 # ==========================================================
+# ACTIVE DIRECTORY - DIRECTORIO CORPORATIVO
+# ==========================================================
+
+DIRECTORY_AD_HOST = os.environ.get("DIRECTORY_AD_HOST", "ANTARES.petropar.gov.py")
+DIRECTORY_AD_PORT = int(os.environ.get("DIRECTORY_AD_PORT", "636"))
+DIRECTORY_AD_BASE_DN = os.environ.get(
+    "DIRECTORY_AD_BASE_DN",
+    "DC=petropar,DC=gov,DC=py",
+)
+DIRECTORY_AD_DOMAIN = os.environ.get(
+    "DIRECTORY_AD_DOMAIN",
+    "petropar.gov.py",
+)
+DIRECTORY_AD_USER = os.environ.get("DIRECTORY_AD_USER", "")
+DIRECTORY_AD_PASSWORD = os.environ.get("DIRECTORY_AD_PASSWORD", "")
+DIRECTORY_AD_USE_SSL = (
+    os.environ.get("DIRECTORY_AD_USE_SSL", "True").lower() == "true"
+)
+DIRECTORY_AD_TLS_VALIDATE = (
+    os.environ.get("DIRECTORY_AD_TLS_VALIDATE", "True").lower() == "true"
+)
+DIRECTORY_AD_CA_CERT_FILE = os.environ.get("DIRECTORY_AD_CA_CERT_FILE", "")
+
+
+# ==========================================================
 # APLICACIONES INSTALADAS
 # ==========================================================
 

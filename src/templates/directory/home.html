@@ -6,7 +6,7 @@
 <div class="page-header">
     <div>
         <h1 class="page-title">Directorio Institucional</h1>
-        <p class="page-subtitle">Consulta de funcionarios y datos institucionales.</p>
+        <p class="page-subtitle">Consulta unificada de personas y datos institucionales.</p>
     </div>
 </div>
 
@@ -19,7 +19,7 @@
             type="search"
             name="q"
             value="{{ search_query }}"
-            placeholder="Legajo, nombre, ubicación o correo">
+            placeholder="Nombre, correo, usuario o legajo">
     </div>
     <button type="submit" class="btn-primary">Buscar</button>
     {% if search_query %}
@@ -37,6 +37,7 @@
     <table style="width: 100%; min-width: 900px; border-collapse: collapse;">
         <thead>
             <tr>
+                <th>Fuente</th>
                 <th>Legajo</th>
                 <th>Nombre y apellido</th>
                 <th>Cargo</th>
@@ -49,19 +50,30 @@
         </thead>
         <tbody>
             {% for employee in employees %}
-                <tr data-personal-id="{{ employee.IdPersonal }}">
-                    <td>{{ employee.LegajoNro|default:"—" }}</td>
-                    <td>{{ employee.NombresApellidos|default:"—" }}</td>
-                    <td>{{ employee.Cargo|default:"—" }}</td>
-                    <td>{{ employee.Ubicacion|default:"—" }}</td>
-                    <td>{{ employee.Telefono|default:"—" }}</td>
-                    <td>{{ employee.Mail|default:"—" }}</td>
-                    <td>{{ employee.Estado|default:"—" }}</td>
-                    <td>{{ employee.Vinculo|default:"—" }}</td>
+                <tr data-personal-id="{{ employee.id_personal|default:'' }}">
+                    <td>
+                        {% if employee.source == "RRHH" %}
+                            RR.HH.
+                        {% elif employee.source == "ACTIVE_DIRECTORY" %}
+                            Active Directory
+                        {% elif employee.source == "LOCAL" %}
+                            NovaDesk
+                        {% else %}
+                            {{ employee.source|default:"—" }}
+                        {% endif %}
+                    </td>
+                    <td>{{ employee.employee_number|default:"—" }}</td>
+                    <td>{{ employee.name|default:"—" }}</td>
+                    <td>{{ employee.position|default:"—" }}</td>
+                    <td>{{ employee.location|default:"—" }}</td>
+                    <td>{{ employee.phone|default:"—" }}</td>
+                    <td>{{ employee.email|default:"—" }}</td>
+                    <td>{{ employee.status|default:"—" }}</td>
+                    <td>{{ employee.employment_type|default:"—" }}</td>
                 </tr>
             {% empty %}
                 <tr>
-                    <td colspan="8">
+                    <td colspan="9">
                         {% if search_query %}
                             No se encontraron funcionarios que coincidan con la búsqueda.
                         {% else %}
