@@ -300,9 +300,10 @@ DATOS GENERALES
 
             <p>
                 <strong>Receptor:</strong><br>
-                {% if delivery_batch.recipient %}
-                    {{ delivery_batch.recipient.first_name }}
-                    {{ delivery_batch.recipient.last_name }}
+                {% if delivery_batch.recipient_name %}
+                    {{ delivery_batch.recipient_name }}
+                {% elif delivery_batch.recipient %}
+                    {{ delivery_batch.recipient.get_full_name|default:delivery_batch.recipient.username }}
                 {% else %}
                     Sin receptor
                 {% endif %}

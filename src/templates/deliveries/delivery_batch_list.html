@@ -98,7 +98,11 @@ Actas Agrupadas de Entrega
                         </td>
 
                         <td>
-                            {% if batch.recipient %}
+                            {% if batch.recipient_name %}
+                                <strong>
+                                    {{ batch.recipient_name }}
+                                </strong>
+                            {% elif batch.recipient %}
                                 <strong>
                                     {{ batch.recipient.first_name }}
                                     {{ batch.recipient.last_name }}

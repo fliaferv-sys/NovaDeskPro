@@ -6,10 +6,26 @@ from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.lib.utils import ImageReader
+from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from apps.institution.models import InstitutionSettings
-from .pdf_generator import _image_flowable
+
+
+def _image_flowable(image_field, max_width=500, max_height=75):
+    """Construye una imagen ajustada sin depender del almacenamiento local."""
+    try:
+        image_field.open("rb")
+        image_data = BytesIO(image_field.read())
+        image_field.close()
+        width, height = ImageReader(image_data).getSize()
+        scale = min(max_width / width, max_height / height, 1)
+        image_data.seek(0)
+        result = Image(image_data, width=width * scale, height=height * scale)
+        result.hAlign = "CENTER"
+        return result
+    except (AttributeError, OSError, ValueError):
+        return None
 
 
 def _text(value, default="-"):
@@ -193,7 +209,9 @@ def generate_delivery_batch_pdf(batch):
         _section("Origen y responsable de entrega", width, primary, styles["section"]),
         _people_box(origin, responsible, "Firma del responsable de entrega", width, palette, styles), Spacer(1, 2 * mm),
     ])
-    recipient = _name(batch.recipient, "Sin receptor asignado")
+    recipient = (batch.recipient_name or "").strip()
+    if not recipient:
+        recipient = _name(batch.recipient, "Sin receptor asignado")
     destination = [
         ("Destino", "{} - {}".format(batch.destination_branch or "-", batch.location or "-"), "Unidad", batch.recipient_unit),
         ("Departamento", batch.department, "Área", batch.recipient_area),

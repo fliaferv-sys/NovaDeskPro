@@ -65,6 +65,30 @@ class DeliveryBatch(models.Model):
         verbose_name="Receptor",
     )
 
+    recipient_id_personal = models.PositiveIntegerField(
+        blank=True,
+        null=True,
+        db_index=True,
+        verbose_name="IdPersonal del receptor",
+    )
+
+    recipient_name = models.CharField(
+        max_length=200,
+        blank=True,
+        verbose_name="Nombre del receptor",
+    )
+
+    recipient_email = models.EmailField(
+        blank=True,
+        verbose_name="Correo del receptor",
+    )
+
+    recipient_source = models.CharField(
+        max_length=30,
+        blank=True,
+        verbose_name="Fuente institucional del receptor",
+    )
+
     recipient_employee_number = models.CharField(
         max_length=30,
         blank=True,
@@ -429,6 +453,30 @@ class AssetCustodyMovement(models.Model):
         blank=True,
         null=True,
         verbose_name="Receptor",
+    )
+
+    recipient_id_personal = models.PositiveIntegerField(
+        blank=True,
+        null=True,
+        db_index=True,
+        verbose_name="IdPersonal del receptor",
+    )
+
+    recipient_name = models.CharField(
+        max_length=200,
+        blank=True,
+        verbose_name="Nombre del receptor",
+    )
+
+    recipient_email = models.EmailField(
+        blank=True,
+        verbose_name="Correo del receptor",
+    )
+
+    recipient_source = models.CharField(
+        max_length=30,
+        blank=True,
+        verbose_name="Fuente institucional del receptor",
     )
 
     recipient_employee_number = models.CharField(

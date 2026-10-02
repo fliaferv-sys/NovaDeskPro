@@ -7,6 +7,11 @@ from django import forms
 from django.utils import timezone
 
 from apps.accounts.models import User
+from apps.directory.identity_services import (
+    InstitutionalIdentityError,
+    resolve_institutional_identity,
+    resolve_identity_for_user,
+)
 from apps.inventory.models import Asset
 
 from .models import (
@@ -17,7 +22,114 @@ from .models import (
 )
 
 
+class InstitutionalUserSelect(forms.Select):
+    def create_option(
+        self,
+        name,
+        value,
+        label,
+        selected,
+        index,
+        subindex=None,
+        attrs=None,
+    ):
+        option = super().create_option(
+            name,
+            value,
+            label,
+            selected,
+            index,
+            subindex=subindex,
+            attrs=attrs,
+        )
+        instance = getattr(value, "instance", None)
+        if instance is not None:
+            option["attrs"]["data-email"] = instance.email or ""
+            option["attrs"]["data-id-personal"] = instance.id_personal or ""
+        return option
+
+
+def _resolve_recipient_identity(cleaned_data):
+    recipient_id_personal = cleaned_data.get("recipient_id_personal")
+    recipient_email = cleaned_data.get("recipient_email") or ""
+    if isinstance(recipient_email, str):
+        recipient_email = recipient_email.strip()
+
+    if recipient_id_personal is None and not recipient_email:
+        return None
+
+    try:
+        identity = resolve_institutional_identity(
+            id_personal=recipient_id_personal,
+            email=recipient_email,
+        )
+    except InstitutionalIdentityError as exc:
+        raise forms.ValidationError(
+            "No fue posible consultar el Directorio Institucional. "
+            "Intente nuevamente."
+        ) from exc
+
+    if identity is None:
+        raise forms.ValidationError(
+            "No fue posible validar el receptor institucional seleccionado."
+        )
+
+    return identity
+
+
+def _apply_recipient_identity(cleaned_data, identity):
+    cleaned_data["recipient_id_personal"] = identity["id_personal"]
+    cleaned_data["recipient_name"] = identity["name"]
+    cleaned_data["recipient_email"] = identity["email"]
+    cleaned_data["recipient_source"] = identity["source"]
+    cleaned_data["recipient_employee_number"] = identity["employee_number"]
+    cleaned_data["recipient_position"] = identity["position"]
+
+    recipient = None
+    if identity["id_personal"]:
+        recipient = User.objects.filter(
+            id_personal=identity["id_personal"],
+            is_active=True,
+        ).first()
+
+    if recipient is None and identity["email"]:
+        recipient = User.objects.filter(
+            email__iexact=identity["email"],
+            is_active=True,
+        ).first()
+
+    cleaned_data["recipient"] = recipient
+
+
+def _apply_delivery_responsible_identity(cleaned_data, delivery_responsible):
+    if delivery_responsible is None:
+        return
+
+    identity = resolve_identity_for_user(delivery_responsible)
+    if identity is None:
+        return
+
+    employee_number = identity.get("employee_number")
+    if employee_number:
+        cleaned_data["origin_employee_number"] = employee_number
+
+    position = identity.get("position")
+    if position:
+        cleaned_data["origin_position"] = position
+
+
 class AssetCustodyMovementForm(forms.ModelForm):
+    institutional_recipient = forms.CharField(
+        required=False,
+        label="Receptor institucional",
+        widget=forms.TextInput(
+            attrs={
+                "class": "form-control institutional-recipient-search",
+                "autocomplete": "off",
+                "placeholder": "Buscar por nombre, correo, usuario o legajo",
+            }
+        ),
+    )
 
     class Meta:
         model = AssetCustodyMovement
@@ -27,6 +139,10 @@ class AssetCustodyMovementForm(forms.ModelForm):
             "movement_type",
             "status",
             "previous_custodian",
+            "recipient_id_personal",
+            "recipient_name",
+            "recipient_email",
+            "recipient_source",
             "recipient",
             "recipient_employee_number",
             "recipient_position",
@@ -73,11 +189,11 @@ class AssetCustodyMovementForm(forms.ModelForm):
                 }
             ),
 
-            "recipient": forms.Select(
-                attrs={
-                    "class": "form-control",
-                }
-            ),
+            "recipient_id_personal": forms.HiddenInput(),
+            "recipient_name": forms.HiddenInput(),
+            "recipient_email": forms.HiddenInput(),
+            "recipient_source": forms.HiddenInput(),
+            "recipient": forms.HiddenInput(),
 
             "recipient_employee_number": forms.TextInput(
                 attrs={
@@ -243,6 +359,9 @@ class AssetCustodyMovementForm(forms.ModelForm):
             "Sin director asignado"
         )
 
+        if self.instance.pk and self.instance.recipient_name:
+            self.initial["institutional_recipient"] = self.instance.recipient_name
+
         self.fields["asset"].queryset = Asset.objects.order_by(
             "internal_code"
         )
@@ -278,6 +397,7 @@ class AssetCustodyMovementForm(forms.ModelForm):
             "previous_custodian"
         )
         recipient = cleaned_data.get("recipient")
+        recipient_identity = None
 
         delivery_types = {
             AssetCustodyMovement.MovementType.DELIVERY,
@@ -285,11 +405,24 @@ class AssetCustodyMovementForm(forms.ModelForm):
             AssetCustodyMovement.MovementType.RESERVATION,
         }
 
-        if movement_type in delivery_types and not recipient:
-            self.add_error(
-                "recipient",
-                "Debe seleccionar el usuario receptor.",
-            )
+        if movement_type in delivery_types:
+            if (
+                cleaned_data.get("recipient_id_personal") is None
+                and not (cleaned_data.get("recipient_email") or "").strip()
+            ):
+                self.add_error(
+                    "institutional_recipient",
+                    "Debe seleccionar el receptor institucional.",
+                )
+            else:
+                try:
+                    recipient_identity = _resolve_recipient_identity(cleaned_data)
+                except forms.ValidationError as exc:
+                    self.add_error("institutional_recipient", exc)
+                else:
+                    if recipient_identity is not None:
+                        _apply_recipient_identity(cleaned_data, recipient_identity)
+                        recipient = cleaned_data.get("recipient")
 
         if (
             movement_type
@@ -302,19 +435,33 @@ class AssetCustodyMovementForm(forms.ModelForm):
             )
 
         if (
-            movement_type
-            == AssetCustodyMovement.MovementType.REASSIGNMENT
+            movement_type == AssetCustodyMovement.MovementType.REASSIGNMENT
             and previous_custodian
-            and recipient
-            and previous_custodian == recipient
         ):
-            self.add_error(
-                "recipient",
-                (
-                    "En una reasignación, el custodio anterior "
-                    "y el nuevo receptor deben ser distintos."
-                ),
+            duplicate_recipient = bool(
+                recipient and previous_custodian == recipient
             )
+            if recipient is None and recipient_identity is not None:
+                identity_id = recipient_identity["id_personal"]
+                identity_email = (recipient_identity["email"] or "").strip()
+                previous_email = (previous_custodian.email or "").strip()
+                duplicate_recipient = bool(
+                    identity_id is not None
+                    and previous_custodian.id_personal == identity_id
+                ) or bool(
+                    identity_email
+                    and previous_email
+                    and identity_email.casefold() == previous_email.casefold()
+                )
+
+            if duplicate_recipient:
+                self.add_error(
+                    "institutional_recipient",
+                    (
+                        "En una reasignación, el custodio anterior "
+                        "y el nuevo receptor deben ser distintos."
+                    ),
+                )
 
         return cleaned_data
 
@@ -343,6 +490,17 @@ class DeliveryBatchForm(forms.ModelForm):
             }
         ),
     )
+    institutional_recipient = forms.CharField(
+        required=False,
+        label="Receptor institucional",
+        widget=forms.TextInput(
+            attrs={
+                "class": "form-control institutional-recipient-search",
+                "autocomplete": "off",
+                "placeholder": "Buscar por nombre, correo, usuario o legajo",
+            }
+        ),
+    )
 
     class Meta:
         model = DeliveryBatch
@@ -357,6 +515,10 @@ class DeliveryBatchForm(forms.ModelForm):
             "origin_section",
             "origin_position",
             "origin_employee_number",
+            "recipient_id_personal",
+            "recipient_name",
+            "recipient_email",
+            "recipient_source",
             "recipient",
             "recipient_employee_number",
             "recipient_position",
@@ -371,11 +533,11 @@ class DeliveryBatchForm(forms.ModelForm):
         ]
 
         widgets = {
-            "recipient": forms.Select(
-                attrs={
-                    "class": "form-control",
-                }
-            ),
+            "recipient_id_personal": forms.HiddenInput(),
+            "recipient_name": forms.HiddenInput(),
+            "recipient_email": forms.HiddenInput(),
+            "recipient_source": forms.HiddenInput(),
+            "recipient": forms.HiddenInput(),
             "recipient_employee_number": forms.TextInput(
                 attrs={
                     "class": "form-control",
@@ -406,7 +568,7 @@ class DeliveryBatchForm(forms.ModelForm):
                     "placeholder": "Sección del receptor",
                 }
             ),
-            "delivery_responsible": forms.Select(
+            "delivery_responsible": InstitutionalUserSelect(
                 attrs={
                     "class": "form-control",
                 }
@@ -520,6 +682,7 @@ class DeliveryBatchForm(forms.ModelForm):
         )
 
         self.fields["recipient"].queryset = active_users
+        self.fields["recipient"].required = False
         self.fields["delivery_responsible"].queryset = active_users
         self.fields["authorizing_director"].queryset = active_users
 
@@ -527,6 +690,9 @@ class DeliveryBatchForm(forms.ModelForm):
         self.fields["authorizing_director"].empty_label = (
             "Seleccione el Director DTI"
         )
+
+        if self.instance.pk and self.instance.recipient_name:
+            self.initial["institutional_recipient"] = self.instance.recipient_name
 
         active_movement_statuses = [
             AssetCustodyMovement.MovementStatus.IN_DELIVERY_PROCESS,
@@ -616,22 +782,40 @@ class DeliveryBatchForm(forms.ModelForm):
     def clean(self):
         cleaned_data = super().clean()
 
-        recipient = cleaned_data.get("recipient")
         delivery_responsible = cleaned_data.get(
             "delivery_responsible"
         )
 
-        if not recipient:
+        if (
+            cleaned_data.get("recipient_id_personal") is None
+            and not (cleaned_data.get("recipient_email") or "").strip()
+        ):
             self.add_error(
-                "recipient",
+                "institutional_recipient",
                 "Debe seleccionar el funcionario receptor.",
             )
+        else:
+            try:
+                recipient_identity = _resolve_recipient_identity(cleaned_data)
+            except forms.ValidationError as exc:
+                self.add_error("institutional_recipient", exc)
+            else:
+                if recipient_identity is not None:
+                    _apply_recipient_identity(cleaned_data, recipient_identity)
 
         if not delivery_responsible:
             self.add_error(
                 "delivery_responsible",
                 "Debe seleccionar el responsable de entrega.",
             )
+        else:
+            try:
+                _apply_delivery_responsible_identity(
+                    cleaned_data,
+                    delivery_responsible,
+                )
+            except InstitutionalIdentityError:
+                pass
 
         if not cleaned_data.get("authorizing_director"):
             self.add_error(

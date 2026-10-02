@@ -979,6 +979,10 @@ def delivery_batch_complete_view(request, pk):
 
     for movement in batch.movements.all():
         movement.recipient = batch.recipient
+        movement.recipient_id_personal = batch.recipient_id_personal
+        movement.recipient_name = batch.recipient_name
+        movement.recipient_email = batch.recipient_email
+        movement.recipient_source = batch.recipient_source
         movement.recipient_employee_number = batch.recipient_employee_number
         movement.recipient_position = batch.recipient_position
         movement.recipient_area = batch.recipient_area
@@ -1075,6 +1079,10 @@ def delivery_batch_create_view(request):
                     )
                 movement.delivery_batch = batch
                 movement.recipient = batch.recipient
+                movement.recipient_id_personal = batch.recipient_id_personal
+                movement.recipient_name = batch.recipient_name
+                movement.recipient_email = batch.recipient_email
+                movement.recipient_source = batch.recipient_source
                 movement.recipient_employee_number = batch.recipient_employee_number
                 movement.recipient_position = batch.recipient_position
                 movement.recipient_area = batch.recipient_area
@@ -1155,7 +1163,7 @@ def custody_movement_create_view(request):
     )
 
 from django.http import HttpResponse
-from .pdf_generator import generate_delivery_batch_pdf
+from .pdf_generator_v2 import generate_delivery_batch_pdf
 
 @login_required
 @permission_required(
@@ -1293,6 +1301,10 @@ def delivery_batch_configure_view(request, pk):
             batch = form.save()
             batch.movements.update(
                 recipient=batch.recipient,
+                recipient_id_personal=batch.recipient_id_personal,
+                recipient_name=batch.recipient_name,
+                recipient_email=batch.recipient_email,
+                recipient_source=batch.recipient_source,
                 recipient_employee_number=batch.recipient_employee_number,
                 recipient_position=batch.recipient_position,
                 recipient_area=batch.recipient_area,

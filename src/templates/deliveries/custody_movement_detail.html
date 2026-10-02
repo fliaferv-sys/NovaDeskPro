@@ -932,10 +932,10 @@ Detalle del Movimiento
             <p>
                 <strong>Receptor:</strong><br>
 
-                {% if movement.recipient %}
-
-                    {{ movement.recipient.first_name }}
-                    {{ movement.recipient.last_name }}
+                {% if movement.recipient_name %}
+                    {{ movement.recipient_name }}
+                {% elif movement.recipient %}
+                    {{ movement.recipient.get_full_name|default:movement.recipient.username }}
 
                 {% else %}
 

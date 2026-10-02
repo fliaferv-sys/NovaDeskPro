@@ -1,5 +1,6 @@
 import uuid
 from datetime import date
+from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.contrib.auth.models import Permission
@@ -8,8 +9,10 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from apps.accounts.models import Branch, User
+from apps.directory.identity_services import InstitutionalIdentityError
 from apps.inventory.models import Asset, AcquisitionBatch, AcquisitionBatchDocument
 
+from .forms import AssetCustodyMovementForm, DeliveryBatchForm
 from .models import (
     AssetCustodyMovement,
     DeliveryBatch,
@@ -30,6 +33,478 @@ def grant_delivery_permissions(user, *codenames):
 def grant_all_delivery_permissions(user):
     permissions = Permission.objects.filter(content_type__app_label="deliveries")
     user.user_permissions.add(*permissions)
+
+
+def rrhh_recipient_identity(**overrides):
+    identity = {
+        "source": "RRHH",
+        "id_personal": 1234,
+        "employee_number": "LEG-1234",
+        "name": "Persona RRHH",
+        "first_name": "",
+        "last_name": "",
+        "email": "persona.rrhh@example.test",
+        "phone": "0981000000",
+        "location": "Ubicación RRHH",
+        "position": "Cargo RRHH",
+        "employment_type": "Permanente",
+        "status": "Activo",
+        "username": "",
+        "is_active": True,
+    }
+    identity.update(overrides)
+    return identity
+
+
+def ad_recipient_identity(**overrides):
+    identity = {
+        "source": "ACTIVE_DIRECTORY",
+        "id_personal": None,
+        "employee_number": "",
+        "name": "Persona AD",
+        "first_name": "Persona",
+        "last_name": "AD",
+        "email": "persona.ad@example.test",
+        "phone": "",
+        "location": "",
+        "position": "",
+        "employment_type": "",
+        "status": "Activo",
+        "username": "persona.ad",
+        "is_active": True,
+    }
+    identity.update(overrides)
+    return identity
+
+
+class InstitutionalRecipientFormTestBase(TestCase):
+    def setUp(self):
+        suffix = uuid.uuid4().hex[:8]
+        self.responsible = User.objects.create_user(
+            username=f"institutional-responsible-{suffix}",
+            email=f"responsible-{suffix}@example.test",
+            password="test-password",
+            role=User.Role.SUPERVISOR,
+        )
+        self.director = User.objects.create_user(
+            username=f"institutional-director-{suffix}",
+            email=f"director-{suffix}@example.test",
+            password="test-password",
+            role=User.Role.SUPERVISOR,
+        )
+        self.branch = Branch.objects.create(
+            code=f"INST-{suffix}",
+            name=f"Sede institucional {suffix}",
+            branch_type=Branch.BranchType.HEADQUARTERS,
+        )
+        self.acquisition_batch = AcquisitionBatch.objects.create(
+            code=f"INST-BATCH-{suffix}",
+            date=date.today(),
+            status=AcquisitionBatch.Status.VALIDATED,
+            expected_quantity=1,
+            received_by=self.responsible,
+        )
+        self.asset = Asset.objects.create(
+            internal_code=f"INST-ASSET-{suffix}",
+            brand="Marca de prueba",
+            model="Modelo de prueba",
+            patrimonial_code=f"PAT-{suffix}",
+            serial_number=f"SER-{suffix}",
+            acquisition_batch=self.acquisition_batch,
+            branch=self.branch,
+        )
+        AcquisitionBatchDocument.objects.create(
+            batch=self.acquisition_batch,
+            document_type=AcquisitionBatchDocument.DocumentType.RECEIPT_REPORT,
+            file=SimpleUploadedFile("receipt.pdf", b"%PDF-1.4 test receipt"),
+            uploaded_by=self.responsible,
+            verified=True,
+        )
+
+    def create_local_user(self, username, email, **fields):
+        return User.objects.create_user(
+            username=username,
+            email=email,
+            password="test-password",
+            role=User.Role.CLIENT,
+            **fields,
+        )
+
+    def delivery_batch_data(self, **recipient_fields):
+        data = {
+            "assets": [str(self.asset.pk)],
+            "delivery_responsible": str(self.responsible.pk),
+            "authorizing_director": str(self.director.pk),
+            "destination_branch": str(self.branch.pk),
+            "department": "Departamento de prueba",
+            "location": "Ubicación de prueba",
+            "delivery_date": "2026-10-02T10:00",
+            "recipient_id_personal": "",
+            "recipient_name": "Nombre falso",
+            "recipient_email": "",
+            "recipient_source": "LOCAL",
+            "recipient": "",
+            "recipient_employee_number": "FALSO",
+            "recipient_position": "Cargo falso",
+            "recipient_area": "",
+            "recipient_unit": "",
+            "recipient_section": "",
+        }
+        data.update(recipient_fields)
+        return data
+
+    def movement_data(self, movement_type, **recipient_fields):
+        data = {
+            "asset": str(self.asset.pk),
+            "movement_type": movement_type,
+            "status": AssetCustodyMovement.MovementStatus.IN_DELIVERY_PROCESS,
+            "previous_custodian": "",
+            "recipient_id_personal": "",
+            "recipient_name": "Nombre falso",
+            "recipient_email": "",
+            "recipient_source": "LOCAL",
+            "recipient": "",
+            "recipient_employee_number": "FALSO",
+            "recipient_position": "Cargo falso",
+            "recipient_area": "",
+            "recipient_unit": "",
+            "recipient_section": "",
+            "delivery_responsible": str(self.responsible.pk),
+            "authorizing_director": str(self.director.pk),
+            "department": "Departamento manual",
+            "destination_branch": str(self.branch.pk),
+            "location": "Ubicación manual",
+            "movement_date": "2026-10-02T10:00",
+        }
+        data.update(recipient_fields)
+        return data
+
+
+class DeliveryBatchInstitutionalRecipientFormTests(
+    InstitutionalRecipientFormTestBase
+):
+    @patch("apps.deliveries.forms.resolve_institutional_identity")
+    def test_rrhh_recipient_snapshot_overwrites_posted_values(self, resolve):
+        recipient = self.create_local_user(
+            "batch-recipient-rrhh",
+            "persona.rrhh@example.test",
+            id_personal=1234,
+        )
+        resolve.return_value = rrhh_recipient_identity()
+        form = DeliveryBatchForm(
+            data=self.delivery_batch_data(
+                recipient_id_personal="1234",
+                recipient_email="persona.rrhh@example.test",
+            )
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        resolve.assert_called_once_with(
+            id_personal=1234,
+            email="persona.rrhh@example.test",
+        )
+        self.assertEqual(form.cleaned_data["recipient"], recipient)
+        self.assertEqual(form.cleaned_data["recipient_name"], "Persona RRHH")
+        self.assertEqual(
+            form.cleaned_data["recipient_employee_number"],
+            "LEG-1234",
+        )
+        self.assertEqual(form.cleaned_data["recipient_position"], "Cargo RRHH")
+        self.assertEqual(form.cleaned_data["recipient_source"], "RRHH")
+        self.assertEqual(
+            form.cleaned_data["recipient_email"],
+            "persona.rrhh@example.test",
+        )
+        self.assertEqual(form.cleaned_data["recipient_id_personal"], 1234)
+
+    @patch("apps.deliveries.forms.resolve_institutional_identity")
+    def test_ad_recipient_without_local_user_is_accepted(self, resolve):
+        resolve.return_value = ad_recipient_identity()
+        form = DeliveryBatchForm(
+            data=self.delivery_batch_data(
+                recipient_email="persona.ad@example.test",
+            )
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertIsNone(form.cleaned_data["recipient"])
+        self.assertEqual(form.cleaned_data["recipient_name"], "Persona AD")
+        self.assertEqual(form.cleaned_data["recipient_source"], "ACTIVE_DIRECTORY")
+        self.assertEqual(
+            form.cleaned_data["recipient_email"],
+            "persona.ad@example.test",
+        )
+        self.assertIsNone(form.cleaned_data["recipient_id_personal"])
+        self.assertEqual(form.cleaned_data["recipient_area"], "")
+        self.assertEqual(form.cleaned_data["recipient_unit"], "")
+        self.assertEqual(form.cleaned_data["recipient_section"], "")
+        resolve.assert_called_once_with(
+            id_personal=None,
+            email="persona.ad@example.test",
+        )
+
+    @patch("apps.deliveries.forms.resolve_institutional_identity")
+    def test_ad_recipient_links_local_user_by_email(self, resolve):
+        recipient = self.create_local_user(
+            "batch-recipient-email",
+            "persona.ad@example.test",
+        )
+        resolve.return_value = ad_recipient_identity()
+        form = DeliveryBatchForm(
+            data=self.delivery_batch_data(
+                recipient_email="persona.ad@example.test",
+            )
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data["recipient"], recipient)
+
+    @patch("apps.deliveries.forms.resolve_institutional_identity")
+    def test_missing_institutional_recipient_adds_field_error(self, resolve):
+        form = DeliveryBatchForm(data=self.delivery_batch_data())
+
+        self.assertFalse(form.is_valid())
+        self.assertIn(
+            "Debe seleccionar el funcionario receptor.",
+            form.errors["institutional_recipient"],
+        )
+        resolve.assert_not_called()
+
+    @patch("apps.deliveries.forms.resolve_institutional_identity", return_value=None)
+    def test_unresolved_institutional_recipient_adds_field_error(self, resolve):
+        form = DeliveryBatchForm(
+            data=self.delivery_batch_data(
+                recipient_email="missing@example.test",
+            )
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn(
+            "No fue posible validar el receptor institucional seleccionado.",
+            form.errors["institutional_recipient"],
+        )
+        resolve.assert_called_once()
+
+    @patch("apps.deliveries.forms.resolve_institutional_identity")
+    def test_directory_error_adds_friendly_field_error(self, resolve):
+        resolve.side_effect = InstitutionalIdentityError("mock failure")
+        form = DeliveryBatchForm(
+            data=self.delivery_batch_data(
+                recipient_email="person@example.test",
+            )
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn(
+            "No fue posible consultar el Directorio Institucional. "
+            "Intente nuevamente.",
+            form.errors["institutional_recipient"],
+        )
+
+    @patch("apps.deliveries.forms.resolve_institutional_identity")
+    @patch("apps.deliveries.forms.resolve_identity_for_user")
+    def test_delivery_responsible_rrhh_identity_overwrites_manual_values(
+        self,
+        resolve_responsible,
+        resolve_recipient,
+    ):
+        resolve_responsible.return_value = rrhh_recipient_identity(
+            id_personal=5678,
+            employee_number="1173",
+            name="Ariel Ferreira",
+            email="aferreira@petropar.gov.py",
+            position="Jefe Interino",
+        )
+        resolve_recipient.return_value = rrhh_recipient_identity()
+        form = DeliveryBatchForm(
+            data=self.delivery_batch_data(
+                recipient_id_personal="1234",
+                recipient_email="persona.rrhh@example.test",
+                origin_employee_number="FALSO",
+                origin_position="Cargo falso",
+            )
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data["origin_employee_number"], "1173")
+        self.assertEqual(form.cleaned_data["origin_position"], "Jefe Interino")
+        resolve_responsible.assert_called_once_with(self.responsible)
+        resolve_recipient.assert_called_once_with(
+            id_personal=1234,
+            email="persona.rrhh@example.test",
+        )
+
+    @patch("apps.deliveries.forms.resolve_institutional_identity")
+    @patch("apps.deliveries.forms.resolve_identity_for_user")
+    def test_ad_responsible_without_title_or_employee_number_keeps_manual_values(
+        self,
+        resolve_responsible,
+        resolve_recipient,
+    ):
+        resolve_responsible.return_value = ad_recipient_identity()
+        resolve_recipient.return_value = rrhh_recipient_identity()
+        form = DeliveryBatchForm(
+            data=self.delivery_batch_data(
+                recipient_id_personal="1234",
+                recipient_email="persona.rrhh@example.test",
+                origin_employee_number="MANUAL-001",
+                origin_position="Cargo manual",
+            )
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(
+            form.cleaned_data["origin_employee_number"],
+            "MANUAL-001",
+        )
+        self.assertEqual(form.cleaned_data["origin_position"], "Cargo manual")
+        resolve_responsible.assert_called_once_with(self.responsible)
+
+    @patch("apps.deliveries.forms.resolve_institutional_identity")
+    @patch("apps.deliveries.forms.resolve_identity_for_user")
+    def test_delivery_responsible_directory_error_keeps_manual_values(
+        self,
+        resolve_responsible,
+        resolve_recipient,
+    ):
+        resolve_responsible.side_effect = InstitutionalIdentityError("mock failure")
+        resolve_recipient.return_value = rrhh_recipient_identity()
+        form = DeliveryBatchForm(
+            data=self.delivery_batch_data(
+                recipient_id_personal="1234",
+                recipient_email="persona.rrhh@example.test",
+                origin_employee_number="MANUAL-002",
+                origin_position="Cargo manual de respaldo",
+            )
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(
+            form.cleaned_data["origin_employee_number"],
+            "MANUAL-002",
+        )
+        self.assertEqual(
+            form.cleaned_data["origin_position"],
+            "Cargo manual de respaldo",
+        )
+        resolve_responsible.assert_called_once_with(self.responsible)
+
+
+class AssetCustodyMovementInstitutionalRecipientFormTests(
+    InstitutionalRecipientFormTestBase
+):
+    @patch("apps.deliveries.forms.resolve_institutional_identity")
+    def test_delivery_accepts_ad_identity_without_local_user(self, resolve):
+        resolve.return_value = ad_recipient_identity()
+        form = AssetCustodyMovementForm(
+            data=self.movement_data(
+                AssetCustodyMovement.MovementType.DELIVERY,
+                recipient_email="persona.ad@example.test",
+            )
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertIsNone(form.cleaned_data["recipient"])
+        self.assertEqual(form.cleaned_data["recipient_name"], "Persona AD")
+        self.assertEqual(form.cleaned_data["recipient_source"], "ACTIVE_DIRECTORY")
+        self.assertEqual(form.cleaned_data["recipient_email"], "persona.ad@example.test")
+        self.assertIsNone(form.cleaned_data["recipient_id_personal"])
+        self.assertEqual(form.cleaned_data["recipient_employee_number"], "")
+        self.assertEqual(form.cleaned_data["recipient_position"], "")
+        self.assertEqual(form.cleaned_data["recipient_area"], "")
+        self.assertEqual(form.cleaned_data["recipient_unit"], "")
+        self.assertEqual(form.cleaned_data["recipient_section"], "")
+        resolve.assert_called_once_with(
+            id_personal=None,
+            email="persona.ad@example.test",
+        )
+
+    @patch("apps.deliveries.forms.resolve_institutional_identity")
+    def test_delivery_without_institutional_recipient_adds_field_error(self, resolve):
+        form = AssetCustodyMovementForm(
+            data=self.movement_data(AssetCustodyMovement.MovementType.DELIVERY)
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn(
+            "Debe seleccionar el receptor institucional.",
+            form.errors["institutional_recipient"],
+        )
+        resolve.assert_not_called()
+
+    @patch("apps.deliveries.forms.resolve_institutional_identity")
+    def test_reassignment_same_person_by_id_personal_is_rejected(self, resolve):
+        previous_custodian = self.create_local_user(
+            "movement-previous-id",
+            "previous-id@example.test",
+            id_personal=1234,
+        )
+        resolve.return_value = rrhh_recipient_identity(
+            email="selected@example.test",
+        )
+        form = AssetCustodyMovementForm(
+            data=self.movement_data(
+                AssetCustodyMovement.MovementType.REASSIGNMENT,
+                previous_custodian=str(previous_custodian.pk),
+                recipient_id_personal="1234",
+                recipient_email="selected@example.test",
+            )
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn(
+            "En una reasignación, el custodio anterior y el nuevo receptor deben ser distintos.",
+            form.errors["institutional_recipient"],
+        )
+        resolve.assert_called_once_with(
+            id_personal=1234,
+            email="selected@example.test",
+        )
+
+    @patch("apps.deliveries.forms.resolve_institutional_identity")
+    def test_reassignment_same_person_by_email_is_rejected(self, resolve):
+        previous_custodian = self.create_local_user(
+            "movement-previous-email",
+            "PERSONA.AD@EXAMPLE.TEST",
+        )
+        resolve.return_value = ad_recipient_identity()
+        form = AssetCustodyMovementForm(
+            data=self.movement_data(
+                AssetCustodyMovement.MovementType.REASSIGNMENT,
+                previous_custodian=str(previous_custodian.pk),
+                recipient_email="persona.ad@example.test",
+            )
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn(
+            "En una reasignación, el custodio anterior y el nuevo receptor deben ser distintos.",
+            form.errors["institutional_recipient"],
+        )
+        resolve.assert_called_once_with(
+            id_personal=None,
+            email="persona.ad@example.test",
+        )
+
+    @patch("apps.deliveries.forms.resolve_institutional_identity")
+    def test_reassignment_to_different_institutional_person_is_allowed(self, resolve):
+        previous_custodian = self.create_local_user(
+            "movement-previous-different",
+            "previous-different@example.test",
+            id_personal=4567,
+        )
+        resolve.return_value = ad_recipient_identity()
+        form = AssetCustodyMovementForm(
+            data=self.movement_data(
+                AssetCustodyMovement.MovementType.REASSIGNMENT,
+                previous_custodian=str(previous_custodian.pk),
+                recipient_email="persona.ad@example.test",
+            )
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertNotIn("institutional_recipient", form.errors)
+        self.assertIsNone(form.cleaned_data["recipient"])
 
 
 class AssetCustodyUpdateTests(TestCase):
@@ -334,12 +809,38 @@ class GroupedDeliveryWorkflowTests(TestCase):
         )
         self.client.force_login(self.manager)
 
-    def test_creating_grouped_delivery_creates_traceable_movements(self):
+    @patch("apps.deliveries.forms.resolve_institutional_identity")
+    @patch(
+        "apps.deliveries.forms.resolve_identity_for_user",
+        return_value=None,
+    )
+    def test_creating_grouped_delivery_creates_traceable_movements(
+        self,
+        resolve_responsible,
+        resolve_recipient,
+    ):
+        resolved_name = self.recipient.get_full_name() or self.recipient.username
+        resolve_recipient.return_value = {
+            "source": "LOCAL",
+            "id_personal": getattr(self.recipient, "id_personal", None),
+            "employee_number": "",
+            "name": resolved_name,
+            "first_name": self.recipient.first_name,
+            "last_name": self.recipient.last_name,
+            "email": self.recipient.email,
+            "phone": "",
+            "location": "",
+            "position": "",
+            "employment_type": "",
+            "status": "Activo",
+            "username": self.recipient.username,
+            "is_active": True,
+        }
         response = self.client.post(
             reverse("deliveries:delivery_batch_create"),
             {
                 "assets": [str(self.asset.pk)],
-                "recipient": str(self.recipient.pk),
+                "recipient_email": self.recipient.email,
                 "delivery_responsible": str(self.manager.pk),
                 "authorizing_director": str(self.manager.pk),
                 "department": "Administración",
@@ -353,7 +854,15 @@ class GroupedDeliveryWorkflowTests(TestCase):
         movement = delivery_batch.movements.get()
         self.assertEqual(movement.asset, self.asset)
         self.assertEqual(movement.recipient, self.recipient)
+        self.assertEqual(movement.recipient_name, resolved_name)
+        self.assertEqual(movement.recipient_email, self.recipient.email)
+        self.assertEqual(movement.recipient_source, "LOCAL")
         self.assertEqual(movement.department, "Administración")
+        resolve_recipient.assert_called_once_with(
+            id_personal=None,
+            email=self.recipient.email,
+        )
+        resolve_responsible.assert_called_once_with(self.manager)
         detail_response = self.client.get(
             reverse("deliveries:delivery_batch_detail", args=[delivery_batch.pk])
         )

@@ -287,12 +287,14 @@ TABLA DE MOVIMIENTOS
                             </td>
 
                             <td>
-                                {% if movement.recipient %}
+                                {% if movement.recipient_name %}
+                                    {{ movement.recipient_name }}
+                                {% elif movement.recipient %}
                                     {{ movement.recipient.get_full_name|default:movement.recipient.username }}
                                 {% elif movement.asset.assigned_user %}
                                     {{ movement.asset.assigned_user.get_full_name|default:movement.asset.assigned_user.username }}
                                 {% else %}
-                                    <span class="table-muted">Sin usuario</span>
+                                    <span class="table-muted">Sin receptor</span>
                                 {% endif %}
                                 <div class="table-secondary-text">
                                     Lote: {{ movement.asset.acquisition_batch|default:"—" }}
