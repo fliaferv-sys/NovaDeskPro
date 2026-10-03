@@ -1,5 +1,6 @@
 from contextlib import contextmanager
 import ssl
+from types import ModuleType
 from unittest.mock import MagicMock, patch
 
 import pyodbc
@@ -346,6 +347,45 @@ class ActiveDirectoryServiceTests(SimpleTestCase):
     def bound_connection(self, connection):
         yield connection
 
+    @contextmanager
+    def mock_windows_security(self):
+        class FakeWinError(Exception):
+            def __init__(self, error_code):
+                super().__init__(error_code, "LogonUser", "mock Windows error")
+                self.winerror = error_code
+
+        win32security = ModuleType("win32security")
+        win32security.LOGON32_LOGON_NETWORK = 3
+        win32security.LOGON32_PROVIDER_DEFAULT = 0
+        win32security.LogonUser = MagicMock(return_value=MagicMock())
+
+        pywintypes = ModuleType("pywintypes")
+        pywintypes.error = FakeWinError
+
+        with (
+            patch.object(ad_services.sys, "platform", "win32"),
+            patch.dict(
+                ad_services.sys.modules,
+                {
+                    "win32security": win32security,
+                    "pywintypes": pywintypes,
+                },
+            ),
+            patch.object(
+                ad_services,
+                "win32security",
+                win32security,
+                create=True,
+            ),
+            patch.object(
+                ad_services,
+                "pywintypes",
+                pywintypes,
+                create=True,
+            ),
+        ):
+            yield win32security, pywintypes
+
     def test_validate_ad_configuration_accepts_complete_settings(self):
         ad_services._validate_ad_configuration()
 
@@ -531,6 +571,125 @@ class ActiveDirectoryServiceTests(SimpleTestCase):
             ad_services.test_ad_connection()
 
         connection.unbind.assert_called_once_with()
+
+    def test_authenticate_windows_credentials_uses_netbios_domain(self):
+        with (
+            override_settings(DIRECTORY_AD_DOMAIN="PETROPAR"),
+            self.mock_windows_security() as (win32security, _),
+        ):
+            token = win32security.LogonUser.return_value
+
+            result = ad_services.authenticate_windows_credentials(
+                "aferreira",
+                "secret",
+            )
+
+        self.assertTrue(result)
+        win32security.LogonUser.assert_called_once_with(
+            "aferreira",
+            "PETROPAR",
+            "secret",
+            win32security.LOGON32_LOGON_NETWORK,
+            win32security.LOGON32_PROVIDER_DEFAULT,
+        )
+        token.Close.assert_called_once_with()
+
+    def test_authenticate_windows_credentials_preserves_upn(self):
+        with self.mock_windows_security() as (win32security, _):
+            result = ad_services.authenticate_windows_credentials(
+                "  aferreira@petropar.gov.py  ",
+                "secret",
+            )
+
+        self.assertTrue(result)
+        args = win32security.LogonUser.call_args.args
+        self.assertEqual(args[0], "aferreira@petropar.gov.py")
+        self.assertIn(args[1], (None, "PETROPAR"))
+        self.assertNotEqual(args[1], "PETROPAR\\aferreira@petropar.gov.py")
+        self.assertEqual(args[2], "secret")
+
+    def test_authenticate_windows_credentials_splits_domain_username(self):
+        with self.mock_windows_security() as (win32security, _):
+            result = ad_services.authenticate_windows_credentials(
+                "PETROPAR\\aferreira",
+                "secret",
+            )
+
+        self.assertTrue(result)
+        args = win32security.LogonUser.call_args.args
+        self.assertEqual(args[:3], ("aferreira", "PETROPAR", "secret"))
+
+    def test_authenticate_windows_credentials_returns_false_for_error_1326(self):
+        with self.mock_windows_security() as (win32security, pywintypes):
+            win32security.LogonUser.side_effect = pywintypes.error(1326)
+
+            result = ad_services.authenticate_windows_credentials(
+                "aferreira",
+                "incorrect-secret",
+            )
+
+        self.assertFalse(result)
+
+    def test_authenticate_windows_credentials_handles_other_windows_errors_safely(self):
+        secret = "private-secret"
+        with (
+            self.mock_windows_security() as (win32security, pywintypes),
+            patch("builtins.print") as print_mock,
+            self.assertNoLogs(level="DEBUG"),
+        ):
+            win32security.LogonUser.side_effect = pywintypes.error(5)
+            try:
+                result = ad_services.authenticate_windows_credentials(
+                    "aferreira",
+                    secret,
+                )
+            except ad_services.ActiveDirectoryError as exc:
+                self.assertNotIn(secret, str(exc))
+            else:
+                self.assertFalse(result)
+
+        print_mock.assert_not_called()
+
+    def test_authenticate_windows_credentials_rejects_invalid_inputs(self):
+        with self.mock_windows_security() as (win32security, _):
+            invalid_inputs = (
+                (None, "secret"),
+                ("", "secret"),
+                ("   ", "secret"),
+                (123, "secret"),
+                ("aferreira", None),
+                ("aferreira", ""),
+                ("aferreira", 123),
+            )
+            for identifier, password in invalid_inputs:
+                with self.subTest(identifier=identifier, password=password):
+                    with self.assertRaises(ValueError):
+                        ad_services.authenticate_windows_credentials(
+                            identifier,
+                            password,
+                        )
+
+        win32security.LogonUser.assert_not_called()
+
+    def test_authenticate_windows_credentials_preserves_password_and_never_stores_it(self):
+        secret = "  password-with-spaces  "
+        user_model = get_user_model()
+        with (
+            self.mock_windows_security() as (win32security, _),
+            patch("builtins.print") as print_mock,
+            patch.object(user_model, "save") as save_mock,
+            self.assertNoLogs(level="DEBUG"),
+        ):
+            result = ad_services.authenticate_windows_credentials(
+                "aferreira",
+                secret,
+            )
+
+        self.assertTrue(result)
+        self.assertEqual(win32security.LogonUser.call_args.args[2], secret)
+        win32security.LogonUser.return_value.Close.assert_called_once_with()
+        print_mock.assert_not_called()
+        save_mock.assert_not_called()
 
     def test_authenticate_ad_credentials_expands_simple_username(self):
         connection = MagicMock()

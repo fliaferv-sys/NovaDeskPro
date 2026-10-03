@@ -79,10 +79,10 @@ class ActiveDirectoryBackendTests(TestCase):
         with (
             patch.object(
                 backends,
-                "authenticate_ad_credentials",
+                "authenticate_windows_credentials",
                 return_value=credentials_valid,
                 create=True,
-            ) as authenticate_ad,
+            ) as authenticate_windows,
             patch.object(
                 backends,
                 "search_ad_users",
@@ -96,11 +96,18 @@ class ActiveDirectoryBackendTests(TestCase):
                 create=True,
             ) as resolve_identity,
         ):
-            yield authenticate_ad, search_ad, resolve_identity
+            yield authenticate_windows, search_ad, resolve_identity
 
     def test_invalid_ad_credentials_do_not_create_local_user(self):
-        with self.mock_ad_dependencies(credentials_valid=False) as dependencies:
-            authenticate_ad, search_ad, resolve_identity = dependencies
+        with (
+            self.mock_ad_dependencies(credentials_valid=False) as dependencies,
+            patch.object(
+                backends,
+                "authenticate_ad_credentials",
+                create=True,
+            ) as legacy_authenticate,
+        ):
+            authenticate_windows, search_ad, resolve_identity = dependencies
             user = self.backend.authenticate(
                 request=None,
                 username="juvalenzuela",
@@ -109,10 +116,11 @@ class ActiveDirectoryBackendTests(TestCase):
 
         self.assertIsNone(user)
         self.assertEqual(User.objects.count(), 0)
-        authenticate_ad.assert_called_once_with(
+        authenticate_windows.assert_called_once_with(
             "juvalenzuela",
             "institutional-secret",
         )
+        legacy_authenticate.assert_not_called()
         search_ad.assert_not_called()
         resolve_identity.assert_not_called()
 
@@ -273,7 +281,7 @@ class ActiveDirectoryBackendTests(TestCase):
             ("juvalenzuela", ""),
         )
         with self.mock_ad_dependencies() as dependencies:
-            authenticate_ad, search_ad, resolve_identity = dependencies
+            authenticate_windows, search_ad, resolve_identity = dependencies
             for username, password in cases:
                 with self.subTest(username=username, password_empty=not password):
                     result = self.backend.authenticate(
@@ -283,7 +291,7 @@ class ActiveDirectoryBackendTests(TestCase):
                     )
                     self.assertIsNone(result)
 
-        authenticate_ad.assert_not_called()
+        authenticate_windows.assert_not_called()
         search_ad.assert_not_called()
         resolve_identity.assert_not_called()
         self.assertEqual(User.objects.count(), 0)

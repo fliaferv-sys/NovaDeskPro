@@ -331,6 +331,62 @@ def search_ad_users(query, limit=20):
         raise ActiveDirectoryError(_GENERIC_AD_ERROR) from exc
 
 
+def authenticate_windows_credentials(identifier, password):
+    if not isinstance(identifier, str):
+        raise ValueError("identifier debe ser una cadena no vacía.")
+    identifier = identifier.strip()
+    if not identifier:
+        raise ValueError("identifier debe ser una cadena no vacía.")
+
+    if not isinstance(password, str) or password == "":
+        raise ValueError("password debe ser una cadena no vacía.")
+
+    if not _is_windows():
+        return False
+
+    try:
+        import pywintypes
+        import win32security
+    except ImportError:
+        return False
+
+    if "@" in identifier:
+        username = identifier
+        domain = None
+    elif "\\" in identifier:
+        domain, username = identifier.split("\\", 1)
+        if not domain or not username:
+            return False
+    else:
+        username = identifier
+        domain = (
+            getattr(settings, "DIRECTORY_AD_NETBIOS_DOMAIN", "PETROPAR")
+            or "PETROPAR"
+        )
+
+    token = None
+    try:
+        token = win32security.LogonUser(
+            username,
+            domain,
+            password,
+            win32security.LOGON32_LOGON_NETWORK,
+            win32security.LOGON32_PROVIDER_DEFAULT,
+        )
+    except pywintypes.error:
+        return False
+    except Exception:
+        return False
+
+    try:
+        return True
+    finally:
+        try:
+            token.Close()
+        except Exception:
+            pass
+
+
 def authenticate_ad_credentials(identifier, password):
     if not isinstance(identifier, str):
         raise ValueError("identifier debe ser una cadena no vacía.")

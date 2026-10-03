@@ -4,7 +4,7 @@ from django.db import IntegrityError, transaction
 from apps.accounts.models import User
 from apps.directory.ad_services import (
     ActiveDirectoryError,
-    authenticate_ad_credentials,
+    authenticate_windows_credentials,
     search_ad_users,
 )
 from apps.directory.identity_services import (
@@ -29,7 +29,7 @@ class ActiveDirectoryBackend(ApprovedUserModelBackend):
             return None
 
         try:
-            if not authenticate_ad_credentials(identifier, password):
+            if not authenticate_windows_credentials(identifier, password):
                 return None
         except ActiveDirectoryError:
             return None
