@@ -1,5 +1,7 @@
+from contextlib import contextmanager
 from datetime import timedelta
 import re
+from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
@@ -7,6 +9,7 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
+from apps.accounts import backends
 from .access import (
     can_manage_deliveries,
     can_manage_inventory,
@@ -26,6 +29,332 @@ from .services import (
 )
 from apps.tickets.models import Ticket
 from apps.notifications.models import Notification
+
+
+class ActiveDirectoryBackendTests(TestCase):
+    def setUp(self):
+        self.backend = backends.ActiveDirectoryBackend()
+
+    def ad_profile(self, **overrides):
+        profile = {
+            "name": "Julia Valenzuela Samudio",
+            "first_name": "Julia",
+            "last_name": "Valenzuela Samudio",
+            "email": "juvalenzuela@example.test",
+            "username": "juvalenzuela",
+            "is_active": True,
+        }
+        profile.update(overrides)
+        return profile
+
+    def institutional_identity(self, profile, **overrides):
+        identity = {
+            "source": "ACTIVE_DIRECTORY",
+            "id_personal": None,
+            "employee_number": "",
+            "name": profile["name"],
+            "first_name": profile["first_name"],
+            "last_name": profile["last_name"],
+            "email": profile["email"],
+            "phone": "",
+            "position": "",
+            "employment_type": "",
+            "status": "Activo" if profile["is_active"] else "Inactivo",
+            "username": profile["username"],
+            "is_active": profile["is_active"],
+            "organizational_unit": None,
+            "organizational_path": [],
+        }
+        identity.update(overrides)
+        return identity
+
+    @contextmanager
+    def mock_ad_dependencies(
+        self,
+        *,
+        credentials_valid=True,
+        profiles=None,
+        identity=None,
+    ):
+        with (
+            patch.object(
+                backends,
+                "authenticate_ad_credentials",
+                return_value=credentials_valid,
+                create=True,
+            ) as authenticate_ad,
+            patch.object(
+                backends,
+                "search_ad_users",
+                return_value=profiles if profiles is not None else [],
+                create=True,
+            ) as search_ad,
+            patch.object(
+                backends,
+                "resolve_institutional_identity",
+                return_value=identity,
+                create=True,
+            ) as resolve_identity,
+        ):
+            yield authenticate_ad, search_ad, resolve_identity
+
+    def test_invalid_ad_credentials_do_not_create_local_user(self):
+        with self.mock_ad_dependencies(credentials_valid=False) as dependencies:
+            authenticate_ad, search_ad, resolve_identity = dependencies
+            user = self.backend.authenticate(
+                request=None,
+                username="juvalenzuela",
+                password="institutional-secret",
+            )
+
+        self.assertIsNone(user)
+        self.assertEqual(User.objects.count(), 0)
+        authenticate_ad.assert_called_once_with(
+            "juvalenzuela",
+            "institutional-secret",
+        )
+        search_ad.assert_not_called()
+        resolve_identity.assert_not_called()
+
+    def test_valid_ad_user_is_created_as_approved_client(self):
+        profile = self.ad_profile()
+        identity = self.institutional_identity(profile)
+        with self.mock_ad_dependencies(
+            profiles=[profile],
+            identity=identity,
+        ):
+            user = self.backend.authenticate(
+                request=None,
+                username="juvalenzuela",
+                password="institutional-secret",
+            )
+
+        self.assertIsInstance(user, User)
+        self.assertEqual(user.email, "juvalenzuela@example.test")
+        self.assertEqual(user.username, "juvalenzuela")
+        self.assertEqual(user.first_name, "Julia")
+        self.assertEqual(user.last_name, "Valenzuela Samudio")
+        self.assertEqual(user.role, User.Role.CLIENT)
+        self.assertEqual(user.approval_status, User.ApprovalStatus.APPROVED)
+        self.assertTrue(user.is_active)
+        self.assertFalse(user.has_usable_password())
+        self.assertEqual(User.objects.count(), 1)
+
+    def test_rrhh_identity_keeps_ad_username_and_applies_hr_fields(self):
+        profile = self.ad_profile(
+            name="Marciano Colman Zaracho",
+            first_name="Marciano",
+            last_name="Colman Zaracho",
+            email="mcolman@example.test",
+            username="mcolman",
+        )
+        identity = self.institutional_identity(
+            profile,
+            source="RRHH",
+            id_personal=616,
+            employee_number="1123",
+            name="MARCIANO ISRAEL COLMAN ZARACHO",
+            first_name="",
+            last_name="",
+            phone="0962000000",
+            position="Asistente",
+            employment_type="Contratado",
+            username="",
+        )
+        with self.mock_ad_dependencies(
+            profiles=[profile],
+            identity=identity,
+        ):
+            user = self.backend.authenticate(
+                request=None,
+                username="MCOLMAN",
+                password="institutional-secret",
+            )
+
+        self.assertIsInstance(user, User)
+        self.assertEqual(user.username, "mcolman")
+        self.assertEqual(user.id_personal, 616)
+        self.assertEqual(user.employee_number, "1123")
+        self.assertEqual(user.phone, "0962000000")
+        self.assertEqual(user.position, "Asistente")
+        self.assertEqual(user.role, User.Role.CLIENT)
+        self.assertFalse(user.has_usable_password())
+
+    def test_existing_technician_is_returned_without_role_downgrade(self):
+        technician = User.objects.create_user(
+            username="tecnico",
+            email="tecnico@example.test",
+            password="local-password",
+            role=User.Role.TECHNICIAN,
+            approval_status=User.ApprovalStatus.APPROVED,
+        )
+        profile = self.ad_profile(
+            name="Técnico Existente",
+            first_name="Técnico",
+            last_name="Existente",
+            email="tecnico@example.test",
+            username="tecnico",
+        )
+        identity = self.institutional_identity(profile)
+
+        with self.mock_ad_dependencies(
+            profiles=[profile],
+            identity=identity,
+        ):
+            authenticated = self.backend.authenticate(
+                request=None,
+                username="tecnico",
+                password="institutional-secret",
+            )
+
+        technician.refresh_from_db()
+        self.assertEqual(authenticated.pk, technician.pk)
+        self.assertEqual(User.objects.count(), 1)
+        self.assertEqual(technician.role, User.Role.TECHNICIAN)
+        self.assertEqual(
+            technician.approval_status,
+            User.ApprovalStatus.APPROVED,
+        )
+
+    def test_suspended_local_user_is_not_reactivated(self):
+        suspended = User.objects.create_user(
+            username="suspended-user",
+            email="suspended@example.test",
+            password="local-password",
+            approval_status=User.ApprovalStatus.SUSPENDED,
+        )
+        profile = self.ad_profile(
+            name="Suspended User",
+            first_name="Suspended",
+            last_name="User",
+            email="suspended@example.test",
+            username="suspended-user",
+        )
+        identity = self.institutional_identity(profile)
+
+        with self.mock_ad_dependencies(
+            profiles=[profile],
+            identity=identity,
+        ):
+            result = self.backend.authenticate(
+                request=None,
+                username="suspended-user",
+                password="institutional-secret",
+            )
+
+        suspended.refresh_from_db()
+        self.assertIsNone(result)
+        self.assertEqual(
+            suspended.approval_status,
+            User.ApprovalStatus.SUSPENDED,
+        )
+
+    def test_inactive_institutional_identity_does_not_create_user(self):
+        profile = self.ad_profile()
+        identity = self.institutional_identity(profile, is_active=False)
+
+        with self.mock_ad_dependencies(
+            profiles=[profile],
+            identity=identity,
+        ):
+            result = self.backend.authenticate(
+                request=None,
+                username="juvalenzuela",
+                password="institutional-secret",
+            )
+
+        self.assertIsNone(result)
+        self.assertEqual(User.objects.count(), 0)
+
+    def test_empty_identifier_or_password_is_rejected_before_ad(self):
+        cases = (
+            ("", "institutional-secret"),
+            ("   ", "institutional-secret"),
+            ("juvalenzuela", ""),
+        )
+        with self.mock_ad_dependencies() as dependencies:
+            authenticate_ad, search_ad, resolve_identity = dependencies
+            for username, password in cases:
+                with self.subTest(username=username, password_empty=not password):
+                    result = self.backend.authenticate(
+                        request=None,
+                        username=username,
+                        password=password,
+                    )
+                    self.assertIsNone(result)
+
+        authenticate_ad.assert_not_called()
+        search_ad.assert_not_called()
+        resolve_identity.assert_not_called()
+        self.assertEqual(User.objects.count(), 0)
+
+    def test_valid_credentials_without_ad_profile_do_not_create_user(self):
+        with self.mock_ad_dependencies(profiles=[]):
+            result = self.backend.authenticate(
+                request=None,
+                username="unknown-user",
+                password="institutional-secret",
+            )
+
+        self.assertIsNone(result)
+        self.assertEqual(User.objects.count(), 0)
+
+    def test_email_login_authenticates_and_finds_user_case_insensitively(self):
+        profile = self.ad_profile(
+            email="juvalenzuela@example.test",
+            username="juvalenzuela",
+        )
+        identity = self.institutional_identity(profile)
+
+        with self.mock_ad_dependencies(
+            profiles=[profile],
+            identity=identity,
+        ):
+            user = self.backend.authenticate(
+                request=None,
+                username="  JUVALENZUELA@EXAMPLE.TEST  ",
+                password="institutional-secret",
+            )
+
+        self.assertIsInstance(user, User)
+        self.assertEqual(user.email, "juvalenzuela@example.test")
+        self.assertEqual(User.objects.count(), 1)
+
+    def test_username_match_is_case_insensitive_but_not_partial(self):
+        exact_profile = self.ad_profile(
+            email="colman@example.test",
+            username="MColman",
+        )
+        exact_identity = self.institutional_identity(exact_profile)
+        with self.mock_ad_dependencies(
+            profiles=[exact_profile],
+            identity=exact_identity,
+        ):
+            matched = self.backend.authenticate(
+                request=None,
+                username="mcolman",
+                password="institutional-secret",
+            )
+
+        self.assertIsInstance(matched, User)
+        self.assertEqual(matched.username.casefold(), "mcolman")
+
+        partial_profile = self.ad_profile(
+            email="different@example.test",
+            username="prefix-mcolman",
+        )
+        with self.mock_ad_dependencies(
+            profiles=[partial_profile],
+            identity=self.institutional_identity(partial_profile),
+        ):
+            unmatched = self.backend.authenticate(
+                request=None,
+                username="mcolman",
+                password="institutional-secret",
+            )
+
+        self.assertIsNone(unmatched)
+        self.assertEqual(User.objects.count(), 1)
 
 
 class TechnicianAvailabilityRequestServiceTests(TestCase):

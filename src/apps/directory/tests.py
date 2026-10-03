@@ -1,8 +1,9 @@
 from contextlib import contextmanager
+import ssl
 from unittest.mock import MagicMock, patch
 
 import pyodbc
-from ldap3.core.exceptions import LDAPException
+from ldap3.core.exceptions import LDAPBindError, LDAPException
 from ldap3.utils.conv import escape_filter_chars
 from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase, TestCase, override_settings
@@ -529,6 +530,158 @@ class ActiveDirectoryServiceTests(SimpleTestCase):
         with self.assertRaises(ad_services.ActiveDirectoryError):
             ad_services.test_ad_connection()
 
+        connection.unbind.assert_called_once_with()
+
+    def test_authenticate_ad_credentials_expands_simple_username(self):
+        connection = MagicMock()
+        connection.bound = True
+        with (
+            patch("apps.directory.ad_services.Server") as server_class,
+            patch(
+                "apps.directory.ad_services.Connection",
+                return_value=connection,
+            ) as connection_class,
+        ):
+            result = ad_services.authenticate_ad_credentials(
+                "  mcolman  ",
+                "secret-password",
+            )
+
+        self.assertTrue(result)
+        connection_class.assert_called_once_with(
+            server_class.return_value,
+            user="mcolman@example.test",
+            password="secret-password",
+            auto_bind=True,
+            raise_exceptions=True,
+        )
+        connection.unbind.assert_called_once_with()
+
+    def test_authenticate_ad_credentials_preserves_email_or_upn(self):
+        connection = MagicMock()
+        connection.bound = True
+        with (
+            patch("apps.directory.ad_services.Server") as server_class,
+            patch(
+                "apps.directory.ad_services.Connection",
+                return_value=connection,
+            ) as connection_class,
+        ):
+            result = ad_services.authenticate_ad_credentials(
+                "  mcolman@example.test  ",
+                "secret-password",
+            )
+
+        self.assertTrue(result)
+        connection_class.assert_called_once_with(
+            server_class.return_value,
+            user="mcolman@example.test",
+            password="secret-password",
+            auto_bind=True,
+            raise_exceptions=True,
+        )
+        connection.unbind.assert_called_once_with()
+
+    def test_authenticate_ad_credentials_returns_false_for_invalid_bind(self):
+        with (
+            patch("apps.directory.ad_services.Server"),
+            patch(
+                "apps.directory.ad_services.Connection",
+                side_effect=LDAPBindError("invalid credentials"),
+            ),
+        ):
+            result = ad_services.authenticate_ad_credentials(
+                "mcolman",
+                "incorrect-password",
+            )
+
+        self.assertFalse(result)
+
+    def test_authenticate_ad_credentials_wraps_other_ldap_errors(self):
+        original_error = LDAPException("mock transport failure")
+        with (
+            patch("apps.directory.ad_services.Server"),
+            patch(
+                "apps.directory.ad_services.Connection",
+                side_effect=original_error,
+            ),
+        ):
+            with self.assertRaises(ad_services.ActiveDirectoryError) as context:
+                ad_services.authenticate_ad_credentials(
+                    "mcolman",
+                    "secret-password",
+                )
+
+        self.assertIs(context.exception.__cause__, original_error)
+
+    def test_authenticate_ad_credentials_rejects_invalid_identifiers(self):
+        with (
+            patch("apps.directory.ad_services.Server") as server_class,
+            patch("apps.directory.ad_services.Connection") as connection_class,
+        ):
+            for identifier in (None, "", "   ", 123):
+                with self.subTest(identifier=identifier):
+                    with self.assertRaises(ValueError):
+                        ad_services.authenticate_ad_credentials(
+                            identifier,
+                            "secret-password",
+                        )
+
+        server_class.assert_not_called()
+        connection_class.assert_not_called()
+
+    def test_authenticate_ad_credentials_rejects_invalid_passwords(self):
+        with (
+            patch("apps.directory.ad_services.Server") as server_class,
+            patch("apps.directory.ad_services.Connection") as connection_class,
+        ):
+            for password in (None, "", 123):
+                with self.subTest(password=password):
+                    with self.assertRaises(ValueError):
+                        ad_services.authenticate_ad_credentials(
+                            "mcolman",
+                            password,
+                        )
+
+        server_class.assert_not_called()
+        connection_class.assert_not_called()
+
+    def test_authenticate_ad_credentials_reuses_tls_configuration(self):
+        connection = MagicMock()
+        connection.bound = True
+        with (
+            override_settings(
+                DIRECTORY_AD_HOST="custom-ad.example.test",
+                DIRECTORY_AD_PORT=1636,
+                DIRECTORY_AD_USE_SSL=False,
+                DIRECTORY_AD_TLS_VALIDATE=False,
+                DIRECTORY_AD_CA_CERT_FILE="mock-ca.pem",
+            ),
+            patch("apps.directory.ad_services.Tls") as tls_class,
+            patch("apps.directory.ad_services.Server") as server_class,
+            patch(
+                "apps.directory.ad_services.Connection",
+                return_value=connection,
+            ),
+        ):
+            self.assertTrue(
+                ad_services.authenticate_ad_credentials(
+                    "mcolman",
+                    "secret-password",
+                )
+            )
+
+        tls_class.assert_called_once_with(
+            validate=ssl.CERT_NONE,
+            ca_certs_file="mock-ca.pem",
+        )
+        server_class.assert_called_once_with(
+            host="custom-ad.example.test",
+            port=1636,
+            use_ssl=False,
+            tls=tls_class.return_value,
+            get_info=ad_services.ALL,
+        )
         connection.unbind.assert_called_once_with()
 
 

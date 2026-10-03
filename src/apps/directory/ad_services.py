@@ -4,7 +4,7 @@ import sys
 
 from django.conf import settings
 from ldap3 import ALL, Connection, Server, Tls
-from ldap3.core.exceptions import LDAPException
+from ldap3.core.exceptions import LDAPBindError, LDAPException
 from ldap3.utils.conv import escape_filter_chars
 
 
@@ -329,3 +329,61 @@ def search_ad_users(query, limit=20):
             ]
     except LDAPException as exc:
         raise ActiveDirectoryError(_GENERIC_AD_ERROR) from exc
+
+
+def authenticate_ad_credentials(identifier, password):
+    if not isinstance(identifier, str):
+        raise ValueError("identifier debe ser una cadena no vacía.")
+    identifier = identifier.strip()
+    if not identifier:
+        raise ValueError("identifier debe ser una cadena no vacía.")
+
+    if not isinstance(password, str) or password == "":
+        raise ValueError("password debe ser una cadena no vacía.")
+
+    _validate_ad_configuration()
+
+    bind_user = (
+        identifier
+        if "@" in identifier
+        else f"{identifier}@{settings.DIRECTORY_AD_DOMAIN}"
+    )
+    tls_options = {
+        "validate": (
+            ssl.CERT_REQUIRED
+            if settings.DIRECTORY_AD_TLS_VALIDATE
+            else ssl.CERT_NONE
+        ),
+    }
+    ca_cert_file = getattr(settings, "DIRECTORY_AD_CA_CERT_FILE", "")
+    if ca_cert_file:
+        tls_options["ca_certs_file"] = ca_cert_file
+
+    connection = None
+    try:
+        tls = Tls(**tls_options)
+        server = Server(
+            host=settings.DIRECTORY_AD_HOST,
+            port=settings.DIRECTORY_AD_PORT,
+            use_ssl=settings.DIRECTORY_AD_USE_SSL,
+            tls=tls,
+            get_info=ALL,
+        )
+        connection = Connection(
+            server,
+            user=bind_user,
+            password=password,
+            auto_bind=True,
+            raise_exceptions=True,
+        )
+        return True
+    except LDAPBindError:
+        return False
+    except LDAPException as exc:
+        raise ActiveDirectoryError(_GENERIC_AD_ERROR) from exc
+    finally:
+        if connection is not None:
+            try:
+                connection.unbind()
+            except LDAPException:
+                pass

@@ -285,6 +285,7 @@ MEDIA_ROOT = BASE_DIR / "media"
 AUTH_USER_MODEL = "accounts.User"
 
 AUTHENTICATION_BACKENDS = [
+    "apps.accounts.backends.ActiveDirectoryBackend",
     "apps.accounts.backends.ApprovedUserModelBackend",
 ]
 
