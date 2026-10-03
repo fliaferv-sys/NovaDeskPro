@@ -1,6 +1,10 @@
 from django.contrib import admin
 
-from .models import InstitutionSettings
+from .models import (
+    InstitutionSettings,
+    InstitutionalIdentityAssignment,
+    OrganizationalUnit,
+)
 
 
 @admin.register(InstitutionSettings)
@@ -141,3 +145,74 @@ class InstitutionSettingsAdmin(admin.ModelAdmin):
             },
         ),
     )
+
+
+@admin.register(OrganizationalUnit)
+class OrganizationalUnitAdmin(admin.ModelAdmin):
+    list_display = (
+        "code",
+        "name",
+        "unit_type",
+        "parent",
+        "operational_department",
+        "is_active",
+        "order",
+    )
+    list_filter = (
+        "unit_type",
+        "is_active",
+    )
+    search_fields = (
+        "code",
+        "name",
+        "parent__name",
+        "operational_department__name",
+    )
+    ordering = (
+        "parent_id",
+        "order",
+        "name",
+    )
+    list_select_related = (
+        "parent",
+        "operational_department",
+    )
+    readonly_fields = (
+        "created_at",
+        "updated_at",
+    )
+
+
+@admin.register(InstitutionalIdentityAssignment)
+class InstitutionalIdentityAssignmentAdmin(admin.ModelAdmin):
+    list_display = (
+        "identity_display",
+        "organizational_unit",
+        "is_active",
+        "updated_at",
+    )
+    list_filter = (
+        "is_active",
+        "organizational_unit__unit_type",
+    )
+    search_fields = (
+        "id_personal",
+        "email",
+        "username",
+        "organizational_unit__name",
+        "organizational_unit__code",
+    )
+    list_select_related = ("organizational_unit",)
+    readonly_fields = (
+        "created_at",
+        "updated_at",
+    )
+    autocomplete_fields = ("organizational_unit",)
+
+    @admin.display(description="Identidad")
+    def identity_display(self, obj):
+        if obj.id_personal is not None:
+            return f"IdPersonal: {obj.id_personal}"
+        if obj.email:
+            return obj.email
+        return obj.username

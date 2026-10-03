@@ -7,6 +7,7 @@ from django.core.validators import (
     FileExtensionValidator,
     RegexValidator,
 )
+from django.core.exceptions import ValidationError
 from django.db import models
 
 
@@ -589,3 +590,97 @@ class OrganizationalUnit(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class InstitutionalIdentityAssignment(models.Model):
+    id_personal = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        db_index=True,
+        verbose_name="IdPersonal RR.HH.",
+    )
+    email = models.EmailField(
+        blank=True,
+        db_index=True,
+        verbose_name="Correo institucional",
+    )
+    username = models.CharField(
+        max_length=150,
+        blank=True,
+        db_index=True,
+        verbose_name="Usuario de red",
+    )
+    organizational_unit = models.ForeignKey(
+        OrganizationalUnit,
+        on_delete=models.PROTECT,
+        related_name="identity_assignments",
+        verbose_name="Dependencia institucional",
+    )
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name="Activo",
+    )
+    notes = models.TextField(
+        blank=True,
+        verbose_name="Observaciones",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Asignación institucional"
+        verbose_name_plural = "Asignaciones institucionales"
+        ordering = ["organizational_unit__name", "email", "username"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["id_personal"],
+                condition=models.Q(id_personal__isnull=False),
+                name="unique_institutional_assignment_id_personal",
+            ),
+            models.UniqueConstraint(
+                fields=["email"],
+                condition=~models.Q(email=""),
+                name="unique_institutional_assignment_email",
+            ),
+            models.UniqueConstraint(
+                fields=["username"],
+                condition=~models.Q(username=""),
+                name="unique_institutional_assignment_username",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(id_personal__isnull=False)
+                    | ~models.Q(email="")
+                    | ~models.Q(username="")
+                ),
+                name="institutional_assignment_requires_identifier",
+            ),
+        ]
+
+    def _normalize_identifiers(self):
+        self.email = (self.email or "").strip().lower()
+        self.username = (self.username or "").strip().lower()
+
+    def clean(self):
+        self._normalize_identifiers()
+
+        if self.id_personal is None and not self.email and not self.username:
+            raise ValidationError(
+                "Debe proporcionar IdPersonal, correo institucional "
+                "o usuario de red."
+            )
+
+        super().clean()
+
+    def save(self, *args, **kwargs):
+        self._normalize_identifiers()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        if self.id_personal is not None:
+            identifier = str(self.id_personal)
+        elif self.email:
+            identifier = self.email
+        else:
+            identifier = self.username
+        return f"{identifier} - {self.organizational_unit.name}"

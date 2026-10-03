@@ -9,6 +9,10 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 
 from apps.core.models import Department
+from apps.institution.models import (
+    InstitutionalIdentityAssignment,
+    OrganizationalUnit,
+)
 
 from . import ad_services
 from . import identity_services
@@ -528,7 +532,7 @@ class ActiveDirectoryServiceTests(SimpleTestCase):
         connection.unbind.assert_called_once_with()
 
 
-class InstitutionalIdentityServiceTests(SimpleTestCase):
+class InstitutionalIdentityServiceTests(TestCase):
     def test_rrhh_normalization_maps_fields_and_active_state(self):
         employee = make_rrhh_employee()
 
@@ -1187,6 +1191,276 @@ class InstitutionalIdentityLocalSearchTests(TestCase):
 
         self.assertEqual([item["source"] for item in identities], ["LOCAL"])
         self.assertEqual(identities[0]["email"], user.email)
+
+
+class InstitutionalIdentityOrganizationalUnitTests(TestCase):
+    def setUp(self):
+        self.presidency = OrganizationalUnit.objects.create(
+            name="Presidencia",
+            code="TEST-PRES",
+            unit_type=OrganizationalUnit.UnitType.PRESIDENCY,
+        )
+        self.directorate = OrganizationalUnit.objects.create(
+            name="Dirección de Tecnología de la Información",
+            code="TEST-DTI",
+            unit_type=OrganizationalUnit.UnitType.DIRECTORATE,
+            parent=self.presidency,
+        )
+        self.technical_unit = OrganizationalUnit.objects.create(
+            name="Unidad Técnica",
+            code="TEST-DTI-UT",
+            unit_type=OrganizationalUnit.UnitType.UNIT,
+            parent=self.directorate,
+        )
+        self.technical_department = OrganizationalUnit.objects.create(
+            name="Dpto. Servicios Tecnológicos",
+            code="TEST-DTI-UT-ST",
+            unit_type=OrganizationalUnit.UnitType.DEPARTMENT,
+            parent=self.technical_unit,
+        )
+
+    def create_assignment(self, organizational_unit, **identifiers):
+        return InstitutionalIdentityAssignment.objects.create(
+            organizational_unit=organizational_unit,
+            **identifiers,
+        )
+
+    def test_identity_with_id_personal_is_enriched_with_unit_and_path(self):
+        self.create_assignment(
+            self.technical_department,
+            id_personal=1234,
+        )
+        identity = {
+            "id_personal": 1234,
+            "email": "employee@example.test",
+            "username": "employee",
+        }
+
+        enriched = identity_services._enrich_with_organizational_unit(identity)
+
+        self.assertEqual(
+            enriched["organizational_unit"],
+            {
+                "code": "TEST-DTI-UT-ST",
+                "name": "Dpto. Servicios Tecnológicos",
+                "type": OrganizationalUnit.UnitType.DEPARTMENT,
+                "type_display": self.technical_department.get_unit_type_display(),
+            },
+        )
+        path = enriched["organizational_path"]
+        self.assertEqual(
+            [item["code"] for item in path],
+            ["TEST-PRES", "TEST-DTI", "TEST-DTI-UT", "TEST-DTI-UT-ST"],
+        )
+        self.assertEqual(
+            [item["name"] for item in path],
+            [
+                "Presidencia",
+                "Dirección de Tecnología de la Información",
+                "Unidad Técnica",
+                "Dpto. Servicios Tecnológicos",
+            ],
+        )
+        for item in path:
+            self.assertIn("type", item)
+            self.assertIn("type_display", item)
+
+    def test_id_personal_assignment_has_priority_over_email_and_username(self):
+        id_assignment = self.create_assignment(
+            self.directorate,
+            id_personal=1234,
+        )
+        self.create_assignment(
+            self.technical_unit,
+            email="employee@example.test",
+        )
+        self.create_assignment(
+            self.technical_department,
+            username="employee",
+        )
+
+        enriched = identity_services._enrich_with_organizational_unit(
+            {
+                "id_personal": 1234,
+                "email": "employee@example.test",
+                "username": "employee",
+            }
+        )
+
+        self.assertEqual(
+            enriched["organizational_unit"]["code"],
+            id_assignment.organizational_unit.code,
+        )
+
+    def test_email_assignment_enriches_identity_without_id_personal(self):
+        self.create_assignment(
+            self.technical_department,
+            email="person.ad@example.test",
+        )
+
+        enriched = identity_services._enrich_with_organizational_unit(
+            {
+                "id_personal": None,
+                "email": "PERSON.AD@example.test",
+                "username": "person.ad",
+            }
+        )
+
+        self.assertEqual(
+            enriched["organizational_unit"]["code"],
+            "TEST-DTI-UT-ST",
+        )
+
+    def test_username_assignment_enriches_identity_without_email_match(self):
+        self.create_assignment(
+            self.technical_unit,
+            username="person.ad",
+        )
+
+        enriched = identity_services._enrich_with_organizational_unit(
+            {
+                "id_personal": None,
+                "email": "unmatched@example.test",
+                "username": "PERSON.AD",
+            }
+        )
+
+        self.assertEqual(
+            enriched["organizational_unit"]["code"],
+            "TEST-DTI-UT",
+        )
+
+    def test_identity_without_assignment_gets_none_organizational_unit(self):
+        identity = {
+            "id_personal": 9999,
+            "email": "unassigned@example.test",
+            "username": "unassigned",
+        }
+
+        enriched = identity_services._enrich_with_organizational_unit(identity)
+
+        self.assertEqual(enriched["id_personal"], 9999)
+        self.assertEqual(enriched["email"], "unassigned@example.test")
+        self.assertEqual(enriched["username"], "unassigned")
+        self.assertIsNone(enriched["organizational_unit"])
+        self.assertEqual(enriched["organizational_path"], [])
+
+    def test_inactive_assignment_is_ignored(self):
+        self.create_assignment(
+            self.technical_department,
+            id_personal=1234,
+            is_active=False,
+        )
+
+        enriched = identity_services._enrich_with_organizational_unit(
+            {"id_personal": 1234, "email": "", "username": ""}
+        )
+
+        self.assertIsNone(enriched["organizational_unit"])
+        self.assertEqual(enriched["organizational_path"], [])
+
+    def test_rrhh_identity_by_id_personal_includes_assignment(self):
+        self.create_assignment(
+            self.technical_department,
+            id_personal=1234,
+        )
+
+        with patch(
+            "apps.directory.identity_services.get_directory_employee_by_id_personal",
+            return_value=make_rrhh_employee(IdPersonal=1234),
+        ):
+            identity = identity_services.resolve_institutional_identity(
+                id_personal=1234,
+            )
+
+        self.assertEqual(identity["source"], "RRHH")
+        self.assertEqual(
+            identity["organizational_unit"]["code"],
+            "TEST-DTI-UT-ST",
+        )
+        self.assertEqual(
+            identity["organizational_path"][-1]["code"],
+            "TEST-DTI-UT-ST",
+        )
+
+    def test_active_directory_identity_by_email_includes_assignment(self):
+        self.create_assignment(
+            self.technical_department,
+            email="ad@example.test",
+        )
+
+        with (
+            patch(
+                "apps.directory.identity_services.search_directory_employees",
+                return_value=[],
+            ),
+            patch(
+                "apps.directory.identity_services.get_ad_user_by_email",
+                return_value=make_ad_user(email="ad@example.test"),
+            ),
+        ):
+            identity = identity_services.resolve_institutional_identity(
+                email="ad@example.test",
+            )
+
+        self.assertEqual(identity["source"], "ACTIVE_DIRECTORY")
+        self.assertEqual(
+            identity["organizational_unit"]["code"],
+            "TEST-DTI-UT-ST",
+        )
+
+    def test_local_user_identity_includes_email_assignment(self):
+        user = get_user_model().objects.create_user(
+            username="org-unit-local-user",
+            email="org-unit-local@example.test",
+            password="test-password",
+        )
+        self.create_assignment(
+            self.technical_department,
+            email=user.email,
+        )
+
+        with (
+            patch(
+                "apps.directory.identity_services.search_directory_employees",
+                return_value=[],
+            ),
+            patch(
+                "apps.directory.identity_services.get_ad_user_by_email",
+                return_value=None,
+            ),
+        ):
+            identity = identity_services.resolve_institutional_identity(
+                email=user.email,
+                local_user=user,
+            )
+
+        self.assertEqual(identity["source"], "LOCAL")
+        self.assertEqual(
+            identity["organizational_unit"]["code"],
+            "TEST-DTI-UT-ST",
+        )
+
+    def test_identity_without_assignment_has_no_organizational_unit(self):
+        with (
+            patch(
+                "apps.directory.identity_services.search_directory_employees",
+                return_value=[],
+            ),
+            patch(
+                "apps.directory.identity_services.get_ad_user_by_email",
+                return_value=make_ad_user(
+                    email="unassigned@example.test",
+                ),
+            ),
+        ):
+            identity = identity_services.resolve_institutional_identity(
+                email="unassigned@example.test",
+            )
+
+        self.assertEqual(identity["source"], "ACTIVE_DIRECTORY")
+        self.assertIsNone(identity["organizational_unit"])
+        self.assertEqual(identity["organizational_path"], [])
 
 
 class DirectoryEmployeeSearchApiTests(TestCase):

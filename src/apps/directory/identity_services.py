@@ -11,6 +11,7 @@ from apps.directory.services import (
     get_directory_employee_by_id_personal,
     search_directory_employees,
 )
+from apps.institution.models import InstitutionalIdentityAssignment
 
 
 class InstitutionalIdentityError(Exception):
@@ -20,6 +21,61 @@ class InstitutionalIdentityError(Exception):
 SOURCE_RRHH = "RRHH"
 SOURCE_ACTIVE_DIRECTORY = "ACTIVE_DIRECTORY"
 SOURCE_LOCAL = "LOCAL"
+
+
+def _enrich_with_organizational_unit(identity):
+    if identity is None:
+        return None
+
+    enriched_identity = identity.copy()
+    assignment_query = InstitutionalIdentityAssignment.objects.filter(
+        is_active=True,
+    ).select_related("organizational_unit")
+    assignment = None
+
+    id_personal = enriched_identity.get("id_personal")
+    if id_personal is not None:
+        assignment = assignment_query.filter(id_personal=id_personal).first()
+
+    email = enriched_identity.get("email")
+    normalized_email = email.strip().lower() if email else ""
+    if assignment is None and normalized_email:
+        assignment = assignment_query.filter(email=normalized_email).first()
+
+    username = enriched_identity.get("username")
+    normalized_username = username.strip().lower() if username else ""
+    if assignment is None and normalized_username:
+        assignment = assignment_query.filter(username=normalized_username).first()
+
+    if assignment is None:
+        enriched_identity["organizational_unit"] = None
+        enriched_identity["organizational_path"] = []
+        return enriched_identity
+
+    unit = assignment.organizational_unit
+    enriched_identity["organizational_unit"] = {
+        "code": unit.code,
+        "name": unit.name,
+        "type": unit.unit_type,
+        "type_display": unit.get_unit_type_display(),
+    }
+
+    organizational_path = []
+    current_unit = unit
+    while current_unit is not None:
+        organizational_path.append(
+            {
+                "code": current_unit.code,
+                "name": current_unit.name,
+                "type": current_unit.unit_type,
+                "type_display": current_unit.get_unit_type_display(),
+            }
+        )
+        current_unit = current_unit.parent
+    organizational_path.reverse()
+    enriched_identity["organizational_path"] = organizational_path
+
+    return enriched_identity
 
 
 def _normalize_rrhh_employee(employee):
@@ -100,7 +156,9 @@ def resolve_institutional_identity(*, id_personal=None, email=None, local_user=N
             except DirectoryDatabaseError:
                 employee = None
             if employee:
-                return _normalize_rrhh_employee(employee)
+                return _enrich_with_organizational_unit(
+                    _normalize_rrhh_employee(employee)
+                )
 
         normalized_email = email.strip() if isinstance(email, str) else ""
         if normalized_email:
@@ -119,24 +177,32 @@ def resolve_institutional_identity(*, id_personal=None, email=None, local_user=N
                     isinstance(employee_email, str)
                     and employee_email.strip().casefold() == normalized_email_key
                 ):
-                    return _normalize_rrhh_employee(employee)
+                    return _enrich_with_organizational_unit(
+                        _normalize_rrhh_employee(employee)
+                    )
 
             try:
                 ad_user = get_ad_user_by_email(normalized_email)
             except ActiveDirectoryError:
                 ad_user = None
             if ad_user:
-                return _normalize_ad_user(ad_user)
+                return _enrich_with_organizational_unit(
+                    _normalize_ad_user(ad_user)
+                )
 
         if local_user is not None:
-            return _normalize_local_user(local_user)
+            return _enrich_with_organizational_unit(
+                _normalize_local_user(local_user)
+            )
 
         if normalized_email:
             local_user = User.objects.filter(
                 email__iexact=normalized_email,
             ).first()
             if local_user:
-                return _normalize_local_user(local_user)
+                return _enrich_with_organizational_unit(
+                    _normalize_local_user(local_user)
+                )
 
         return None
     except Exception as exc:
