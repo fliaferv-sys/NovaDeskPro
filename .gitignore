@@ -21,6 +21,7 @@ logs/
 .env
 .env.*
 !.env.example
+ticket_config.json
 
 # Copias y temporales
 backups/
