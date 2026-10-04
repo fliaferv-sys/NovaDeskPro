@@ -158,10 +158,12 @@
 
                 <div class="navbar-user-dropdown-header">
 
-                    <strong>
-                        {{ request.user.first_name }}
-                        {{ request.user.last_name }}
-                    </strong>
+                    <a href="{% url 'profile' %}">
+                        <strong>
+                            {{ request.user.first_name }}
+                            {{ request.user.last_name }}
+                        </strong>
+                    </a>
 
                     <span>
                         {{ request.user.email }}

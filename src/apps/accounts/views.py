@@ -172,7 +172,11 @@ def home_view(request):
 def profile_view(request):
     user = (
         User.objects
-        .select_related("branch", "department")
+        .select_related(
+            "branch",
+            "department",
+            "organizational_unit",
+        )
         .get(pk=request.user.pk)
     )
 
@@ -186,18 +190,22 @@ def profile_view(request):
 @login_required
 @roles_required("ADMIN", "SUPERVISOR", "AUDITOR")
 def user_list_view(request):
-	users = (
-		User.objects
-		.select_related("branch")
-		.order_by("first_name", "last_name")
-	)
+    users = (
+        User.objects
+        .select_related(
+            "branch",
+            "department",
+            "organizational_unit",
+        )
+        .order_by("first_name", "last_name")
+    )
 
-	context = {
-		"users": users,
-	}
+    context = {
+        "users": users,
+    }
 
-	return render(
-		request,
-		"accounts/user_list.html",
-		context,
-	)
+    return render(
+        request,
+        "accounts/user_list.html",
+        context,
+    )

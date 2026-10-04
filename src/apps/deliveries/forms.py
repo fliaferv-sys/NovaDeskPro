@@ -6,7 +6,7 @@
 from django import forms
 from django.utils import timezone
 
-from apps.accounts.models import User
+from apps.accounts.models import Branch, User
 from apps.directory.identity_services import (
     InstitutionalIdentityError,
     resolve_institutional_identity,
@@ -116,6 +116,120 @@ def _apply_delivery_responsible_identity(cleaned_data, delivery_responsible):
     position = identity.get("position")
     if position:
         cleaned_data["origin_position"] = position
+
+
+def validate_assets_for_delivery(assets):
+    """Apply the acquisition and traceability rules used by normal deliveries."""
+    incomplete = []
+    for asset in assets:
+        missing = []
+        if asset.assigned_user_id:
+            missing.append("ya tiene custodio")
+        if not asset.brand:
+            missing.append("marca")
+        if not asset.model:
+            missing.append("modelo")
+        if not asset.patrimonial_code:
+            missing.append("patrimonio")
+        if not asset.serial_number:
+            missing.append("número de serie")
+        if not asset.acquisition_batch_id:
+            missing.append("lote")
+        elif asset.acquisition_batch.status not in {
+            asset.acquisition_batch.Status.VALIDATED,
+            asset.acquisition_batch.Status.CLOSED,
+        }:
+            missing.append("lote validado")
+        elif not asset.acquisition_batch.audit_documents.filter(verified=True).exists():
+            missing.append("documentación del lote verificada")
+        elif not asset.acquisition_batch.quantity_matches:
+            missing.append("cantidad del lote conciliada")
+        if missing:
+            incomplete.append(f"{asset.internal_code}: {', '.join(missing)}")
+    if incomplete:
+        raise forms.ValidationError(
+            "No se pueden incluir equipos incompletos: " + "; ".join(incomplete)
+        )
+
+
+class NewDeliveryRecipientForm(forms.Form):
+    recipient = forms.ModelChoiceField(
+        label="Destinatario",
+        queryset=User.objects.none(),
+        widget=forms.Select(attrs={"class": "form-control", "data-recipient-select": "1"}),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["recipient"].queryset = User.objects.filter(is_active=True).select_related(
+            "branch", "organizational_unit", "department"
+        ).order_by("first_name", "last_name", "email")
+
+
+class NewDeliveryAssetsForm(forms.Form):
+    assets = forms.ModelMultipleChoiceField(
+        label="Equipos",
+        queryset=Asset.objects.none(),
+        widget=forms.CheckboxSelectMultiple,
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        active_statuses = [
+            AssetCustodyMovement.MovementStatus.IN_DELIVERY_PROCESS,
+            AssetCustodyMovement.MovementStatus.PREPARED,
+            AssetCustodyMovement.MovementStatus.PENDING_SIGNATURE,
+        ]
+        self.fields["assets"].queryset = Asset.objects.filter(
+            assigned_user__isnull=True
+        ).exclude(
+            custody_movements__status__in=active_statuses
+        ).select_related("branch", "assigned_user", "acquisition_batch").distinct().order_by(
+            "asset_type", "brand", "model", "internal_code"
+        )
+
+    def clean_assets(self):
+        assets = self.cleaned_data["assets"]
+        validate_assets_for_delivery(assets)
+        return assets
+
+
+class NewDeliveryReviewForm(forms.Form):
+    authorizing_director = forms.ModelChoiceField(
+        label="Responsable de autorización",
+        help_text="Persona responsable de autorizar la entrega.",
+        queryset=User.objects.none(),
+        widget=forms.Select(attrs={"class": "form-control"}),
+    )
+    destination_branch = forms.ModelChoiceField(
+        label="Sede de destino",
+        queryset=Branch.objects.none(),
+        widget=forms.Select(attrs={"class": "form-control"}),
+    )
+    department = forms.CharField(
+        label="Departamento operativo de destino",
+        max_length=120,
+        widget=forms.TextInput(attrs={"class": "form-control"}),
+    )
+    location = forms.CharField(
+        label="Ubicación física",
+        max_length=150,
+        widget=forms.TextInput(attrs={"class": "form-control"}),
+    )
+    observations = forms.CharField(
+        label="Observación",
+        required=False,
+        widget=forms.Textarea(attrs={"class": "form-control", "rows": 3}),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["authorizing_director"].queryset = User.objects.filter(
+            is_active=True
+        ).order_by("first_name", "last_name", "email")
+        self.fields["destination_branch"].queryset = Branch.objects.filter(
+            is_active=True
+        ).order_by("name")
 
 
 class AssetCustodyMovementForm(forms.ModelForm):
@@ -688,7 +802,7 @@ class DeliveryBatchForm(forms.ModelForm):
 
         self.fields["authorizing_director"].required = True
         self.fields["authorizing_director"].empty_label = (
-            "Seleccione el Director DTI"
+            "Seleccione al responsable de autorización"
         )
 
         if self.instance.pk and self.instance.recipient_name:
@@ -820,7 +934,7 @@ class DeliveryBatchForm(forms.ModelForm):
         if not cleaned_data.get("authorizing_director"):
             self.add_error(
                 "authorizing_director",
-                "Debe seleccionar el Director DTI que autorizará la entrega.",
+                "Debe seleccionar a la persona responsable de autorizar la entrega.",
             )
 
         for field_name, message in {

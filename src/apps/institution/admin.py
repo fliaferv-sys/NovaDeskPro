@@ -168,6 +168,12 @@ class OrganizationalUnitAdmin(admin.ModelAdmin):
         "parent__name",
         "operational_department__name",
     )
+
+    autocomplete_fields = (
+        "parent",
+        "operational_department",
+    )
+
     ordering = (
         "parent_id",
         "order",

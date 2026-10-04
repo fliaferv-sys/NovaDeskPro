@@ -298,6 +298,16 @@ def asset_list_view(request):
                 "branch_id", "branch__name"
             ).distinct().order_by("branch__name"),
             "active_filters": request.GET,
+            "can_start_new_delivery": request.user.has_perms((
+                "deliveries.view_assetcustodymovement",
+                "deliveries.add_assetcustodymovement",
+                "deliveries.change_assetcustodymovement",
+                "deliveries.view_deliverybatch",
+                "deliveries.add_deliverybatch",
+                "deliveries.change_deliverybatch",
+                "deliveries.view_deliverybatchdocument",
+                "deliveries.add_deliverybatchdocument",
+            )),
         },
     )
 

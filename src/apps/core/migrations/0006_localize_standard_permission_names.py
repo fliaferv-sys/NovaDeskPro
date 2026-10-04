@@ -17,7 +17,10 @@ def localize_permission_names(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [("core", "0005_businesssequence")]
+    dependencies = [
+        ("core", "0005_businesssequence"),
+        ("auth", "0012_alter_user_first_name_max_length"),
+    ]
     operations = [
         migrations.RunPython(localize_permission_names, migrations.RunPython.noop),
     ]

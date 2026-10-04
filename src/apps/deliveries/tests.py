@@ -1084,3 +1084,224 @@ class ConfigurableDeliveryPermissionTests(TestCase):
                     ).status_code,
                     200,
                 )
+
+
+class NewDeliveryWizardTests(TestCase):
+    def setUp(self):
+        self.storage_override = override_settings(
+            STORAGES={
+                "default": {"BACKEND": "django.core.files.storage.InMemoryStorage"},
+                "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+            }
+        )
+        self.storage_override.enable()
+        self.addCleanup(self.storage_override.disable)
+        self.manager = User.objects.create_user(
+            username="wizard-manager", email="wizard-manager@example.test",
+            password="test-password", role=User.Role.SUPERVISOR,
+        )
+        grant_all_delivery_permissions(self.manager)
+        self.branch = Branch.objects.create(code="WIZ-HQ", name="Sede Wizard", address="Piso 2")
+        self.recipient = User.objects.create_user(
+            username="wizard-recipient", email="wizard-recipient@example.test",
+            password="test-password", first_name="Ana", last_name="Receptora",
+            employee_number="1234", position="Analista", branch=self.branch,
+        )
+        self.acquisition = AcquisitionBatch.objects.create(
+            code="WIZ-LOT", date=date.today(), status=AcquisitionBatch.Status.VALIDATED,
+            expected_quantity=2, received_by=self.manager,
+        )
+        AcquisitionBatchDocument.objects.create(
+            batch=self.acquisition,
+            document_type=AcquisitionBatchDocument.DocumentType.RECEIPT_REPORT,
+            file=SimpleUploadedFile("receipt.pdf", b"%PDF-1.4 receipt"),
+            uploaded_by=self.manager, verified=True,
+        )
+        self.assets = [
+            Asset.objects.create(
+                internal_code=f"WIZ-{number}", brand="Dell", model="Latitude",
+                patrimonial_code=f"PAT-{number}", serial_number=f"SER-{number}",
+                hostname=f"host-{number}", acquisition_batch=self.acquisition,
+            )
+            for number in (1, 2)
+        ]
+        self.client.force_login(self.manager)
+
+    def select_recipient(self):
+        return self.client.post(
+            reverse("deliveries:new_delivery_recipient"),
+            {"recipient": str(self.recipient.pk)},
+        )
+
+    def select_assets(self, assets=None):
+        self.select_recipient()
+        return self.client.post(
+            reverse("deliveries:new_delivery_assets"),
+            {"assets": [str(asset.pk) for asset in (assets or self.assets)]},
+        )
+
+    def review_payload(self):
+        return {
+            "authorizing_director": str(self.manager.pk),
+            "destination_branch": str(self.branch.pk),
+            "department": "Tecnología",
+            "location": "Piso 2",
+            "observations": "Entrega de prueba",
+        }
+
+    def test_entry_requires_configured_permissions(self):
+        self.assertEqual(
+            self.client.get(reverse("deliveries:new_delivery_recipient")).status_code, 200
+        )
+        unauthorized = User.objects.create_user(
+            username="wizard-no-perms", email="wizard-no-perms@example.test",
+            password="test-password",
+        )
+        self.client.force_login(unauthorized)
+        self.assertEqual(
+            self.client.get(reverse("deliveries:new_delivery_recipient")).status_code, 403
+        )
+
+    def test_recipient_selection_autocompletes_known_data(self):
+        response = self.client.get(reverse("deliveries:new_delivery_recipient"))
+        self.assertContains(response, "Nueva entrega")
+        self.assertContains(response, "Nombre, apellido, correo o legajo")
+        self.assertContains(response, "Ana Receptora")
+        self.assertContains(response, "1234")
+        self.assertRedirects(
+            self.select_recipient(), reverse("deliveries:new_delivery_assets"),
+            fetch_redirect_response=False,
+        )
+
+    def test_one_and_multiple_assets_can_be_selected(self):
+        self.select_recipient()
+        one = self.client.post(
+            reverse("deliveries:new_delivery_assets"), {"assets": [str(self.assets[0].pk)]}
+        )
+        self.assertEqual(one.status_code, 302)
+        self.select_recipient()
+        many = self.client.post(
+            reverse("deliveries:new_delivery_assets"),
+            {"assets": [str(asset.pk) for asset in self.assets]},
+        )
+        self.assertEqual(many.status_code, 302)
+
+    def test_asset_with_active_delivery_is_not_available(self):
+        AssetCustodyMovement.objects.create(
+            asset=self.assets[0], delivery_responsible=self.manager, created_by=self.manager,
+        )
+        self.select_recipient()
+        response = self.client.post(
+            reverse("deliveries:new_delivery_assets"), {"assets": [str(self.assets[0].pk)]}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("assets", response.context["form"].errors)
+        self.assertNotContains(response, f'value="{self.assets[0].pk}"')
+
+    def test_review_shows_recipient_and_all_assets(self):
+        self.select_assets()
+        response = self.client.get(reverse("deliveries:new_delivery_review"))
+        self.assertContains(response, "Ana Receptora")
+        self.assertContains(response, "WIZ-1")
+        self.assertContains(response, "WIZ-2")
+        self.assertContains(response, "Preparar entrega")
+        self.assertContains(response, "Responsable de autorización")
+        self.assertNotContains(response, "Director DTI")
+
+    def test_prepare_creates_one_batch_and_linked_movements_without_assignment(self):
+        self.select_assets()
+        response = self.client.post(
+            reverse("deliveries:new_delivery_review"), self.review_payload()
+        )
+        batch = DeliveryBatch.objects.get()
+        self.assertRedirects(
+            response, reverse("deliveries:delivery_batch_detail", args=[batch.pk]),
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(batch.status, DeliveryBatch.BatchStatus.PREPARED)
+        self.assertEqual(batch.movements.count(), 2)
+        self.assertEqual(set(batch.movements.values_list("asset_id", flat=True)), {a.pk for a in self.assets})
+        for asset in self.assets:
+            asset.refresh_from_db()
+            self.assertIsNone(asset.assigned_user)
+
+    def test_step_four_uses_simplified_status_and_required_documents(self):
+        self.select_assets([self.assets[0]])
+        self.client.post(reverse("deliveries:new_delivery_review"), self.review_payload())
+        batch = DeliveryBatch.objects.get()
+        response = self.client.get(reverse("deliveries:delivery_batch_detail", args=[batch.pk]))
+        self.assertContains(response, "En preparación")
+        self.assertContains(response, "Siguiente paso")
+        self.assertContains(response, "Registrar autorización")
+        self.assertContains(response, "0 de 2 documentos completados")
+        self.assertNotContains(response, "Director DTI")
+        self.client.post(reverse("deliveries:delivery_batch_send_to_signature", args=[batch.pk]))
+        response = self.client.get(reverse("deliveries:delivery_batch_detail", args=[batch.pk]))
+        self.assertContains(response, "Acta de entrega de equipos")
+        self.assertContains(response, "Movimiento de patrimonio firmado")
+
+    def test_final_assignment_only_happens_after_verified_documents(self):
+        self.select_assets([self.assets[0]])
+        self.client.post(reverse("deliveries:new_delivery_review"), self.review_payload())
+        batch = DeliveryBatch.objects.get()
+        self.client.post(reverse("deliveries:delivery_batch_send_to_signature", args=[batch.pk]))
+        self.client.post(reverse("deliveries:delivery_batch_complete", args=[batch.pk]))
+        self.assets[0].refresh_from_db()
+        self.assertIsNone(self.assets[0].assigned_user)
+        for document_type in (
+            DeliveryBatchDocument.DocumentType.INTERNAL_DELIVERY,
+            DeliveryBatchDocument.DocumentType.PATRIMONIAL_MOVEMENT,
+        ):
+            DeliveryBatchDocument.objects.create(
+                delivery_batch=batch, document_type=document_type,
+                file=SimpleUploadedFile(f"{document_type}.pdf", b"%PDF signed"),
+                signatures_verified=True, uploaded_by=self.manager,
+            )
+        self.client.post(reverse("deliveries:delivery_batch_complete", args=[batch.pk]))
+        self.assets[0].refresh_from_db()
+        self.assertEqual(self.assets[0].assigned_user, self.recipient)
+
+    def test_final_confirmation_rolls_back_the_whole_batch_on_failure(self):
+        self.select_assets()
+        self.client.post(reverse("deliveries:new_delivery_review"), self.review_payload())
+        batch = DeliveryBatch.objects.get()
+        self.client.post(reverse("deliveries:delivery_batch_send_to_signature", args=[batch.pk]))
+        for document_type in (
+            DeliveryBatchDocument.DocumentType.INTERNAL_DELIVERY,
+            DeliveryBatchDocument.DocumentType.PATRIMONIAL_MOVEMENT,
+        ):
+            DeliveryBatchDocument.objects.create(
+                delivery_batch=batch, document_type=document_type,
+                file=SimpleUploadedFile(f"{document_type}.pdf", b"%PDF signed"),
+                signatures_verified=True, uploaded_by=self.manager,
+            )
+        from .views import update_asset_custody as real_update_asset_custody
+        calls = 0
+
+        def fail_on_second_asset(movement):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise RuntimeError("simulated inventory failure")
+            real_update_asset_custody(movement)
+
+        with patch("apps.deliveries.views.update_asset_custody", side_effect=fail_on_second_asset):
+            with self.assertRaises(RuntimeError):
+                self.client.post(reverse("deliveries:delivery_batch_complete", args=[batch.pk]))
+        batch.refresh_from_db()
+        self.assertEqual(batch.status, DeliveryBatch.BatchStatus.PENDING_SIGNATURE)
+        for asset in self.assets:
+            asset.refresh_from_db()
+            self.assertIsNone(asset.assigned_user)
+
+    def test_pdf_and_legacy_entry_still_render(self):
+        self.select_assets([self.assets[0]])
+        self.client.post(reverse("deliveries:new_delivery_review"), self.review_payload())
+        batch = DeliveryBatch.objects.get()
+        self.assertEqual(
+            self.client.get(reverse("deliveries:delivery_batch_pdf", args=[batch.pk])).status_code,
+            200,
+        )
+        self.assertEqual(
+            self.client.get(reverse("deliveries:custody_movement_create")).status_code, 200
+        )

@@ -1879,6 +1879,9 @@ Detalle del Ticket #{{ ticket.ticket_number }}
                     <p><i class="bi bi-telephone"></i> {{ requester_profile.phone|default:"No registrado" }}</p>
                     <p><i class="bi bi-building"></i> {{ requester_profile.location|default:"No registrada" }}</p>
                     <p><i class="bi bi-briefcase"></i> {{ requester_profile.position|default:"No registrado" }}</p>
+                    <p><i class="bi bi-building"></i> Dependencia institucional: {{ ticket.requester.organizational_unit|default:"No registrada" }}</p>
+                    <p><i class="bi bi-diagram-3"></i> Dependencia superior: {{ ticket.requester.organizational_unit.get_superior_directorate|default:"No registrada" }}</p>
+                    <p><i class="bi bi-diagram-2"></i> Equipo de atención: {{ ticket.requester.department|default:"No registrado" }}</p>
                 </div>
             </div>
         </div>
