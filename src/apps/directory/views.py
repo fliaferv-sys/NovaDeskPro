@@ -4,8 +4,11 @@ from django.shortcuts import render
 
 from apps.directory.identity_services import (
     InstitutionalIdentityError,
+    build_institutional_kpis,
+    get_institutional_directory,
     search_institutional_identities,
 )
+from apps.directory.services import DirectoryDatabaseError
 
 @login_required
 def directory_employee_search_api(request):
@@ -59,16 +62,21 @@ def directory_home_view(request):
         "search_query": search_query,
     }
 
-    if search_query:
-        try:
+    try:
+        directory = get_institutional_directory()
+        context["directory_kpis"] = build_institutional_kpis(directory)
+        if search_query:
             context["employees"] = search_institutional_identities(
                 search_query,
                 limit=100,
             )
-        except InstitutionalIdentityError:
-            context["directory_error"] = (
-                "No fue posible consultar el Directorio Institucional "
-                "en este momento."
-            )
+        else:
+            context["employees"] = directory
+    except (DirectoryDatabaseError, InstitutionalIdentityError):
+        context["employees"] = []
+        context["directory_error"] = (
+            "No fue posible consultar el Directorio Institucional "
+            "en este momento."
+        )
 
     return render(request, "directory/home.html", context)

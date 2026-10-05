@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 import pyodbc
 from ldap3.core.exceptions import LDAPBindError, LDAPException
 from ldap3.utils.conv import escape_filter_chars
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
@@ -161,11 +162,21 @@ class DirectoryDatabaseServiceTests(SimpleTestCase):
         cursor.close.assert_called_once_with()
         connection.close.assert_called_once_with()
 
-    def test_get_directory_employees_rejects_out_of_range_limits(self):
-        for limit in (0, 201, True, 50.5, "50"):
+    @patch("apps.directory.services.pyodbc.connect")
+    def test_get_directory_employees_rejects_out_of_range_limits(self, connect):
+        for limit in (0, -1, -5000, 5001, True, False, 50.5, "50"):
             with self.subTest(limit=limit):
                 with self.assertRaises(ValueError):
                     get_directory_employees(limit=limit)
+        connect.assert_not_called()
+
+        cursor = connect.return_value.cursor.return_value
+        cursor.fetchall.return_value = []
+        self.assertEqual(get_directory_employees(limit=5000), [])
+        connect.assert_called_once()
+        self.assertTrue(cursor.execute.call_args.args[0].startswith("SELECT TOP (5000) "))
+        cursor.close.assert_called_once_with()
+        connect.return_value.close.assert_called_once_with()
 
     @patch("apps.directory.services.pyodbc.connect")
     def test_search_directory_employees_without_query_lists_in_name_order(
@@ -1847,6 +1858,8 @@ class DirectoryEmployeeSearchApiTests(TestCase):
                 "position",
                 "username",
                 "is_active",
+                "organizational_unit",
+                "organizational_path",
             },
         )
         self.assertEqual(employee["source"], "RRHH")
@@ -1854,6 +1867,8 @@ class DirectoryEmployeeSearchApiTests(TestCase):
         self.assertEqual(employee["employee_number"], "999")
         self.assertEqual(employee["name"], "Funcionario Institucional")
         self.assertIs(employee["is_active"], True)
+        self.assertIsNone(employee["organizational_unit"])
+        self.assertEqual(employee["organizational_path"], [])
         self.assertNotIn("DesvinculacionFecha", employee)
 
     @patch("apps.directory.views.search_institutional_identities")
@@ -1875,8 +1890,27 @@ class DirectoryEmployeeSearchApiTests(TestCase):
         )
 
 
+@override_settings(
+    STORAGES={
+        **settings.STORAGES,
+        "staticfiles": {
+            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+        },
+    },
+)
 class DirectoryHomeViewTests(TestCase):
     def setUp(self):
+        # The home view loads the full RR.HH. directory even for GET searches.
+        # Keep these rendering tests independent of the external SQL server.
+        directory_patch = patch(
+            "apps.directory.views.get_institutional_directory",
+            return_value=[
+                {"name": "Ana de prueba", "employment_type": "Permanente"},
+                {"name": "Zoe de prueba", "employment_type": "Contratado"},
+            ],
+        )
+        self.directory = directory_patch.start()
+        self.addCleanup(directory_patch.stop)
         self.user = get_user_model().objects.create_user(
             username="directory-user",
             email="directory-user@example.com",
@@ -1891,6 +1925,8 @@ class DirectoryHomeViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Directorio Institucional")
+        self.assertEqual(response.context["employees"], self.directory.return_value)
+        self.directory.assert_called_once_with()
         search.assert_not_called()
 
     @patch("apps.directory.views.search_institutional_identities")
@@ -1922,6 +1958,11 @@ class DirectoryHomeViewTests(TestCase):
         self.assertContains(response, "TEST-002")
         self.assertContains(response, "RR.HH.")
         self.assertEqual(response.context["employees"], search.return_value)
+        self.assertEqual(
+            response.context["directory_kpis"],
+            {"total": 2, "permanent": 1, "contracted": 1, "outsourced": 0, "other": 0},
+        )
+        self.directory.assert_called_once_with()
         search.assert_called_once_with("Persona", limit=100)
 
     @patch("apps.directory.views.search_institutional_identities", return_value=[])

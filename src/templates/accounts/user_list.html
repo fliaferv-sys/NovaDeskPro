@@ -6,6 +6,101 @@ Gestión de Usuarios
 
 {% block content %}
 
+<style>
+    /* KPI de employment_type: 5 tarjetas (el grid global es de 4 columnas). */
+    .user-summary-grid {
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+    }
+
+    .user-summary-teal {
+        background: #ccfbf1;
+        color: #0f766e;
+    }
+
+    @media (max-width: 1400px) {
+        .user-summary-grid {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+    }
+
+    @media (max-width: 900px) {
+        .user-summary-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+    }
+
+    @media (max-width: 560px) {
+        .user-summary-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+/* =====================================================
+         NAVEGACIÓN DEL MÓDULO USUARIOS (compartida con el
+         Directorio Institucional). Se replica en ambas
+         plantillas porque el CSS global no se modifica.
+         ===================================================== */
+
+    .module-tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin: 0 0 20px;
+        padding: 5px;
+        border: 1px solid #e2e8f0;
+        border-radius: 14px;
+        background: #ffffff;
+        box-shadow: 0 4px 14px rgba(15, 23, 42, 0.04);
+    }
+
+    .module-tab {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 40px;
+        padding: 9px 16px;
+        border-radius: 10px;
+        color: #475569;
+        font-size: 14px;
+        font-weight: 600;
+        text-decoration: none;
+        white-space: nowrap;
+    }
+
+    .module-tab:hover {
+        background: #f1f5f9;
+        color: #0f172a;
+    }
+
+    .module-tab.is-active {
+        background: #0f172a;
+        color: #ffffff !important;
+    }
+
+    .module-tab.is-active i {
+        color: #ffffff !important;
+    }
+
+    .module-tab:focus-visible {
+        outline: 2px solid #1d4ed8;
+        outline-offset: 2px;
+    }
+
+    .module-tab.is-active:focus-visible {
+        outline-color: #ffffff;
+    }
+
+    @media (max-width: 640px) {
+        .module-tabs {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .module-tab {
+            justify-content: center;
+        }
+    }
+</style>
+
 <div class="user-management-header">
 
     <div>
@@ -44,6 +139,30 @@ Gestión de Usuarios
 </div>
 
 
+<nav class="module-tabs" aria-label="Módulo Usuarios">
+
+    <a
+        href="{% url 'directory:home' %}"
+        class="module-tab">
+
+        <i class="bi bi-person-vcard"></i>
+        Directorio Institucional
+
+    </a>
+
+    <a
+        href="{% url 'user_list' %}"
+        class="module-tab is-active"
+        aria-current="page">
+
+        <i class="bi bi-people"></i>
+        Usuarios del sistema
+
+    </a>
+
+</nav>
+
+
 <div class="user-summary-grid">
 
     <div class="user-summary-card">
@@ -54,7 +173,7 @@ Gestión de Usuarios
 
         <div>
             <span>Total de usuarios</span>
-            <strong>{{ users|length }}</strong>
+            <strong>{{ total_users }}</strong>
         </div>
 
     </div>
@@ -62,17 +181,25 @@ Gestión de Usuarios
     <div class="user-summary-card">
 
         <div class="user-summary-icon user-summary-green">
-            <i class="bi bi-person-check"></i>
+            <i class="bi bi-person-badge"></i>
         </div>
 
         <div>
-            <span>Cuentas activas</span>
+            <span>Permanentes</span>
+            <strong>{{ permanent_users }}</strong>
+        </div>
 
-            <strong>
-                {% with active_count=0 %}
-                    {{ users|length }}
-                {% endwith %}
-            </strong>
+    </div>
+
+    <div class="user-summary-card">
+
+        <div class="user-summary-icon user-summary-teal">
+            <i class="bi bi-person-lines-fill"></i>
+        </div>
+
+        <div>
+            <span>Contratados</span>
+            <strong>{{ contracted_users }}</strong>
         </div>
 
     </div>
@@ -80,12 +207,12 @@ Gestión de Usuarios
     <div class="user-summary-card">
 
         <div class="user-summary-icon user-summary-orange">
-            <i class="bi bi-hourglass-split"></i>
+            <i class="bi bi-building-gear"></i>
         </div>
 
         <div>
-            <span>Pendientes</span>
-            <strong>—</strong>
+            <span>Tercerizados</span>
+            <strong>{{ outsourced_users }}</strong>
         </div>
 
     </div>
@@ -93,12 +220,12 @@ Gestión de Usuarios
     <div class="user-summary-card">
 
         <div class="user-summary-icon user-summary-purple">
-            <i class="bi bi-building"></i>
+            <i class="bi bi-people-fill"></i>
         </div>
 
         <div>
-            <span>Sedes registradas</span>
-            <strong>4</strong>
+            <span>Otros</span>
+            <strong>{{ other_users }}</strong>
         </div>
 
     </div>

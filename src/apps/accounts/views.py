@@ -200,8 +200,36 @@ def user_list_view(request):
         .order_by("first_name", "last_name")
     )
 
+    total_users = User.objects.count()
+
+    permanent_users = User.objects.filter(
+        employment_type=User.EmploymentType.PERMANENT
+    ).count()
+
+    contracted_users = User.objects.filter(
+        employment_type=User.EmploymentType.CONTRACTED
+    ).count()
+
+    outsourced_users = User.objects.filter(
+        employment_type=User.EmploymentType.OUTSOURCED
+    ).count()
+
+    other_users = User.objects.filter(
+        employment_type__in=[
+            User.EmploymentType.INTERN,
+            User.EmploymentType.CONSULTANT,
+            User.EmploymentType.EXTERNAL_PROVIDER,
+            User.EmploymentType.OTHER,
+        ]
+    ).count()
+
     context = {
         "users": users,
+        "total_users": total_users,
+        "permanent_users": permanent_users,
+        "contracted_users": contracted_users,
+        "outsourced_users": outsourced_users,
+        "other_users": other_users,
     }
 
     return render(

@@ -8,6 +8,8 @@ class DirectoryDatabaseError(Exception):
 	pass
 
 
+_MAX_DIRECTORY_LIMIT = 5000
+
 _REQUIRED_CONFIGURATION = (
 	"DIRECTORY_SQL_HOST",
 	"DIRECTORY_SQL_DATABASE",
@@ -89,8 +91,14 @@ def test_directory_connection():
 
 
 def get_directory_employees(limit=50):
-	if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 200:
-		raise ValueError("limit debe ser un entero entre 1 y 200.")
+	if (
+		not isinstance(limit, int)
+		or isinstance(limit, bool)
+		or not 1 <= limit <= _MAX_DIRECTORY_LIMIT
+	):
+		raise ValueError(
+			f"limit debe ser un entero entre 1 y {_MAX_DIRECTORY_LIMIT}."
+		)
 
 	columns = ", ".join(_DIRECTORY_COLUMNS)
 	query = (

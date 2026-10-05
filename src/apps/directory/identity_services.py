@@ -9,6 +9,7 @@ from apps.directory.ad_services import (
 from apps.directory.services import (
     DirectoryDatabaseError,
     get_directory_employee_by_id_personal,
+    get_directory_employees,
     search_directory_employees,
 )
 from apps.institution.models import InstitutionalIdentityAssignment
@@ -21,6 +22,86 @@ class InstitutionalIdentityError(Exception):
 SOURCE_RRHH = "RRHH"
 SOURCE_ACTIVE_DIRECTORY = "ACTIVE_DIRECTORY"
 SOURCE_LOCAL = "LOCAL"
+
+
+DIRECTORY_DEFAULT_LIMIT = 5000
+
+LINK_PERMANENT = "PERMANENT"
+LINK_CONTRACTED = "CONTRACTED"
+LINK_OUTSOURCED = "OUTSOURCED"
+LINK_OTHER = "OTHER"
+
+_VINCULO_FIRST_WORD = {
+    "permanente": LINK_PERMANENT,
+    "contratado": LINK_CONTRACTED,
+    "tercerizado": LINK_OUTSOURCED,
+}
+
+
+def _normalize_vinculo_token(value):
+    """Normaliza un vínculo de RR.HH. para comparar sin depender de
+    mayúsculas, minúsculas ni espacios sobrantes."""
+    if value is None:
+        return ""
+    return " ".join(str(value).split()).casefold()
+
+
+def classify_rrhh_vinculo(vinculo):
+    """Clasifica el vínculo de RR.HH. en las cuatro categorías de los KPI.
+
+    La comparación es robusta: ignora mayúsculas/minúsculas, colapsa espacios
+    y toma la primera palabra, de modo que variantes como ``"PERMANENTE "``,
+    ``"Permanente  (Ley 15)"`` o ``"Contratado"`` se clasifican igual.
+    Cualquier otro vínculo (comisionado, pasante, etc.) cae en "OTROS".
+    """
+    normalized = _normalize_vinculo_token(vinculo)
+    if not normalized:
+        return LINK_OTHER
+
+    first_word = normalized.split(" ")[0]
+    return _VINCULO_FIRST_WORD.get(first_word, LINK_OTHER)
+
+
+def build_institutional_kpis(identities):
+    """Calcula los KPI institucionales sobre el listado completo de RR.HH."""
+    counts = {
+        LINK_PERMANENT: 0,
+        LINK_CONTRACTED: 0,
+        LINK_OUTSOURCED: 0,
+        LINK_OTHER: 0,
+    }
+
+    for identity in identities or ():
+        counts[classify_rrhh_vinculo(identity.get("employment_type"))] += 1
+
+    return {
+        "total": len(identities or ()),
+        "permanent": counts[LINK_PERMANENT],
+        "contracted": counts[LINK_CONTRACTED],
+        "outsourced": counts[LINK_OUTSOURCED],
+        "other": counts[LINK_OTHER],
+    }
+
+
+def get_institutional_directory(limit=DIRECTORY_DEFAULT_LIMIT):
+    """Devuelve el directorio completo de funcionarios de RR.HH. en orden
+    alfabético (el que entrega SQL).
+
+    Se usa exclusivamente para la vista completa: no mezcla Active Directory
+    ni cuentas locales. El enriquecimiento de dependencia se sigue resolviendo
+    persona por persona con ``_enrich_with_organizational_unit``, conservando el
+    comportamiento actual y el orden recibido de la base.
+    """
+    rows = get_directory_employees(limit=limit)
+
+    directory = []
+    for row in rows:
+        identity = _normalize_rrhh_employee(row)
+        enriched = _enrich_with_organizational_unit(identity)
+        if enriched is not None:
+            directory.append(enriched)
+
+    return directory
 
 
 def _enrich_with_organizational_unit(identity):

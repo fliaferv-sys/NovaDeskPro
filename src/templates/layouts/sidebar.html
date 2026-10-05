@@ -177,10 +177,10 @@
         <!-- USUARIOS -->
         <!-- ============================================= -->
 
-       {% if request.user.is_superuser or request.user.role == "ADMIN" or request.user.role == "SUPERVISOR" %}
+       {% if request.user.is_superuser or request.user.role == "ADMIN" or request.user.role == "SUPERVISOR" or request.user.role == "TECHNICIAN" %}
 
     <a
-        href="{% url 'user_list' %}"
+        href="{% if request.user.role == 'TECHNICIAN' and not request.user.is_superuser %}{% url 'directory:home' %}{% else %}{% url 'user_list' %}{% endif %}"
         class="sidebar-menu-link"
         title="Usuarios">
 

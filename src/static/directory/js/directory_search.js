@@ -45,12 +45,6 @@
         return name ? name.charAt(0).toUpperCase() : "\u2014";
     }
 
-    function caption(label) {
-        const node = element("span", "dir-label");
-        node.textContent = label;
-        return node;
-    }
-
     function badge(label, className) {
         const node = element("span", `dir-badge ${className}`);
         node.textContent = label;
@@ -58,7 +52,7 @@
     }
 
     function definitionRow(term, value) {
-        const item = element("div", "dir-meta-item");
+        const item = element("div", "dir-row-cell");
         const dt = element("dt");
         dt.textContent = term;
         const dd = element("dd");
@@ -76,8 +70,7 @@
         if (!unitName) {
             return null;
         }
-        const row = element("p", "dir-org");
-        row.appendChild(caption("Dependencia"));
+        const row = element("div", "dir-row-org");
         const name = element("span", "dir-org-name");
         name.textContent = unitName;
         row.appendChild(name);
@@ -102,8 +95,7 @@
         if (names.length === 0) {
             return null;
         }
-        const row = element("p", "dir-hierarchy");
-        row.appendChild(caption("Jerarquía"));
+        const row = element("div", "dir-row-org");
         const wrapper = element("span", "dir-hierarchy-path");
         names.forEach((name, index) => {
             if (index > 0) {
@@ -120,110 +112,73 @@
     }
 
     function buildMetaList(employee) {
-        const list = element("dl", "dir-meta");
+        const list = element("dl", "dir-row-meta");
 
-        const employeeNumber = text(employee.employee_number).trim();
-        if (employeeNumber) {
-            list.appendChild(definitionRow("Legajo", employeeNumber));
-        }
-
-        const location = text(employee.location).trim();
-        if (location) {
-            list.appendChild(definitionRow("Ubicación", location));
-        }
-
-        const phone = text(employee.phone).trim();
-        if (phone) {
-            list.appendChild(definitionRow("Teléfono", phone));
-        }
-
-        const email = text(employee.email).trim();
-        if (email) {
-            const item = element("div", "dir-meta-item");
-            const dt = element("dt");
-            dt.textContent = "Correo";
-            const dd = element("dd");
-            const link = document.createElement("a");
-            link.setAttribute("href", `mailto:${email}`);
-            link.textContent = email;
-            dd.appendChild(link);
-            item.append(dt, dd);
+        [
+            ["Legajo", "employee_number"],
+            ["Cargo", "position"],
+            ["Ubicación", "location"],
+            ["Teléfono", "phone"],
+            ["Correo", "email"],
+            ["Vínculo", "employment_type"],
+        ].forEach(([label, field]) => {
+            const value = text(employee[field]).trim();
+            const item = definitionRow(label, value || "\u2014");
+            if (field === "email" && value) {
+                const link = element("a");
+                link.href = `mailto:${value}`;
+                link.textContent = value;
+                item.querySelector("dd").replaceChildren(link);
+            }
             list.appendChild(item);
+        });
+        const status = definitionRow("Estado", "\u2014");
+        if (text(employee.status).trim()) {
+            status.querySelector("dd").replaceChildren(badge(
+                text(employee.status), employee.is_active === true ? "is-active" : "is-inactive"
+            ));
         }
+        const source = definitionRow("Fuente", "");
+        source.querySelector("dd").appendChild(badge(sourceLabel(employee.source) || "\u2014", "is-source"));
+        list.append(status, source);
 
-        const employmentType = text(employee.employment_type).trim();
-        if (employmentType) {
-            list.appendChild(definitionRow("Vínculo", employmentType));
-        }
-
-        return list.childElementCount > 0 ? list : null;
+        return list;
     }
 
     function buildEmployeeCard(employee) {
-        const card = element("article", "dir-person");
+        const card = element("article", "dir-row");
         const personalId = text(employee.id_personal).trim();
         if (personalId) {
             card.setAttribute("data-personal-id", personalId);
         }
 
-        const main = element("div", "dir-person-main");
-
-        const avatar = element("div", "dir-avatar");
+        const avatar = element("div", "dir-row-avatar");
         avatar.setAttribute("aria-hidden", "true");
         avatar.textContent = initials(employee);
-        main.appendChild(avatar);
+        card.appendChild(avatar);
 
-        const body = element("div", "dir-person-body");
+        const identity = element("div", "dir-row-identity");
 
-        const head = element("div", "dir-person-head");
-        const name = element("h2", "dir-person-name");
+        const name = element("div", "dir-row-name");
         name.textContent = text(employee.name).trim() || "\u2014";
-        head.appendChild(name);
-
-        const tags = element("div", "dir-tags");
-        const status = text(employee.status).trim();
-        if (status) {
-            tags.appendChild(
-                badge(
-                    status,
-                    employee.is_active === true ? "is-active" : "is-inactive"
-                )
-            );
-        }
-        const source = sourceLabel(employee.source).trim();
-        if (source) {
-            tags.appendChild(badge(source, "is-source"));
-        }
-        head.appendChild(tags);
-        body.appendChild(head);
-
-        const position = text(employee.position).trim();
-        if (position) {
-            const role = element("p", "dir-role");
-            role.textContent = position;
-            body.appendChild(role);
-        }
+        identity.appendChild(name);
 
         const organizationalRow = buildOrganizationalRow(employee);
         if (organizationalRow) {
-            body.appendChild(organizationalRow);
+            identity.appendChild(organizationalRow);
         }
 
         const hierarchyRow = buildHierarchyRow(employee);
         if (hierarchyRow) {
-            body.appendChild(hierarchyRow);
+            identity.appendChild(hierarchyRow);
         }
 
-        const meta = buildMetaList(employee);
-        if (meta) {
-            body.appendChild(meta);
-        }
+        card.appendChild(identity);
+        card.appendChild(buildMetaList(employee));
 
-        main.appendChild(body);
-        card.appendChild(main);
         return card;
     }
-function initDirectorySearch() {
+    function initDirectorySearch() {
         const container = document.querySelector("[data-directory-search]");
         if (!container) {
             return;
@@ -292,7 +247,7 @@ function initDirectorySearch() {
             paragraph.textContent = message;
             liveResults.appendChild(paragraph);
             liveResults.hidden = false;
-            setStatus(message, tone);
+            setStatus("", "");
         }
 
         function showEmployees(employees) {
@@ -377,6 +332,12 @@ function initDirectorySearch() {
             lastQuery = query;
 
             if (query.length < MIN_QUERY_LENGTH) {
+                if (container.getAttribute("data-directory-initial-query")) {
+                    const url = new URL(window.location.href);
+                    url.searchParams.delete("q");
+                    window.location.assign(url.toString());
+                    return;
+                }
                 showServerResults();
                 return;
             }

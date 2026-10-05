@@ -3,9 +3,10 @@ from datetime import timedelta
 import re
 from unittest.mock import patch
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -29,6 +30,15 @@ from .services import (
 )
 from apps.tickets.models import Ticket
 from apps.notifications.models import Notification
+
+
+# Template-rendering tests do not require a collectstatic manifest.
+TEST_STORAGES = {
+    **settings.STORAGES,
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+    },
+}
 
 
 class ActiveDirectoryBackendTests(TestCase):
@@ -592,6 +602,7 @@ class UserDirectoryIdPersonalTests(TestCase):
             )
 
 
+@override_settings(STORAGES=TEST_STORAGES)
 class AccountAccessTests(TestCase):
     password = "A-secure-test-password-9482"
 
@@ -805,6 +816,7 @@ class CentralizedPermissionTests(TestCase):
         self.assertFalse(can_register_intervention(client))        
 
 
+@override_settings(STORAGES=TEST_STORAGES)
 class GlobalNavigationTests(TestCase):
     def create_user(self, name, role, **extra):
         return User.objects.create_user(
@@ -910,6 +922,7 @@ class GlobalNavigationTests(TestCase):
         )
 
 
+@override_settings(STORAGES=TEST_STORAGES)
 class ToolQuickAccessVisibilityTests(TestCase):
     @classmethod
     def setUpTestData(cls):

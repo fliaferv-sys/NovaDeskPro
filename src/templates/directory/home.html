@@ -11,6 +11,79 @@
     </div>
 </div>
 
+<nav class="module-tabs" aria-label="Módulo Usuarios">
+
+    <a
+        href="{% url 'directory:home' %}"
+        class="module-tab is-active"
+        aria-current="page">
+
+        <i class="bi bi-person-vcard"></i>
+        Directorio Institucional
+
+    </a>
+
+    {% if request.user.is_superuser or request.user.role == "ADMIN" or request.user.role == "SUPERVISOR" %}
+
+        <a
+            href="{% url 'user_list' %}"
+            class="module-tab">
+
+            <i class="bi bi-people"></i>
+            Usuarios del sistema
+
+        </a>
+
+    {% endif %}
+
+</nav>
+
+{% if directory_kpis %}
+<section class="dir-kpi-grid" aria-label="Indicadores del Directorio Institucional">
+
+    <article class="dir-kpi is-blue">
+        <div class="dir-kpi-icon"><i class="bi bi-people"></i></div>
+        <div class="dir-kpi-body">
+            <span class="dir-kpi-label">Total</span>
+            <strong class="dir-kpi-value">{{ directory_kpis.total }}</strong>
+        </div>
+    </article>
+
+    <article class="dir-kpi is-green">
+        <div class="dir-kpi-icon"><i class="bi bi-person-badge"></i></div>
+        <div class="dir-kpi-body">
+            <span class="dir-kpi-label">Permanentes</span>
+            <strong class="dir-kpi-value">{{ directory_kpis.permanent }}</strong>
+        </div>
+    </article>
+
+    <article class="dir-kpi is-teal">
+        <div class="dir-kpi-icon"><i class="bi bi-person-lines-fill"></i></div>
+        <div class="dir-kpi-body">
+            <span class="dir-kpi-label">Contratados</span>
+            <strong class="dir-kpi-value">{{ directory_kpis.contracted }}</strong>
+        </div>
+    </article>
+
+    <article class="dir-kpi is-orange">
+        <div class="dir-kpi-icon"><i class="bi bi-building-gear"></i></div>
+        <div class="dir-kpi-body">
+            <span class="dir-kpi-label">Tercerizados</span>
+            <strong class="dir-kpi-value">{{ directory_kpis.outsourced }}</strong>
+        </div>
+    </article>
+
+    <article class="dir-kpi is-purple">
+        <div class="dir-kpi-icon"><i class="bi bi-people-fill"></i></div>
+        <div class="dir-kpi-body">
+            <span class="dir-kpi-label">Otros</span>
+            <strong class="dir-kpi-value">{{ directory_kpis.other }}</strong>
+        </div>
+    </article>
+
+</section>
+{% endif %}
+
 <form method="get" class="dir-search">
     <div class="dir-search-field">
         <label for="directory-search-query">Buscar funcionarios</label>
@@ -48,120 +121,68 @@
 <div
     class="dir-results"
     data-directory-search
+    data-directory-initial-query="{{ search_query }}"
     data-directory-search-url="{% url 'directory:employee_search_api' %}">
 
     <div class="dir-list" data-directory-server-results>
+        {% if employees %}
         <div class="dir-summary">
-            {% if employees %}
-                {% if employees|length == 1 %}
-                    1 funcionario encontrado
-                {% else %}
-                    {{ employees|length }} funcionarios encontrados
-                {% endif %}
-                {% if search_query %}
-                    para &laquo;{{ search_query }}&raquo;
-                {% endif %}
-            {% else %}
-                {% if search_query %}
-                    No se encontraron funcionarios que coincidan con la búsqueda.
-                {% else %}
-                    No hay funcionarios para mostrar.
-                {% endif %}
-            {% endif %}
+            {{ employees|length }} funcionario{{ employees|length|pluralize:"s" }} encontrado{{ employees|length|pluralize:"s" }}
+            {% if search_query %}para &laquo;{{ search_query }}&raquo;{% endif %}
         </div>
+        {% endif %}
 
         {% for employee in employees %}
-        <article class="dir-person" data-personal-id="{{ employee.id_personal|default:'' }}">
-            <div class="dir-person-main">
-                <div class="dir-avatar" aria-hidden="true">
-                    {% if employee.first_name and employee.last_name %}
-                        {{ employee.first_name|slice:":1"|upper }}{{ employee.last_name|slice:":1"|upper }}
-                    {% else %}
-                        {{ employee.name|slice:":1"|upper }}
-                    {% endif %}
-                </div>
+        <article class="dir-row" data-personal-id="{{ employee.id_personal|default:'' }}">
 
-                <div class="dir-person-body">
-                    <div class="dir-person-head">
-                        <h2 class="dir-person-name">{{ employee.name|default:"—" }}</h2>
-                        <div class="dir-tags">
-                            {% if employee.status %}
-                                <span class="dir-badge {% if employee.is_active %}is-active{% else %}is-inactive{% endif %}">{{ employee.status }}</span>
-                            {% endif %}
-                            <span class="dir-badge is-source">
-                                {% if employee.source == "RRHH" %}
-                                    RR.HH.
-                                {% elif employee.source == "ACTIVE_DIRECTORY" %}
-                                    Active Directory
-                                {% elif employee.source == "LOCAL" %}
-                                    NovaDesk
-                                {% else %}
-                                    {{ employee.source|default:"—" }}
-                                {% endif %}
-                            </span>
-                        </div>
-                    </div>
+            <div class="dir-row-avatar" aria-hidden="true">
+                {% if employee.first_name and employee.last_name %}
+                    {{ employee.first_name|slice:":1"|upper }}{{ employee.last_name|slice:":1"|upper }}
+                {% else %}
+                    {{ employee.name|slice:":1"|upper }}
+                {% endif %}
+            </div>
 
-                    {% if employee.position %}
-                        <p class="dir-role">{{ employee.position }}</p>
-                    {% endif %}
-
-                        {% if employee.organizational_unit %}
-                            <p class="dir-org">
-                                <span class="dir-label">Dependencia</span>
-                                <span class="dir-org-name">{{ employee.organizational_unit.name }}</span>
-                                {% if employee.organizational_unit.type_display %}
-                                    <span class="dir-org-type">{{ employee.organizational_unit.type_display }}</span>
-                                {% endif %}
-                            </p>
+            <div class="dir-row-identity">
+                <div class="dir-row-name">{{ employee.name|default:"—" }}</div>
+                {% if employee.organizational_unit %}
+                    <div class="dir-row-org">
+                        <span class="dir-org-name">{{ employee.organizational_unit.name }}</span>
+                        {% if employee.organizational_unit.type_display %}
+                            <span class="dir-org-type">{{ employee.organizational_unit.type_display }}</span>
                         {% endif %}
-
-                        {% if employee.organizational_path %}
-                            <p class="dir-hierarchy">
-                                <span class="dir-label">Jerarquía</span>
-                                <span class="dir-hierarchy-path">
-                                    {% for unit in employee.organizational_path %}
-                                        {{ unit.name }}{% if not forloop.last %}<span class="dir-sep">&#8250;</span>{% endif %}
-                                    {% endfor %}
-                                </span>
-                            </p>
-                        {% endif %}
-                        <dl class="dir-meta">
-                            {% if employee.employee_number %}
-                                <div class="dir-meta-item">
-                                    <dt>Legajo</dt>
-                                    <dd>{{ employee.employee_number }}</dd>
-                                </div>
-                            {% endif %}
-                            {% if employee.location %}
-                                <div class="dir-meta-item">
-                                    <dt>Ubicación</dt>
-                                    <dd>{{ employee.location }}</dd>
-                                </div>
-                            {% endif %}
-                            {% if employee.phone %}
-                                <div class="dir-meta-item">
-                                    <dt>Teléfono</dt>
-                                    <dd>{{ employee.phone }}</dd>
-                                </div>
-                            {% endif %}
-                            {% if employee.email %}
-                                <div class="dir-meta-item">
-                                    <dt>Correo</dt>
-                                    <dd><a href="mailto:{{ employee.email }}">{{ employee.email }}</a></dd>
-                                </div>
-                            {% endif %}
-                            {% if employee.employment_type %}
-                                <div class="dir-meta-item">
-                                    <dt>Vínculo</dt>
-                                    <dd>{{ employee.employment_type }}</dd>
-                                </div>
-                            {% endif %}
-                        </dl>
                     </div>
+                {% endif %}
+                {% if employee.organizational_path %}
+                    <div class="dir-row-org">
+                        <span class="dir-hierarchy-path">
+                            {% for unit in employee.organizational_path %}
+                                {{ unit.name }}{% if not forloop.last %}<span class="dir-sep">&#8250;</span>{% endif %}
+                            {% endfor %}
+                        </span>
+                    </div>
+                {% endif %}
+            </div>
+
+            <dl class="dir-row-meta">
+                <div class="dir-row-cell"><dt>Legajo</dt><dd>{{ employee.employee_number|default:"—" }}</dd></div>
+                <div class="dir-row-cell"><dt>Cargo</dt><dd>{{ employee.position|default:"—" }}</dd></div>
+                <div class="dir-row-cell"><dt>Ubicación</dt><dd>{{ employee.location|default:"—" }}</dd></div>
+                <div class="dir-row-cell"><dt>Teléfono</dt><dd>{{ employee.phone|default:"—" }}</dd></div>
+                <div class="dir-row-cell"><dt>Correo</dt><dd>{% if employee.email %}<a href="mailto:{{ employee.email }}">{{ employee.email }}</a>{% else %}—{% endif %}</dd></div>
+                <div class="dir-row-cell"><dt>Vínculo</dt><dd>{{ employee.employment_type|default:"—" }}</dd></div>
+                <div class="dir-row-cell">
+                    <dt>Estado</dt>
+                    <dd>{% if employee.status %}<span class="dir-badge {% if employee.is_active %}is-active{% else %}is-inactive{% endif %}">{{ employee.status }}</span>{% else %}—{% endif %}</dd>
                 </div>
-            </article>
-        {% empty %}
+                <div class="dir-row-cell">
+                    <dt>Fuente</dt>
+                    <dd><span class="dir-badge is-source">{% if employee.source == "RRHH" %}RR.HH.{% elif employee.source == "ACTIVE_DIRECTORY" %}Active Directory{% elif employee.source == "LOCAL" %}NovaDesk{% else %}{{ employee.source|default:"—" }}{% endif %}</span></dd>
+                </div>
+            </dl>
+
+        </article>
+    {% empty %}
             <div class="dir-empty">
                 {% if search_query %}
                     No se encontraron funcionarios que coincidan con la búsqueda.
@@ -182,6 +203,72 @@
 </div>
 
 <style>
+    /* =====================================================
+         NAVEGACIÓN DEL MÓDULO USUARIOS (compartida con la
+         Gestión de Usuarios). Se replica en ambas
+         plantillas porque el CSS global no se modifica.
+         ===================================================== */
+
+    .module-tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin: 0 0 20px;
+        padding: 5px;
+        border: 1px solid #e2e8f0;
+        border-radius: 14px;
+        background: #ffffff;
+        box-shadow: 0 4px 14px rgba(15, 23, 42, 0.04);
+    }
+
+    .module-tab {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 40px;
+        padding: 9px 16px;
+        border-radius: 10px;
+        color: #475569;
+        font-size: 14px;
+        font-weight: 600;
+        text-decoration: none;
+        white-space: nowrap;
+    }
+
+    .module-tab:hover {
+        background: #f1f5f9;
+        color: #0f172a;
+    }
+
+    .module-tab.is-active {
+        background: #0f172a;
+        color: #ffffff !important;
+    }
+
+    .module-tab.is-active i {
+        color: #ffffff !important;
+    }
+
+    .module-tab:focus-visible {
+        outline: 2px solid #1d4ed8;
+        outline-offset: 2px;
+    }
+
+    .module-tab.is-active:focus-visible {
+        outline-color: #ffffff;
+    }
+
+    @media (max-width: 640px) {
+        .module-tabs {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .module-tab {
+            justify-content: center;
+        }
+    }
+
     .dir-search { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
     .dir-search-field { flex: 1 1 280px; min-width: 0; }
     .dir-search-field label { display: block; margin-bottom: 6px; color: #344054; font-size: 12px; font-weight: 700; }
@@ -194,37 +281,178 @@
     .dir-summary { margin: 0 0 12px; color: #667085; font-size: 13px; }
 
     .dir-list { display: grid; gap: 12px; }
-    .dir-person { padding: 16px; border: 1px solid #e4e7ec; border-radius: 14px; background: #fff; box-shadow: 0 1px 2px rgba(16, 24, 40, .04); }
-    .dir-person-main { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; align-items: start; }
-    .dir-person-body { min-width: 0; }
+    /* =====================================================
+         FILA HORIZONTAL COMPACTA POR FUNCIONARIO
+         ===================================================== */
 
-    .dir-avatar { width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--primary-light, #eef2f7); border: 1px solid var(--primary-light, #e4e7ec); color: var(--primary-color, #0a1a3a); font-size: 17px; font-weight: 800; letter-spacing: .02em; }
+    .dir-row {
+        display: grid;
+        grid-template-columns: 40px minmax(150px, 1.5fr) minmax(0, 6fr);
+        align-items: center;
+        gap: 10px;
+        padding: 10px 12px;
+        border: 1px solid #e4e7ec;
+        border-radius: 12px;
+        background: #fff;
+    }
 
-    .dir-person-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-    .dir-person-name { margin: 0; color: #101828; font-size: 17px; font-weight: 700; overflow-wrap: anywhere; }
-    .dir-tags { display: flex; gap: 6px; flex-wrap: wrap; }
-    .dir-badge { display: inline-block; padding: 3px 10px; border-radius: 999px; border: 1px solid transparent; font-size: 12px; font-weight: 700; white-space: nowrap; }
+    .dir-row:hover {
+        border-color: #d0d5dd;
+        background: #fcfcfd;
+    }
+
+    .dir-row-avatar {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--primary-light, #eef2f7);
+        border: 1px solid var(--primary-light, #e4e7ec);
+        color: var(--primary-color, #0a1a3a);
+        font-size: 14px;
+        font-weight: 800;
+    }
+
+    .dir-row-identity { min-width: 0; overflow-wrap: anywhere; }
+    .dir-list[hidden] { display: none; }
+
+    .dir-row-name {
+        color: #101828;
+        font-size: 14px;
+        font-weight: 700;
+        overflow-wrap: anywhere;
+    }
+
+    .dir-row-org {
+        margin-top: 1px;
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+        flex-wrap: wrap;
+        font-size: 12px;
+    }
+
+    .dir-row-meta {
+        margin: 0;
+        display: grid;
+        grid-template-columns: .6fr 1.2fr 1fr .9fr 1.5fr 1fr .8fr .8fr;
+        gap: 4px 10px;
+        min-width: 0;
+    }
+
+    .dir-row-cell { min-width: 0; }
+
+    .dir-row-meta dt {
+        color: #98a2b3;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: .04em;
+        text-transform: uppercase;
+    }
+
+    .dir-row-meta dd {
+        margin: 0;
+        color: #344054;
+        font-size: 13px;
+        overflow-wrap: anywhere;
+    }
+
+    .dir-row-meta a { color: var(--secondary-color, #175cd3); text-decoration: none; }
+    .dir-row-meta a:hover { text-decoration: underline; }
+
+    .dir-badge {
+        display: inline-block;
+        padding: 3px 6px;
+        border-radius: 999px;
+        border: 1px solid transparent;
+        font-size: 12px;
+        font-weight: 700;
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
+
     .dir-badge.is-active { background: #ecfdf3; border-color: #abefc6; color: #027a48; }
     .dir-badge.is-inactive { background: #f2f4f7; border-color: #e4e7ec; color: #475467; }
     .dir-badge.is-source { background: #eff8ff; border-color: #b2ddff; color: #175cd3; }
 
-    .dir-role { margin: 5px 0 0; color: #344054; font-size: 14px; }
-    .dir-org,
-    .dir-hierarchy { margin: 7px 0 0; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 13px; }
-    .dir-label { flex: none; color: #667085; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
     .dir-org-name { color: #101828; font-weight: 600; }
     .dir-org-type { color: #667085; }
     .dir-hierarchy-path { color: #344054; overflow-wrap: anywhere; }
     .dir-sep { padding: 0 3px; color: #98a2b3; }
 
-    .dir-meta { margin: 13px 0 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px 18px; }
-    .dir-meta-item { min-width: 0; }
-    .dir-meta dt { color: #667085; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
-    .dir-meta dd { margin: 3px 0 0; color: #101828; font-size: 14px; overflow-wrap: anywhere; }
-    .dir-meta a { color: var(--secondary-color, #175cd3); text-decoration: none; }
-    .dir-meta a:hover { text-decoration: underline; }
-
     .dir-empty { padding: 30px 18px; border: 1px dashed #d0d5dd; border-radius: 14px; background: #fff; color: #667085; text-align: center; }
+    .dir-empty.is-error { border-style: solid; border-color: #f3c1bc; background: #fef3f2; color: #b42318; }
+
+    /* =====================================================
+         KPI INSTITUCIONALES DEL DIRECTORIO
+         ===================================================== */
+
+    .dir-kpi-grid {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 12px;
+        margin-bottom: 20px;
+    }
+
+    .dir-kpi {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 14px;
+        border: 1px solid #e4e7ec;
+        border-radius: 14px;
+        background: #fff;
+    }
+
+    .dir-kpi-icon {
+        width: 40px;
+        height: 40px;
+        flex: none;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+    }
+
+    .dir-kpi.is-blue .dir-kpi-icon { background: #dbeafe; color: #1d4ed8; }
+    .dir-kpi.is-green .dir-kpi-icon { background: #dcfce7; color: #15803d; }
+    .dir-kpi.is-teal .dir-kpi-icon { background: #ccfbf1; color: #0f766e; }
+    .dir-kpi.is-orange .dir-kpi-icon { background: #ffedd5; color: #c2410c; }
+    .dir-kpi.is-purple .dir-kpi-icon { background: #ede9fe; color: #6d28d9; }
+
+    .dir-kpi-body { min-width: 0; }
+
+    .dir-kpi-label {
+        display: block;
+        color: #667085;
+        font-size: 12px;
+    }
+
+    .dir-kpi-value {
+        display: block;
+        margin-top: 2px;
+        color: #101828;
+        font-size: 22px;
+        line-height: 1.1;
+    }
+
+    @media (max-width: 1200px) {
+        .dir-kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .dir-row { grid-template-columns: 40px minmax(0, 1fr); }
+        .dir-row-meta { grid-column: 1 / -1; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    }
+
+    @media (max-width: 700px) {
+        .dir-row-meta { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .dir-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    @media (max-width: 420px) {
+        .dir-kpi-grid { grid-template-columns: 1fr; }
+    }
     .dir-empty.is-error { border-style: solid; border-color: #f3c1bc; background: #fef3f2; color: #b42318; }
 
     .dir-live-status { margin: 0 0 12px; color: #667085; font-size: 13px; }
