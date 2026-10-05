@@ -43,6 +43,8 @@ def directory_employee_search_api(request):
             "position": employee["position"],
             "username": employee["username"],
             "is_active": employee["is_active"],
+            "organizational_unit": employee.get("organizational_unit"),
+            "organizational_path": employee.get("organizational_path", []),
         }
         for employee in directory_employees
     ]
