@@ -357,7 +357,21 @@ Gestión de Usuarios
 
                                         <img
                                             src="{{ system_user.profile_image.url }}"
-                                            alt="Foto del usuario">
+                                            alt="Foto de {{ system_user.first_name }} {{ system_user.last_name }}"
+                                            class="photo-preview-trigger"
+                                            data-photo-preview
+                                            role="button"
+                                            tabindex="0">
+
+                                    {% elif system_user.institutional_photo_url %}
+
+                                        <img
+                                            src="{{ system_user.institutional_photo_url }}"
+                                            alt="Foto de {{ system_user.first_name }} {{ system_user.last_name }}"
+                                            class="photo-preview-trigger"
+                                            data-photo-preview
+                                            role="button"
+                                            tabindex="0">
 
                                     {% else %}
 
@@ -613,5 +627,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
 });
 </script>
+
+{% include 'components/photo_preview.html' %}
 
 {% endblock %}

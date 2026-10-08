@@ -160,7 +160,12 @@
         if (photoUrl) {
             const image = element("img", "dir-row-avatar-img");
             image.src = photoUrl;
-            image.alt = "";
+            image.alt = "Foto de " + (text(employee.name).trim() || "funcionario");
+            image.classList.add("photo-preview-trigger");
+            image.setAttribute("data-photo-preview", "");
+            image.setAttribute("role", "button");
+            image.tabIndex = 0;
+            avatar.removeAttribute("aria-hidden");
             avatar.appendChild(image);
         } else {
             avatar.textContent = initials(employee);

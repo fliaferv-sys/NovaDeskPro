@@ -4,7 +4,7 @@ import sys
 
 from django.conf import settings
 from ldap3 import ALL, Connection, Server, Tls
-from ldap3.core.exceptions import LDAPBindError, LDAPException
+from ldap3.core.exceptions import LDAPBindError, LDAPException, LDAPSizeLimitExceededResult
 from ldap3.utils.conv import escape_filter_chars
 
 
@@ -288,7 +288,7 @@ def get_ad_user_by_email(email):
         raise ActiveDirectoryError(_GENERIC_AD_ERROR) from exc
 
 
-def search_ad_users(query, limit=20):
+def search_ad_users(query, limit=20, *, exact_email=False, search_field=None, exact=False):
     if not isinstance(query, str):
         raise ValueError("query debe ser una cadena.")
     if (
@@ -312,17 +312,35 @@ def search_ad_users(query, limit=20):
         "))"
     )
 
+    if search_field is not None:
+        field_attributes = {"email": "mail", "username": "sAMAccountName", "name": "displayName"}
+        if search_field not in field_attributes:
+            raise ValueError("Campo de búsqueda AD inválido.")
+        attribute = field_attributes[search_field]
+        term = escaped_query if exact else f"*{escaped_query}*"
+        search_filter = f"(&(objectCategory=person)(objectClass=user)({attribute}={term}))"
+    elif exact_email:
+        search_filter = (
+            "(&(objectCategory=person)(objectClass=user)"
+            f"(mail={escaped_query}))"
+        )
+
     if _use_windows_integrated_authentication():
         return _windows_search(search_filter, limit)
 
     try:
         with _bound_ad_connection() as connection:
-            connection.search(
-                search_base=settings.DIRECTORY_AD_BASE_DN,
-                search_filter=search_filter,
-                attributes=_AD_USER_ATTRIBUTES,
-                size_limit=limit,
-            )
+            try:
+                connection.search(
+                    search_base=settings.DIRECTORY_AD_BASE_DN,
+                    search_filter=search_filter,
+                    attributes=_AD_USER_ATTRIBUTES,
+                    size_limit=limit,
+                )
+            except LDAPSizeLimitExceededResult:
+                # Two exact matches already prove ambiguity, even if AD has more.
+                if not (exact_email or search_field is not None) or len(connection.entries) < limit:
+                    raise
             return [
                 _entry_to_user(entry)
                 for entry in connection.entries[:limit]

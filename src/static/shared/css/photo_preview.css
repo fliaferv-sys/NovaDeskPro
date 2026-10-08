@@ -1,0 +1,62 @@
+.photo-preview-trigger {
+    cursor: zoom-in;
+}
+
+.photo-preview-modal[hidden] {
+    display: none !important;
+}
+
+.photo-preview-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(15, 23, 42, 0.82);
+    backdrop-filter: blur(3px);
+}
+
+.photo-preview-dialog {
+    position: relative;
+    max-width: min(92vw, 900px);
+    max-height: 92vh;
+    padding: 12px;
+    border-radius: 18px;
+    background: #fff;
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+}
+
+.photo-preview-image {
+    display: block;
+    max-width: 85vw;
+    max-height: 85vh;
+    width: min(80vw, 800px);
+    height: auto;
+    object-fit: contain;
+    border-radius: 12px;
+}
+
+.photo-preview-close {
+    position: absolute;
+    top: -14px;
+    right: -14px;
+    width: 38px;
+    height: 38px;
+    border: 0;
+    border-radius: 50%;
+    background: #fff;
+    color: #101828;
+    font-size: 25px;
+    line-height: 1;
+    cursor: pointer;
+    box-shadow: 0 5px 20px rgba(0, 0, 0, 0.25);
+}
+
+body.photo-preview-open {
+    overflow: hidden;
+}
+
+
+.photo-preview-trigger:focus-visible { outline: 3px solid #2563eb; outline-offset: 3px; }

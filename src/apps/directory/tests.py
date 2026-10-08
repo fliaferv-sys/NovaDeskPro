@@ -228,6 +228,29 @@ class DirectoryDatabaseServiceTests(SimpleTestCase):
         self.assertIn("ORDER BY NombresApellidos", query)
         self.assertNotRegex(query, r"\b(INSERT|UPDATE|DELETE)\b")
 
+    @patch("apps.directory.services.pyodbc.connect")
+    def test_exact_email_sql_is_parameterized_and_not_partial(self, connect):
+        cursor = connect.return_value.cursor.return_value
+        cursor.fetchall.return_value = []
+        search_directory_employees(" person@petropar.gov.py ", limit=2, exact_email=True)
+        sql, email = cursor.execute.call_args.args
+        self.assertEqual(email, "person@petropar.gov.py")
+        self.assertIn("LOWER(LTRIM(RTRIM(Mail))) = LOWER(?)", sql)
+        self.assertNotIn("LIKE", sql)
+        self.assertIn("TOP (2)", sql)
+
+    @patch("apps.directory.services.pyodbc.connect")
+    def test_typed_partial_sql_escapes_wildcards_and_whitelists_columns(self, connect):
+        cursor = connect.return_value.cursor.return_value
+        cursor.fetchall.return_value = []
+        search_directory_employees("10%_", limit=21, search_field="employee_number")
+        sql, term = cursor.execute.call_args.args
+        self.assertEqual(term, "%10[%][_]%")
+        self.assertIn("CAST(LegajoNro AS NVARCHAR(255))", sql)
+        self.assertNotIn("10%_", sql)
+        with self.assertRaises(ValueError):
+            search_directory_employees("person", search_field="password")
+
     def test_search_directory_employees_rejects_invalid_limits(self):
         for limit in (0, 201, True, 50.5, "50"):
             with self.subTest(limit=limit):
@@ -478,6 +501,23 @@ class ActiveDirectoryServiceTests(SimpleTestCase):
             attributes=ad_services._AD_USER_ATTRIBUTES,
             size_limit=1,
         )
+
+    @patch("apps.directory.ad_services._windows_search", return_value=[])
+    @patch("apps.directory.ad_services._use_windows_integrated_authentication", return_value=True)
+    def test_exact_email_ad_filter_escapes_input_without_wildcards(self, windows_auth, search):
+        ad_services.search_ad_users("person*@petropar.gov.py", limit=2, exact_email=True)
+        self.assertEqual(search.call_args.args[1], 2)
+        self.assertIn(r"(mail=person\2a@petropar.gov.py)", search.call_args.args[0])
+        self.assertNotIn("displayName", search.call_args.args[0])
+
+    @patch("apps.directory.ad_services._use_windows_integrated_authentication", return_value=False)
+    def test_exact_email_ad_size_limit_still_reports_duplicates(self, windows_auth):
+        from ldap3.core.exceptions import LDAPSizeLimitExceededResult
+        connection = MagicMock()
+        connection.entries = [self.make_entry(), self.make_entry()]
+        connection.search.side_effect = LDAPSizeLimitExceededResult()
+        with patch.object(ad_services, "_bound_ad_connection", return_value=self.bound_connection(connection)):
+            self.assertEqual(len(ad_services.search_ad_users("ada@example.test", limit=2, exact_email=True)), 2)
 
     def test_search_ad_users_rejects_invalid_query_and_limit(self):
         with patch("apps.directory.ad_services._bound_ad_connection") as bound:
@@ -2002,3 +2042,87 @@ class DirectoryHomeViewTests(TestCase):
             response["Location"],
             f"{reverse('login')}?next={reverse('directory:home')}",
         )
+
+
+class InstitutionalUserPhotoTests(SimpleTestCase):
+    def test_photo_lookup_uses_existing_files_and_configured_media_root(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from types import SimpleNamespace
+
+        with TemporaryDirectory() as root, override_settings(MEDIA_ROOT=root, MEDIA_URL="/test-media/"):
+            photos = Path(root) / "funcionarios"
+            photos.mkdir()
+            (photos / "1002F.jpg").touch()
+            (photos / "999F.jpg").touch()
+            user = SimpleNamespace(employee_number=" 1002 ", email="person@example.test", username="person")
+            mapping = {"email:person@example.test": {"photo_file": "999F.jpg"}}
+            with patch.object(identity_services, "_load_tercerizados", return_value=mapping):
+                self.assertEqual(identity_services.get_user_photo_url(user), "/test-media/funcionarios/1002F.jpg")
+                user.employee_number = "missing"
+                self.assertEqual(identity_services.get_user_photo_url(user), "/test-media/funcionarios/999F.jpg")
+                user.email = "unmapped@example.test"
+                mapping["username:person"] = mapping["email:person@example.test"]
+                self.assertEqual(identity_services.get_user_photo_url(user), "/test-media/funcionarios/999F.jpg")
+                (photos / "999F.jpg").unlink()
+                self.assertEqual(identity_services.get_user_photo_url(user), "")
+
+    def test_outsourced_mapping_cannot_reference_external_path(self):
+        self.assertEqual(identity_services._build_tercerizado_photo_url({"photo_file": "../private.jpg"}), "")
+
+
+class ExactInstitutionalEmailTests(TestCase):
+    def setUp(self):
+        self.email = "person@petropar.gov.py"
+        self.rrhh_patch = patch("apps.directory.identity_services.search_directory_employees", return_value=[])
+        self.ad_patch = patch("apps.directory.identity_services.search_ad_users", return_value=[])
+        self.rrhh = self.rrhh_patch.start()
+        self.ad = self.ad_patch.start()
+        self.addCleanup(self.rrhh_patch.stop)
+        self.addCleanup(self.ad_patch.stop)
+
+    def lookup(self):
+        return identity_services.find_institutional_identity_by_email(" Person@petropar.gov.py ")
+
+    def test_same_email_in_rrhh_and_ad_without_explicit_link_is_ambiguous(self):
+        self.rrhh.return_value = [make_rrhh_employee(Mail=self.email, LegajoNro="1002")]
+        self.ad.return_value = [make_ad_user(email=self.email, first_name="Nombre", last_name="Apellido")]
+        with self.assertRaises(identity_services.AmbiguousInstitutionalIdentity):
+            self.lookup()
+        self.rrhh.assert_called_once_with(self.email, limit=21, search_field="email", exact=True)
+        self.ad.assert_called_once_with(self.email, limit=21, search_field="email", exact=True)
+
+    def test_rrhh_only_does_not_guess_separated_names_or_document(self):
+        self.rrhh.return_value = [make_rrhh_employee(Mail=self.email)]
+        identity = self.lookup()
+        self.assertEqual(identity["first_name"], "")
+        self.assertEqual(identity["last_name"], "")
+        self.assertNotIn("document_number", identity)
+
+    def test_outsourced_ci_comes_from_local_mapping(self):
+        self.ad.return_value = [make_ad_user(email=self.email)]
+        record = {"ci": "TEST-CI", "photo_file": ""}
+        mapping = {"email:" + self.email: record, "username:ad-user": record}
+        with patch.object(identity_services, "_load_tercerizados", return_value=mapping):
+            identity = self.lookup()
+        self.assertEqual(identity["document_number"], "TEST-CI")
+        self.assertEqual(identity["employment_type"], "Tercerizado")
+
+    def test_missing_and_partial_matches_are_not_used(self):
+        self.rrhh.return_value = [make_rrhh_employee(Mail="other" + self.email)]
+        self.ad.return_value = [make_ad_user(email="other" + self.email)]
+        self.assertIsNone(self.lookup())
+
+    def test_duplicates_in_either_source_are_ambiguous(self):
+        for source, record in ((self.rrhh, make_rrhh_employee(Mail=self.email)), (self.ad, make_ad_user(email=self.email))):
+            with self.subTest(source=source):
+                self.rrhh.return_value = []
+                self.ad.return_value = []
+                source.return_value = [record, record.copy()]
+                with self.assertRaises(identity_services.AmbiguousInstitutionalIdentity):
+                    self.lookup()
+
+    def test_source_outage_does_not_claim_unique_match(self):
+        self.rrhh.side_effect = DirectoryDatabaseError("test")
+        with self.assertRaises(identity_services.InstitutionalIdentityError):
+            self.lookup()

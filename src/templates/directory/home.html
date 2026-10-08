@@ -135,12 +135,15 @@
         {% for employee in employees %}
         <article class="dir-row" data-personal-id="{{ employee.id_personal|default:'' }}">
 
-            <div class="dir-row-avatar" aria-hidden="true">
+            <div class="dir-row-avatar">
     		{% if employee.photo_url %}
         	    <img
-            		 src="{{ employee.photo_url }}"
-            		 alt=""
-            		 class="dir-row-avatar-img">
+                             src="{{ employee.photo_url }}"
+                             alt="Foto de {{ employee.name|default:'funcionario' }}"
+                             class="dir-row-avatar-img photo-preview-trigger"
+                             data-photo-preview
+                             role="button"
+                             tabindex="0">
     		 {% elif employee.first_name and employee.last_name %}
         	    {{ employee.first_name|slice:":1"|upper }}{{ employee.last_name|slice:":1"|upper }}
     		 {% else %}
@@ -486,5 +489,8 @@
     }
 </style>
 
+{% include 'components/photo_preview.html' %}
+
 <script src="{% static 'directory/js/directory_search.js' %}"></script>
+
 {% endblock %}

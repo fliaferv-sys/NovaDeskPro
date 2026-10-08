@@ -723,6 +723,30 @@ class AccountAccessTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["total_tickets"], 1)
 
+    def test_user_list_photo_priority_and_shared_preview(self):
+        admin = self.create_user("photo-admin@example.test", role=User.Role.ADMIN)
+        uploaded = self.create_user("uploaded@example.test", profile_image="profiles/test.jpg")
+        institutional = self.create_user("institutional@example.test")
+        initials = self.create_user("initials@example.test")
+        self.client.force_login(admin)
+
+        def photo_for(user):
+            return "/media/funcionarios/testF.jpg" if user.pk == institutional.pk else ""
+
+        with patch("apps.accounts.views.get_user_photo_url", side_effect=photo_for) as lookup:
+            response = self.client.get(reverse("user_list"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, uploaded.profile_image.url)
+        self.assertContains(response, "/media/funcionarios/testF.jpg")
+        self.assertContains(response, 'data-photo-preview', count=3)
+        self.assertContains(response, 'id="photoPreviewModal"', count=1)
+        self.assertContains(response, "shared/js/photo_preview.js", count=1)
+        self.assertNotIn(uploaded.pk, [call.args[0].pk for call in lookup.call_args_list])
+        institutional.refresh_from_db()
+        initials.refresh_from_db()
+        self.assertFalse(institutional.profile_image)
+        self.assertFalse(initials.profile_image)
+
     def test_client_cannot_open_global_user_list(self):
         user = self.create_user("client@example.test", role=User.Role.CLIENT)
         self.client.force_login(user)
@@ -961,3 +985,88 @@ class ToolQuickAccessVisibilityTests(TestCase):
                     self.assertRedirects(response, reverse("tickets:ticket_create"), fetch_redirect_response=False)
                     response = self.client.get(reverse("tickets:dashboard"))
                 self.assertNotContains(response, 'Gestionar herramientas')
+
+
+@override_settings(STORAGES=TEST_STORAGES)
+class AdminInstitutionalLookupTests(TestCase):
+    def setUp(self):
+        self.admin = User.objects.create_superuser(
+            username="lookup-admin", email="lookup-admin@example.test", password="test-password"
+        )
+        self.url = reverse("admin:accounts_user_institutional_lookup")
+        self.client.force_login(self.admin)
+
+    def lookup(self, email="person@petropar.gov.py"):
+        return self.client.get(self.url, {"email": email})
+
+    @patch("apps.accounts.admin.find_institutional_identity_by_email")
+    def test_found_payload_is_limited_and_maps_model_choices(self, lookup):
+        lookup.return_value = {
+            "first_name": "Nombre", "last_name": "Apellido", "employee_number": "1002",
+            "document_number": "TEST-CI", "phone": "123", "position": "Analista",
+            "employment_type": "Contratado", "photo_url": "/private.jpg", "source": "RRHH",
+            "id_personal": 999, "password": "never-return", "username": "ad-name",
+        }
+        response = self.lookup(" Person@petropar.gov.py ")
+        self.assertEqual(response.status_code, 200)
+        fields = response.json()["fields"]
+        self.assertEqual(fields["username"], "person")
+        self.assertEqual(fields["employment_type"], User.EmploymentType.CONTRACTED)
+        self.assertEqual(fields["position"], "Analista")
+        self.assertEqual(set(fields), {"username", "first_name", "last_name", "employee_number", "document_number", "phone", "position", "employment_type"})
+        lookup.assert_called_once_with("person@petropar.gov.py")
+
+    @patch("apps.accounts.admin.find_institutional_identity_by_email", return_value=None)
+    def test_missing_email_returns_nonblocking_status(self, lookup):
+        self.assertEqual(self.lookup().json(), {"status": "not_found"})
+
+    @patch("apps.accounts.admin.find_institutional_identity_by_email")
+    def test_ambiguous_and_unavailable_return_no_personal_data(self, lookup):
+        from apps.directory.identity_services import AmbiguousInstitutionalIdentity, InstitutionalIdentityError
+        lookup.side_effect = AmbiguousInstitutionalIdentity("test")
+        self.assertEqual(self.lookup().json(), {"status": "ambiguous"})
+        lookup.side_effect = InstitutionalIdentityError("test")
+        self.assertEqual(self.lookup().status_code, 503)
+        self.assertEqual(self.lookup().json(), {"status": "unavailable"})
+
+    @patch("apps.accounts.admin.find_institutional_identity_by_email")
+    def test_invalid_external_email_and_post_do_not_query(self, lookup):
+        self.assertEqual(self.lookup("invalid").status_code, 400)
+        self.assertEqual(self.lookup("person@example.test").json(), {"status": "not_found"})
+        self.assertEqual(self.client.post(self.url).status_code, 405)
+        lookup.assert_not_called()
+
+    @patch("apps.accounts.admin.find_institutional_identity_by_email")
+    def test_authentication_staff_and_add_permission_are_required(self, lookup):
+        from django.contrib.auth.models import Permission
+        self.client.logout()
+        self.assertEqual(self.lookup().status_code, 302)
+        staff = User.objects.create_user(username="lookup-staff", email="lookup-staff@example.test", password="test", is_staff=True)
+        self.client.force_login(staff)
+        self.assertEqual(self.lookup().status_code, 403)
+        lookup.assert_not_called()
+        staff.user_permissions.add(Permission.objects.get(codename="add_user", content_type__app_label="accounts"))
+        lookup.return_value = None
+        self.assertEqual(self.lookup().status_code, 200)
+        staff.is_staff = False
+        staff.save(update_fields=["is_staff"])
+        self.assertEqual(self.lookup().status_code, 302)
+
+    @patch("apps.accounts.admin.find_institutional_identity_by_email")
+    def test_department_requires_unique_active_exact_location(self, lookup):
+        from apps.core.models import Department
+        department = Department.objects.create(name="Sede", code="LOOKUP-1")
+        lookup.return_value = {"location": " sede "}
+        fields = self.lookup().json()["fields"]
+        self.assertEqual(fields["department"]["value"], str(department.pk))
+        Department.objects.create(name="SEDE", code="LOOKUP-2")
+        self.assertNotIn("department", self.lookup().json()["fields"])
+
+    def test_add_and_change_forms_include_shared_identity_component(self):
+        add_response = self.client.get(reverse("admin:accounts_user_add"))
+        self.assertEqual(add_response.status_code, 200)
+        self.assertContains(add_response, "shared/js/institutional_identity.js")
+        self.assertContains(add_response, reverse("directory:identity_search_api"))
+        change_response = self.client.get(reverse("admin:accounts_user_change", args=[self.admin.pk]))
+        self.assertContains(change_response, "shared/js/institutional_identity.js")
+        self.assertContains(change_response, 'data-mode="change"')
