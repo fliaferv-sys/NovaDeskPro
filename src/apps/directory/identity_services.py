@@ -1,3 +1,8 @@
+import csv
+from functools import lru_cache
+from pathlib import Path
+
+from django.conf import settings
 from django.db.models import Q
 
 from apps.accounts.models import User
@@ -39,20 +44,20 @@ _VINCULO_FIRST_WORD = {
 
 
 def _normalize_vinculo_token(value):
-    """Normaliza un vínculo de RR.HH. para comparar sin depender de
-    mayúsculas, minúsculas ni espacios sobrantes."""
+    """Normaliza un vÃ­nculo de RR.HH. para comparar sin depender de
+    mayÃºsculas, minÃºsculas ni espacios sobrantes."""
     if value is None:
         return ""
     return " ".join(str(value).split()).casefold()
 
 
 def classify_rrhh_vinculo(vinculo):
-    """Clasifica el vínculo de RR.HH. en las cuatro categorías de los KPI.
+    """Clasifica el vÃ­nculo de RR.HH. en las cuatro categorÃ­as de los KPI.
 
-    La comparación es robusta: ignora mayúsculas/minúsculas, colapsa espacios
+    La comparaciÃ³n es robusta: ignora mayÃºsculas/minÃºsculas, colapsa espacios
     y toma la primera palabra, de modo que variantes como ``"PERMANENTE "``,
     ``"Permanente  (Ley 15)"`` o ``"Contratado"`` se clasifican igual.
-    Cualquier otro vínculo (comisionado, pasante, etc.) cae en "OTROS".
+    Cualquier otro vÃ­nculo (comisionado, pasante, etc.) cae en "OTROS".
     """
     normalized = _normalize_vinculo_token(vinculo)
     if not normalized:
@@ -85,7 +90,7 @@ def build_institutional_kpis(identities):
 
 def get_institutional_directory(limit=DIRECTORY_DEFAULT_LIMIT):
     """Devuelve el directorio completo de funcionarios de RR.HH. en orden
-    alfabético (el que entrega SQL).
+    alfabÃ©tico (el que entrega SQL).
 
     Se usa exclusivamente para la vista completa: no mezcla Active Directory
     ni cuentas locales. El enriquecimiento de dependencia se sigue resolviendo
@@ -159,6 +164,98 @@ def _enrich_with_organizational_unit(identity):
     return enriched_identity
 
 
+def _build_employee_photo_url(employee_number):
+    employee_number = str(employee_number or "").strip()
+    if not employee_number:
+        return ""
+
+    media_dir = Path(settings.MEDIA_ROOT) / "funcionarios"
+
+    for extension in (".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG"):
+        file_name = f"{employee_number}F{extension}"
+        if (media_dir / file_name).exists():
+            return f"{settings.MEDIA_URL}funcionarios/{file_name}"
+
+    return ""
+
+
+@lru_cache(maxsize=1)
+def _load_tercerizados():
+    csv_path = Path(__file__).resolve().parent / "data" / "tercerizados.csv"
+
+    if not csv_path.exists():
+        return {}
+
+    terceros = {}
+
+    try:
+        with csv_path.open(
+            mode="r",
+            encoding="utf-8-sig",
+            newline="",
+        ) as file:
+            reader = csv.DictReader(file)
+
+            for row in reader:
+                email = str(row.get("CorreoAD") or "").strip().casefold()
+                username = str(row.get("UsuarioAD") or "").strip().casefold()
+
+                data = {
+                    "ci": str(row.get("CI") or "").strip(),
+                    "photo_file": str(row.get("ArchivoFoto") or "").strip(),
+                }
+
+                if email:
+                    terceros[f"email:{email}"] = data
+
+                if username:
+                    terceros[f"username:{username}"] = data
+
+    except (OSError, csv.Error):
+        return {}
+
+    return terceros
+
+
+def _get_tercerizado(user):
+    terceros = _load_tercerizados()
+
+    email = str(user.get("email") or "").strip().casefold()
+    username = str(user.get("username") or "").strip().casefold()
+
+    if email:
+        tercero = terceros.get(f"email:{email}")
+        if tercero:
+            return tercero
+
+    if username:
+        tercero = terceros.get(f"username:{username}")
+        if tercero:
+            return tercero
+
+    return None
+
+
+def _build_tercerizado_photo_url(tercero):
+    if not tercero:
+        return ""
+
+    file_name = str(tercero.get("photo_file") or "").strip()
+
+    if not file_name:
+        return ""
+
+    # Solo aceptar el nombre de archivo, nunca una ruta externa.
+    if Path(file_name).name != file_name:
+        return ""
+
+    photo_path = Path(settings.MEDIA_ROOT) / "funcionarios" / file_name
+
+    if not photo_path.exists():
+        return ""
+
+    return f"{settings.MEDIA_URL}funcionarios/{file_name}"
+
 def _normalize_rrhh_employee(employee):
     return {
         "source": SOURCE_RRHH,
@@ -175,11 +272,14 @@ def _normalize_rrhh_employee(employee):
         "status": employee.get("Estado") or "",
         "username": "",
         "is_active": employee.get("Estado") == "Activo",
+        "photo_url": _build_employee_photo_url(employee.get("LegajoNro") or ""),
     }
 
 
 def _normalize_ad_user(user):
     is_active = bool(user.get("is_active", False))
+    tercero = _get_tercerizado(user)
+
     return {
         "source": SOURCE_ACTIVE_DIRECTORY,
         "id_personal": None,
@@ -191,12 +291,12 @@ def _normalize_ad_user(user):
         "phone": "",
         "location": "",
         "position": "",
-        "employment_type": "",
+        "employment_type": "Tercerizado" if tercero else "",
         "status": "Activo" if is_active else "Inactivo",
         "username": user.get("username") or "",
         "is_active": is_active,
+        "photo_url": _build_tercerizado_photo_url(tercero),
     }
-
 
 def _normalize_local_user(user):
     employment_type_display = getattr(
@@ -226,6 +326,7 @@ def _normalize_local_user(user):
         "status": "Activo" if user.is_active else "Inactivo",
         "username": user.username or "",
         "is_active": user.is_active,
+        "photo_url": _build_employee_photo_url(user.employee_number or ""),
     }
 
 
@@ -375,3 +476,8 @@ def search_institutional_identities(query="", limit=20):
         raise InstitutionalIdentityError(
             "No fue posible buscar identidades institucionales."
         ) from exc
+
+
+
+
+

@@ -1,4 +1,4 @@
-(() => {
+﻿(() => {
     "use strict";
 
     const MIN_QUERY_LENGTH = 2;
@@ -154,7 +154,18 @@
 
         const avatar = element("div", "dir-row-avatar");
         avatar.setAttribute("aria-hidden", "true");
-        avatar.textContent = initials(employee);
+
+        const photoUrl = text(employee.photo_url).trim();
+
+        if (photoUrl) {
+            const image = element("img", "dir-row-avatar-img");
+            image.src = photoUrl;
+            image.alt = "";
+            avatar.appendChild(image);
+        } else {
+            avatar.textContent = initials(employee);
+        }
+
         card.appendChild(avatar);
 
         const identity = element("div", "dir-row-identity");

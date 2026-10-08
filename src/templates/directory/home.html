@@ -136,12 +136,17 @@
         <article class="dir-row" data-personal-id="{{ employee.id_personal|default:'' }}">
 
             <div class="dir-row-avatar" aria-hidden="true">
-                {% if employee.first_name and employee.last_name %}
-                    {{ employee.first_name|slice:":1"|upper }}{{ employee.last_name|slice:":1"|upper }}
-                {% else %}
-                    {{ employee.name|slice:":1"|upper }}
-                {% endif %}
-            </div>
+    		{% if employee.photo_url %}
+        	    <img
+            		 src="{{ employee.photo_url }}"
+            		 alt=""
+            		 class="dir-row-avatar-img">
+    		 {% elif employee.first_name and employee.last_name %}
+        	    {{ employee.first_name|slice:":1"|upper }}{{ employee.last_name|slice:":1"|upper }}
+    		 {% else %}
+        	    {{ employee.name|slice:":1"|upper }}
+    		 {% endif %}
+	      </div>
 
             <div class="dir-row-identity">
                 <div class="dir-row-name">{{ employee.name|default:"—" }}</div>
@@ -313,6 +318,14 @@
         color: var(--primary-color, #0a1a3a);
         font-size: 14px;
         font-weight: 800;
+    }
+
+    .dir-row-avatar-img {
+   	 width: 100%;
+    	height: 100%;
+    	object-fit: cover;
+    	border-radius: 50%;
+   	 display: block;
     }
 
     .dir-row-identity { min-width: 0; overflow-wrap: anywhere; }

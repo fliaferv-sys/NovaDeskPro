@@ -1860,6 +1860,7 @@ class DirectoryEmployeeSearchApiTests(TestCase):
                 "is_active",
                 "organizational_unit",
                 "organizational_path",
+                "photo_url",
             },
         )
         self.assertEqual(employee["source"], "RRHH")

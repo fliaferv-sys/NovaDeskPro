@@ -41,3 +41,5 @@ exports/
 src/private_key.pem
 src/public_key.pem
 src/proyecto_archivos.txt
+src/ticket_config_utf8.json
+src/apps/directory/data/tercerizados.csv
