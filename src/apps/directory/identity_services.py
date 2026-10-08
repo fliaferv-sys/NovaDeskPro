@@ -3,6 +3,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db.models import Q
 
 from apps.accounts.models import User
@@ -44,20 +45,20 @@ _VINCULO_FIRST_WORD = {
 
 
 def _normalize_vinculo_token(value):
-    """Normaliza un vÃ­nculo de RR.HH. para comparar sin depender de
-    mayÃºsculas, minÃºsculas ni espacios sobrantes."""
+    """Normaliza un vínculo de RR.HH. para comparar sin depender de
+    mayúsculas, minúsculas ni espacios sobrantes."""
     if value is None:
         return ""
     return " ".join(str(value).split()).casefold()
 
 
 def classify_rrhh_vinculo(vinculo):
-    """Clasifica el vÃ­nculo de RR.HH. en las cuatro categorÃ­as de los KPI.
+    """Clasifica el vínculo de RR.HH. en las cuatro categorías de los KPI.
 
-    La comparaciÃ³n es robusta: ignora mayÃºsculas/minÃºsculas, colapsa espacios
+    La comparación es robusta: ignora mayúsculas/minúsculas, colapsa espacios
     y toma la primera palabra, de modo que variantes como ``"PERMANENTE "``,
     ``"Permanente  (Ley 15)"`` o ``"Contratado"`` se clasifican igual.
-    Cualquier otro vÃ­nculo (comisionado, pasante, etc.) cae en "OTROS".
+    Cualquier otro vínculo (comisionado, pasante, etc.) cae en "OTROS".
     """
     normalized = _normalize_vinculo_token(vinculo)
     if not normalized:
@@ -90,7 +91,7 @@ def build_institutional_kpis(identities):
 
 def get_institutional_directory(limit=DIRECTORY_DEFAULT_LIMIT):
     """Devuelve el directorio completo de funcionarios de RR.HH. en orden
-    alfabÃ©tico (el que entrega SQL).
+    alfabético (el que entrega SQL).
 
     Se usa exclusivamente para la vista completa: no mezcla Active Directory
     ni cuentas locales. El enriquecimiento de dependencia se sigue resolviendo
@@ -255,6 +256,26 @@ def _build_tercerizado_photo_url(tercero):
         return ""
 
     return f"{settings.MEDIA_URL}funcionarios/{file_name}"
+
+
+def get_user_photo_url(user):
+    """Resolve an existing institutional photo without saving a user image."""
+    employee_number = str(
+        getattr(user, "employee_number", "") or ""
+    ).strip()
+
+    photo_url = _build_employee_photo_url(employee_number)
+
+    if photo_url:
+        return photo_url
+
+    tercero = _get_tercerizado({
+        "email": getattr(user, "email", "") or "",
+        "username": getattr(user, "username", "") or "",
+    })
+
+    return _build_tercerizado_photo_url(tercero)
+
 
 def _normalize_rrhh_employee(employee):
     return {
@@ -481,3 +502,268 @@ def search_institutional_identities(query="", limit=20):
 
 
 
+
+
+class AmbiguousInstitutionalIdentity(InstitutionalIdentityError):
+    """More than one record in an institutional source shares an email."""
+
+
+def find_institutional_identity_by_email(email):
+    """Compatibility adapter for the legacy email-only Admin endpoint."""
+    result = search_common_identities(email.strip().casefold(), "email", exact=True)
+    if result["incomplete"]:
+        raise InstitutionalIdentityError("No fue posible confirmar la identidad institucional.")
+    if len(result["identities"]) > 1:
+        raise AmbiguousInstitutionalIdentity("Hay coincidencias ambiguas para ese correo.")
+    if not result["identities"]:
+        return None
+    identity = result["identities"][0]
+    legacy = {key: value for key, value in identity.items() if not key.startswith("_")}
+    legacy["id_personal"] = identity["rrhh_id"]
+    legacy["employment_type"] = identity["employment_relationship"]
+    if not legacy.get("document_number"):
+        legacy.pop("document_number", None)
+    return legacy
+
+
+# Common identity contract. Legacy directory consumers keep their existing schema.
+IDENTITY_SEARCH_FIELDS = frozenset({"email", "username", "employee_number", "document_number", "name"})
+IDENTITY_RESULT_LIMIT = 20
+SOURCE_OUTSOURCED = "TERCERIZADOS"
+
+
+def normalize_identity_employment(value):
+    """One classification entry point for forms and API consumers."""
+    value = str(value or "").strip()
+    if not value:
+        return ""
+    labels = {str(label).casefold(): code for code, label in User.EmploymentType.choices}
+    return labels.get(value.casefold(), {
+        "pasante": User.EmploymentType.INTERN,
+        "consultor": User.EmploymentType.CONSULTANT,
+        "proveedor externo": User.EmploymentType.EXTERNAL_PROVIDER,
+    }.get(value.casefold(), classify_rrhh_vinculo(value)))
+
+
+def _common_identity(identity, locator, local_user=None, document_number=""):
+    identity = _enrich_with_organizational_unit(identity)
+    relationship = str(identity.get("employment_type") or "").strip()
+    result = {
+        key: str(identity.get(key) or "").strip()
+        for key in ("name", "first_name", "last_name", "email", "username", "employee_number", "phone", "position", "location", "photo_url", "source")
+    }
+    result.update(
+        full_name=result["name"],
+        document_number=str(document_number or "").strip(),
+        employment_relationship=relationship,
+        employment_type=normalize_identity_employment(relationship),
+        organizational_unit=identity.get("organizational_unit"),
+        organizational_path=identity.get("organizational_path", []),
+        local_user_id=str(local_user.pk) if local_user else None,
+        rrhh_id=identity.get("id_personal"),
+        _locator=locator,
+    )
+    return result
+
+
+def _outsourced_records():
+    """Recover searchable mapping keys without reading a second personal-data file."""
+    mapping = _load_tercerizados()
+    groups = {}
+    for key, record in mapping.items():
+        groups.setdefault(id(record), []).append((key, record))
+    for entries in groups.values():
+        emails = [key[6:] for key, _ in entries if key.startswith("email:")]
+        usernames = [key[9:] for key, _ in entries if key.startswith("username:")]
+        # Do not collapse conflicting aliases into a unique account.
+        for key, record in entries:
+            if emails and not key.startswith("email:"):
+                continue
+            yield {
+                "email": key[6:] if key.startswith("email:") else "",
+                "username": usernames[0] if len(usernames) == 1 else "",
+                "ci": record.get("ci") or "",
+                "record": record,
+                "key": key,
+            }
+
+
+def _mapping_identity(row):
+    identity = _normalize_ad_user(row)
+    identity["source"] = SOURCE_OUTSOURCED
+    identity["employment_type"] = "Tercerizado"
+    identity["photo_url"] = _build_tercerizado_photo_url(row["record"])
+    return _common_identity(identity, {"source": SOURCE_OUTSOURCED, "key": row["key"]}, document_number=row["ci"])
+
+
+def _identity_matches(identity, field, query, exact=False):
+    values = [identity.get(field) or ""]
+    if field == "name":
+        values = [identity.get("full_name") or "", " ".join(filter(None, [identity.get("first_name"), identity.get("last_name")]))]
+    query = " ".join(query.split()).casefold()
+    return any((" ".join(str(value).split()).casefold() == query if exact else query in " ".join(str(value).split()).casefold()) for value in values if value)
+
+
+def _merge_linked_identities(identities):
+    """Merge only through explicit RRHH/local links or email AND username.
+
+    Matching email alone is never evidence to collapse institutional records.
+    Conflicting identifiers and duplicate source records remain candidates.
+    """
+    result = list(identities)
+    for local in [item for item in identities if item["source"] == SOURCE_LOCAL]:
+        linked = []
+        for source in (SOURCE_RRHH, SOURCE_ACTIVE_DIRECTORY, SOURCE_OUTSOURCED):
+            matches = []
+            for item in result:
+                if item["source"] != source:
+                    continue
+                same_email = bool(local["email"] and local["email"].casefold() == item["email"].casefold())
+                if source == SOURCE_RRHH:
+                    safe = bool(local["rrhh_id"] and local["rrhh_id"] == item["rrhh_id"] and (same_email or not item["email"]))
+                else:
+                    safe = same_email and bool(local["username"] and local["username"].casefold() == item["username"].casefold())
+                if safe and not any(local[key] and item[key] and str(local[key]).casefold() != str(item[key]).casefold() for key in ("document_number", "employee_number")):
+                    matches.append(item)
+            if len(matches) == 1:
+                linked.extend(matches)
+        if not linked:
+            continue
+        primary = next((item for item in linked if item["source"] == SOURCE_RRHH), linked[0])
+        merged = primary.copy()
+        for item in linked + [local]:
+            for key, value in item.items():
+                if not key.startswith("_") and not merged.get(key) and value:
+                    merged[key] = value
+        merged["local_user_id"] = local["local_user_id"]
+        merged["_locator"] = {"source": SOURCE_LOCAL, "id": local["local_user_id"]}
+        merged["_linked"] = [item["_locator"] for item in linked]
+        if local in result:
+            result.remove(local)
+        for item in linked:
+            result.remove(item)
+        result.append(merged)
+    return result
+
+
+def search_common_identities(query, field="email", *, exact=False):
+    """Bounded searches with explicit completeness and ambiguity information."""
+    if field not in IDENTITY_SEARCH_FIELDS or not isinstance(query, str):
+        raise ValueError("Búsqueda de identidad inválida.")
+    query = query.strip()
+    if not 2 <= len(query) <= 254:
+        raise ValueError("La búsqueda debe tener entre 2 y 254 caracteres.")
+    limit = IDENTITY_RESULT_LIMIT + 1
+    identities = []
+    incomplete = False
+    rrhh_queries = [(query, field)] if field in {"email", "employee_number", "name"} else []
+    ad_queries = [(query, field)] if field in {"email", "username", "name"} else []
+    mappings = list(_outsourced_records())
+    relevant_mappings = [row for row in mappings if _identity_matches({"document_number": row["ci"], "email": row["email"], "username": row["username"]}, field, query, exact)]
+    if field == "document_number" and len(relevant_mappings) == 1:
+        # Avoid one AD roundtrip per candidate for broad partial CI searches.
+        # The current RRHH view has no CI column. Use mapping keys to reach AD.
+        ad_queries += [(row["username"], "username") if row["username"] else (row["email"], "email") for row in relevant_mappings[:limit] if row["username"] or row["email"]]
+    try:
+        for term, rrhh_field in rrhh_queries:
+            rows = search_directory_employees(term, limit=limit, search_field=rrhh_field, exact=exact)
+            incomplete |= len(rows) >= limit
+            for row in rows:
+                identity = _normalize_rrhh_employee(row)
+                identities.append(_common_identity(identity, {"source": SOURCE_RRHH, "id": row.get("IdPersonal")}))
+    except DirectoryDatabaseError:
+        incomplete = True
+    try:
+        for term, ad_field in ad_queries:
+            rows = search_ad_users(term, limit=limit, search_field=ad_field, exact=exact or field == "document_number")
+            incomplete |= len(rows) >= limit
+            for row in rows:
+                tercero = _get_tercerizado(row)
+                identities.append(_common_identity(_normalize_ad_user(row), {"source": SOURCE_ACTIVE_DIRECTORY, "username": row.get("username") or "", "email": row.get("email") or ""}, document_number=(tercero or {}).get("ci", "")))
+    except ActiveDirectoryError:
+        incomplete = True
+    # A mapping enriches an AD record only when BOTH account keys agree.
+    for row in relevant_mappings[:limit]:
+        matches = [item for item in identities if item["source"] == SOURCE_ACTIVE_DIRECTORY and row["email"] and row["username"] and item["email"].casefold() == row["email"].casefold() and item["username"].casefold() == row["username"].casefold()]
+        if len(matches) != 1:
+            identities.append(_mapping_identity(row))
+    incomplete |= len(relevant_mappings) >= limit
+    lookup = "iexact" if exact else "icontains"
+    if field == "name":
+        from django.db.models.functions import Concat
+        from django.db.models import Value
+        users = User.objects.annotate(identity_full_name=Concat("first_name", Value(" "), "last_name")).filter(**{f"identity_full_name__{lookup}": query})
+    else:
+        users = User.objects.filter(**{f"{field}__{lookup}": query})
+    local_users = list(users.select_related("department")[:limit])
+    incomplete |= len(local_users) >= limit
+    for user in local_users:
+        identities.append(_common_identity(_normalize_local_user(user), {"source": SOURCE_LOCAL, "id": str(user.pk)}, user, user.document_number))
+    # Resolve explicit local links also when the local row did not match the term.
+    for item in list(identities):
+        if item["source"] == SOURCE_RRHH and item["rrhh_id"]:
+            linked_users = User.objects.filter(id_personal=item["rrhh_id"])
+        elif item["source"] in {SOURCE_ACTIVE_DIRECTORY, SOURCE_OUTSOURCED} and item["email"] and item["username"]:
+            linked_users = User.objects.filter(email__iexact=item["email"], username__iexact=item["username"])
+        else:
+            continue
+        for user in linked_users.select_related("department")[:2]:
+            if not any(candidate.get("local_user_id") == str(user.pk) for candidate in identities):
+                identities.append(_common_identity(_normalize_local_user(user), {"source": SOURCE_LOCAL, "id": str(user.pk)}, user, user.document_number))
+    identities = _merge_linked_identities(identities)
+    identities = [item for item in identities if _identity_matches(item, field, query, exact)]
+    exact_matches = [item for item in identities if _identity_matches(item, field, query, True)]
+    incomplete |= len(identities) > IDENTITY_RESULT_LIMIT
+    return {"identities": identities[:IDENTITY_RESULT_LIMIT], "incomplete": incomplete, "exact_unique": not incomplete and len(exact_matches) == 1, "exact_identity": exact_matches[0] if not incomplete and len(exact_matches) == 1 else None}
+
+
+def resolve_common_identity(locator, linked=None):
+    """Re-read selected source keys. No posted personal fields are trusted."""
+    source = locator.get("source")
+    try:
+        if source == SOURCE_LOCAL:
+            user = User.objects.select_related("department").filter(pk=locator.get("id")).first()
+            identity = _common_identity(_normalize_local_user(user), locator, user, user.document_number) if user else None
+        elif source == SOURCE_RRHH:
+            rows = search_directory_employees(str(locator.get("id") or ""), limit=2, search_field="rrhh_id", exact=True)
+            rows = [row for row in rows if row.get("IdPersonal") == locator.get("id")]
+            if len(rows) != 1:
+                raise InstitutionalIdentityError("La identidad RRHH ya no es inequívoca.")
+            identity = _common_identity(_normalize_rrhh_employee(rows[0]), locator)
+        elif source == SOURCE_ACTIVE_DIRECTORY:
+            field = "username" if locator.get("username") else "email"
+            value = locator.get(field)
+            rows = search_ad_users(value, limit=2, search_field=field, exact=True) if value else []
+            rows = [row for row in rows if str(row.get("email") or "").casefold() == str(locator.get("email") or "").casefold()]
+            if len(rows) != 1:
+                raise InstitutionalIdentityError("La cuenta seleccionada ya no es inequívoca.")
+            row = rows[0]
+            identity = _common_identity(_normalize_ad_user(row), locator, document_number=(_get_tercerizado(row) or {}).get("ci", ""))
+        elif source == SOURCE_OUTSOURCED:
+            rows = [row for row in _outsourced_records() if row["key"] == locator.get("key")]
+            identity = _mapping_identity(rows[0]) if len(rows) == 1 else None
+            if identity and rows[0]["email"] and rows[0]["username"]:
+                try:
+                    accounts = search_ad_users(rows[0]["username"], limit=2, search_field="username", exact=True)
+                except ActiveDirectoryError:
+                    accounts = []
+                if len(accounts) == 1 and str(accounts[0].get("email") or "").casefold() == rows[0]["email"].casefold():
+                    account = _normalize_ad_user(accounts[0])
+                    for key in ("name", "first_name", "last_name"):
+                        identity[key] = account.get(key) or ""
+                    identity["full_name"] = identity["name"]
+        else:
+            identity = None
+        if identity is None:
+            raise InstitutionalIdentityError("La identidad seleccionada ya no está disponible.")
+        if linked:
+            if source != SOURCE_LOCAL:
+                raise InstitutionalIdentityError("Vínculo de identidad inválido.")
+            identities = [identity] + [resolve_common_identity(item) for item in linked]
+            merged = _merge_linked_identities(identities)
+            if len(merged) != 1:
+                raise InstitutionalIdentityError("El vínculo institucional cambió; seleccione nuevamente.")
+            identity = merged[0]
+        return identity
+    except (DirectoryDatabaseError, ActiveDirectoryError, ValueError, ValidationError) as exc:
+        raise InstitutionalIdentityError("No fue posible validar la identidad seleccionada.") from exc

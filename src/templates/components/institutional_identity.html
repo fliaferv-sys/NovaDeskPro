@@ -1,0 +1,24 @@
+<section class="institutional-identity" data-institutional-identity
+         data-context="{{ identity_context }}" data-object-id="{{ identity_object_id }}"
+         data-mode="{{ identity_mode }}" data-bound="{{ identity_bound|yesno:'true,false' }}"
+         data-search-url="{% url 'directory:identity_search_api' %}"
+         data-resolve-url="{% url 'directory:identity_resolve_api' %}">
+    <strong>Directorio Institucional</strong>
+    <p>Busque una persona y seleccione sus datos. Puede continuar con carga manual.</p>
+    <label>Buscar por
+        <select data-identity-field>
+            <option value="email">Correo</option>
+            <option value="username">Usuario</option>
+            <option value="employee_number">Legajo</option>
+            <option value="document_number">Documento / CI</option>
+            <option value="name">Nombre</option>
+        </select>
+    </label>
+    <label>Persona <input type="search" data-identity-query autocomplete="off" aria-label="Buscar persona institucional"></label>
+    <button type="button" data-identity-search>Buscar</button>
+    <button type="button" data-identity-clear>Quitar selecci?n</button>
+    <p data-identity-status role="status" aria-live="polite"></p>
+    <div data-identity-results hidden></div>
+    <input type="hidden" name="{{ identity_reference_name|default:'institutional_identity_ref' }}" data-identity-reference value="{{ identity_reference }}">
+    {{ identity_field_map|json_script:identity_config_id }}
+</section>

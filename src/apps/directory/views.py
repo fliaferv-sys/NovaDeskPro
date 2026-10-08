@@ -1,6 +1,16 @@
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.shortcuts import render
+from django.core.exceptions import ValidationError
+from django.views.decorators.cache import never_cache
+from django.views.decorators.debug import sensitive_post_parameters
+from django.views.decorators.http import require_POST
+
+from .identity_policies import (
+    authorize_identity_context, account_form_values, serialize_identity,
+    issue_identity_reference, validate_identity_reference,
+)
+from .identity_services import search_common_identities
 
 from apps.directory.identity_services import (
     InstitutionalIdentityError,
@@ -81,3 +91,59 @@ def directory_home_view(request):
         )
 
     return render(request, "directory/home.html", context)
+
+
+@login_required
+@never_cache
+@require_POST
+@sensitive_post_parameters("q", "reference")
+def identity_search_api(request):
+    try:
+        payload = _identity_request_payload(request)
+        policy = authorize_identity_context(request, payload.get("context"), payload.get("object_id", ""))
+        result = search_common_identities(payload.get("q", ""), payload.get("field", "email"))
+    except (ValueError, TypeError):
+        return JsonResponse({"status": "invalid"}, status=400)
+    candidates = [serialize_identity(request, policy, item, summary=True) for item in result["identities"]]
+    data = {"status": "candidates" if candidates else "not_found", "candidates": candidates, "incomplete": result["incomplete"]}
+    if result["exact_unique"]:
+        # Resolve once more before returning an automatic match.
+        selected = result["exact_identity"]
+        reference = issue_identity_reference(request, policy, selected)
+        try:
+            selected = validate_identity_reference(request, policy, reference)
+        except ValidationError:
+            data["incomplete"] = True
+        else:
+            data.update(status="resolved", identity=serialize_identity(request, policy, selected), values=account_form_values(selected))
+    if data["incomplete"] and not candidates:
+        data["status"] = "unavailable"
+    return JsonResponse(data, status=503 if data["status"] == "unavailable" else 200)
+
+
+@login_required
+@never_cache
+@require_POST
+@sensitive_post_parameters("reference")
+def identity_resolve_api(request):
+    try:
+        payload = _identity_request_payload(request)
+        policy = authorize_identity_context(request, payload.get("context"), payload.get("object_id", ""))
+        identity = validate_identity_reference(request, policy, payload.get("reference", ""))
+    except (ValueError, TypeError):
+        return JsonResponse({"status": "invalid"}, status=400)
+    except ValidationError:
+        return JsonResponse({"status": "invalid_selection"}, status=409)
+    return JsonResponse({"status": "resolved", "identity": serialize_identity(request, policy, identity), "values": account_form_values(identity)})
+
+
+def _identity_request_payload(request):
+    import json
+    if len(request.body) > 8192:
+        raise ValueError("Request too large")
+    payload = json.loads(request.body)
+    if not isinstance(payload, dict) or set(payload) - {"context", "object_id", "q", "field", "reference"}:
+        raise ValueError("Invalid identity request")
+    if any(not isinstance(value, str) for value in payload.values()):
+        raise ValueError("Invalid identity parameters")
+    return payload

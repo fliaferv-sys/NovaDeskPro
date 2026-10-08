@@ -124,7 +124,7 @@ def get_directory_employees(limit=50):
 		) from exc
 
 
-def search_directory_employees(query="", limit=100):
+def search_directory_employees(query="", limit=100, *, exact_email=False, search_field=None, exact=False):
 	if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 200:
 		raise ValueError("limit debe ser un entero entre 1 y 200.")
 
@@ -135,7 +135,24 @@ def search_directory_employees(query="", limit=100):
 		"FROM dbo.FuncionariosFotosVista "
 	)
 	parameters = ()
-	if query:
+	if search_field is not None:
+		field_columns = {"email": "Mail", "employee_number": "LegajoNro", "name": "NombresApellidos", "rrhh_id": "IdPersonal"}
+		if search_field not in field_columns:
+			raise ValueError("Campo de búsqueda RRHH inválido.")
+		column = field_columns[search_field]
+		expression = f"LOWER(LTRIM(RTRIM(CAST({column} AS NVARCHAR(255)))))"
+		if exact:
+			sql += f"WHERE {expression} = LOWER(?) "
+			parameters = (query,)
+		else:
+			# Escape LIKE metacharacters; the search term is always a parameter.
+			term = query.replace("[", "[[]").replace("%", "[%]").replace("_", "[_]")
+			sql += f"WHERE {expression} LIKE LOWER(?) "
+			parameters = (f"%{term}%",)
+	elif exact_email:
+		sql += "WHERE LOWER(LTRIM(RTRIM(Mail))) = LOWER(?) "
+		parameters = (query,)
+	elif query:
 		sql += (
 			"WHERE CAST(LegajoNro AS NVARCHAR(255)) LIKE ? "
 			"OR NombresApellidos LIKE ? "

@@ -5,9 +5,24 @@
 
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin
+from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.validators import validate_email
+from django.http import JsonResponse
+from django.urls import path
 from django.utils import timezone
+from django.utils.decorators import method_decorator
+from django.views.decorators.http import require_GET
+
+from apps.directory.identity_services import (
+    AmbiguousInstitutionalIdentity,
+    InstitutionalIdentityError,
+    normalize_identity_employment,
+    find_institutional_identity_by_email,
+)
 
 from .models import Branch, User
+from .forms import InstitutionalIdentityValidationMixin
+from apps.directory.identity_policies import account_form_values, ACCOUNT_FORM_FIELDS
 
 
 # ==========================================================
@@ -101,6 +116,58 @@ class BranchAdmin(admin.ModelAdmin):
 @admin.register(User)
 class CustomUserAdmin(UserAdmin):
     model = User
+    add_form_template = "admin/accounts/user/identity_form.html"
+    change_form_template = "admin/accounts/user/identity_form.html"
+
+    def get_form(self, request, obj=None, **kwargs):
+        base_form = super().get_form(request, obj, **kwargs)
+        return type("InstitutionalUserForm", (InstitutionalIdentityValidationMixin, base_form), {"identity_request": request})
+
+    def render_change_form(self, request, context, add=False, change=False, form_url="", obj=None):
+        context.update(
+            identity_context="accounts.add" if add else "accounts.change",
+            identity_object_id=str(obj.pk) if obj else "",
+            identity_mode="add" if add else "change",
+            identity_reference=request.POST.get("institutional_identity_ref", ""),
+            identity_field_map={key: key for key in ACCOUNT_FORM_FIELDS},
+            identity_config_id="accounts-identity-map",
+            identity_bound=context["adminform"].form.is_bound,
+        )
+        return super().render_change_form(request, context, add, change, form_url, obj)
+
+    def get_urls(self):
+        return [
+            path(
+                "institutional-lookup/",
+                self.admin_site.admin_view(self.institutional_lookup),
+                name="accounts_user_institutional_lookup",
+            ),
+        ] + super().get_urls()
+
+    @method_decorator(require_GET)
+    def institutional_lookup(self, request):
+        if not self.has_add_permission(request):
+            raise PermissionDenied
+        email = request.GET.get("email", "").strip().casefold()
+        try:
+            validate_email(email)
+        except ValidationError:
+            return JsonResponse({"status": "invalid"}, status=400)
+        if email.rsplit("@", 1)[-1] != "petropar.gov.py":
+            return JsonResponse({"status": "not_found"})
+        try:
+            identity = find_institutional_identity_by_email(email)
+        except AmbiguousInstitutionalIdentity:
+            return JsonResponse({"status": "ambiguous"})
+        except InstitutionalIdentityError:
+            return JsonResponse({"status": "unavailable"}, status=503)
+        if identity is None:
+            return JsonResponse({"status": "not_found"})
+        identity = {**identity, "email": email, "employment_type": normalize_identity_employment(identity.get("employment_type"))}
+        fields = account_form_values(identity)
+        fields.pop("email", None)  # Preserve the legacy response shape.
+        return JsonResponse({"status": "found", "fields": fields})
+
 
     # ======================================================
     # LISTADO

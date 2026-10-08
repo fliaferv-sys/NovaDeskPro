@@ -6,6 +6,7 @@ from django.shortcuts import redirect, render
 
 from apps.accounts.models import TechnicianAvailabilityRequest, User
 from apps.activity.models import ActivityLog
+from apps.directory.identity_services import get_user_photo_url
 from apps.institution.models import InstitutionSettings
 from apps.printing.models import Consumable
 from apps.tickets.forms import TicketForm
@@ -199,6 +200,11 @@ def user_list_view(request):
         )
         .order_by("first_name", "last_name")
     )
+
+    for system_user in users:
+        system_user.institutional_photo_url = (
+            "" if system_user.profile_image else get_user_photo_url(system_user)
+        )
 
     total_users = User.objects.count()
 
