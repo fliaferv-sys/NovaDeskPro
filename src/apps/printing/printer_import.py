@@ -14,6 +14,7 @@ from openpyxl.utils.exceptions import InvalidFileException
 from apps.accounts.models import Branch, User
 from apps.inventory.models import OrganizationalLocation
 from .models import PrintingDevice
+from .printer_ids import origin_id, id_key, existing_id_owners, resolve_origin_id
 
 
 SHEET_NAME = "IMPORTACION_PRINTING"
@@ -143,6 +144,8 @@ class PrinterImportPlanner:
             # Lock existing devices, not nullable joins (important on PostgreSQL).
             list(PrintingDevice.objects.select_for_update().values_list("pk", flat=True))
         self.devices = defaultdict(list)
+        devices = list(devices)
+        self.id_owners = existing_id_owners(devices)
         for device in devices:
             key = serial_key(device.effective_serial_number)
             if key:
@@ -153,9 +156,18 @@ class PrinterImportPlanner:
 
     def plan(self, rows):
         serial_counts = Counter(serial_key(row["Serie"]) for _, row, _ in rows if serial_key(row["Estado validación"]) != "revisar" and normalize_text(row["Serie"]))
-        return [self.plan_row(number, row, formulas, serial_counts) for number, row, formulas in rows]
+        id_counts = Counter()
+        for _, row, _ in rows:
+            if serial_key(row["Estado validaci\u00f3n"]) != "revisar":
+                try:
+                    value = origin_id(row["ID origen"])
+                except ValueError:
+                    continue
+                if value:
+                    id_counts[id_key(value)] += 1
+        return [self.plan_row(number, row, formulas, serial_counts, id_counts) for number, row, formulas in rows]
 
-    def plan_row(self, number, raw, formulas, serial_counts):
+    def plan_row(self, number, raw, formulas, serial_counts, id_counts):
         if serial_key(raw["Estado validación"]) == "revisar":
             return ImportRow(number, "IGNORADO")
         try:
@@ -182,6 +194,14 @@ class PrinterImportPlanner:
                 device._state = copy(original._state)
                 device._state.fields_cache = original._state.fields_cache.copy()
             changes = {"ip_address": row["IP actual"] or None}
+            id_status, identifier, id_reason = resolve_origin_id(
+                raw["ID origen"], device.photocopier_id, device.pk,
+                self.id_owners, id_counts,
+            )
+            if id_status == "REVISAR":
+                raise ValidationError("REVISAR: " + id_reason)
+            if id_status == "ACTUALIZADO":
+                changes["photocopier_id"] = identifier
             pending = []
             if new or not normalize_text(device.serial_number):
                 changes["serial_number"] = serial

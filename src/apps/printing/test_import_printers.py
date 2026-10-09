@@ -72,7 +72,7 @@ class ImportPrintersTests(TestCase):
         self.assertEqual(device.branch, self.branch)
         self.assertEqual(device.organizational_location, self.location)
         self.assertIsNone(device.responsible_user)
-        self.assertIsNone(device.photocopier_id)
+        self.assertEqual(device.photocopier_id, "ORIGIN-1")
         self.assertIn("Responsable: Persona sin cuenta", device.notes)
         self.assertIn("IP actual: 192.0.2.5", device.notes)
         self.assertEqual(User.objects.count(), 1)
@@ -350,3 +350,36 @@ class ImportPrintersTests(TestCase):
         self.assertIn("REVISAR", output)
         self.assertIn("NUEVO=1", output)
         self.assertEqual(PrintingDevice.objects.get().ip_address, "192.0.2.2")
+
+    def test_origin_id_saved_and_not_replaced_by_row_number(self):
+        self.run_import([self.row(**{"ID origen": 17, "N\u00b0 origen": 99})])
+        self.assertEqual(PrintingDevice.objects.get().photocopier_id, "17")
+        self.assertIn("SIN CAMBIOS=1", self.run_import())
+
+    def test_origin_id_empty_preserves_existing_identifier(self):
+        device = self.device(photocopier_id="OLD-1")
+        self.run_import([self.row(**{"N\u00b0 origen": 99})])
+        device.refresh_from_db()
+        self.assertEqual(device.photocopier_id, "OLD-1")
+
+    def test_duplicate_origin_ids_reject_all_claiming_rows(self):
+        output = self.run_import([self.row(**{"ID origen": "ID-1"}), self.row(**{"Serie": "SECOND", "ID origen": "id-1"})])
+        self.assertIn("RECHAZADO=2", output)
+        self.assertIn("REVISAR", output)
+        self.assertEqual(PrintingDevice.objects.count(), 0)
+
+    def test_id_conflict_with_existing_owner_rejects_without_updates(self):
+        device = self.device(serial_number="OTHER", photocopier_id="ID-1")
+        output = self.run_import([self.row(**{"ID origen": "ID-1"})])
+        self.assertIn("RECHAZADO=1", output)
+        self.assertEqual(PrintingDevice.objects.count(), 1)
+        device.refresh_from_db()
+        self.assertEqual(device.serial_number, "OTHER")
+
+    def test_existing_different_id_and_invalid_id_require_review(self):
+        device = self.device(photocopier_id="OLD-1")
+        for identifier in ("NEW-1", "S/N", "ID WITH SPACE", "0", "X" * 51):
+            with self.subTest(identifier=identifier):
+                self.assertIn("RECHAZADO=1", self.run_import([self.row(**{"ID origen": identifier})]))
+                device.refresh_from_db()
+                self.assertEqual(device.photocopier_id, "OLD-1")

@@ -15,7 +15,7 @@ de red con fecha, no una configuración IP importable del equipo.
 
 La clave del importador es Serie, comparada sin distinguir mayúsculas y tras
 normalizar espacios. `serial_number` NO tiene unique=True. `photocopier_id` sí es
-único, pero no se presume que ID origen o Calcomanía tengan ese significado.
+único. ID origen se mapea a photocopier_id tras validación; Calcomanía no se usa como ID.
 La relación asset también es única. Branch tiene code/name únicos; Location tiene
 unicidad (branch, code); Contract tiene contract_number único. Nombres de ubicaciones
 y diferencias solo de mayúsculas pueden ser ambiguos y no se asocian arbitrariamente.
@@ -28,7 +28,7 @@ ya vinculado, para evitar crear otra impresora para el mismo equipo.
 | Excel | Destino / regla |
 |---|---|
 | N° origen | Texto de trazabilidad en notes; no es el UUID del modelo |
-| ID origen | Texto en notes; no se presume photocopier_id |
+| ID origen | photocopier_id si es valido, libre y compatible; se conserva copia en notes |
 | Serie | PrintingDevice.serial_number; clave de importación |
 | Modelo | PrintingDevice.model; marca Lexmark solo para familias aprobadas |
 | Sede | PrintingDevice.branch, aliases aprobados o code/name exactos normalizados de una sede activa |
@@ -214,3 +214,39 @@ ejecucion real antes de guardar. Un fallo critico revierte todo el lote.
 equipos existentes; solo actualiza ip_address, sin alterar notes, updated_at,
 relaciones u otros campos. Es idempotente y no crea detecciones de red. Los
 reportes muestran UUID/estado/motivo, sin imprimir notas ni direcciones IP.
+
+## ID de fotocopiadora desde ID origen
+
+El importador usa exclusivamente ID origen para photocopier_id. Nunca genera IDs
+ni utiliza N° origen como reemplazo. ID vacio mantiene el identificador existente.
+ID invalido, incompatible o duplicado rechaza la fila con aviso REVISAR; no se
+elige arbitrariamente una fila ganadora. REVISAR del Excel sigue ignorandose.
+
+Validacion compartida: texto/entero, 1-50 caracteres ASCII, empieza por letra o
+digito y contiene solo letras, digitos, guion o guion bajo. Se quitan espacios
+externos, se conservan ceros iniciales y no se aceptan decimales, booleanos,
+espacios internos, marcadores sin identificacion o valores solo de ceros.
+Duplicados se comparan sin distinguir mayusculas, incluyendo equipos sin bloque
+de importacion y equipos inactivos. La restriccion unique de BD permanece como
+proteccion final frente a escrituras concurrentes.
+
+Para equipos ya importados, despues de revisar la simulacion en el entorno
+correspondiente:
+
+```powershell
+python manage.py migrate_printer_ids_from_notes --dry-run
+python manage.py migrate_printer_ids_from_notes
+```
+
+La ejecucion real requiere autorizacion y no se realiza como parte de esta
+preparacion. El comando procesa solo equipos con el marcador de apertura del
+bloque importado y extrae una unica linea ID origen. No lee IDs de notas manuales.
+Ausente/vacio o ya coincidente -> SIN CAMBIOS; valido y campo vacio -> ACTUALIZADO;
+invalido, varias lineas ID origen, ID ocupado, duplicado en lote o ID existente
+distinto -> REVISAR con motivo. Bloques danados -> ERROR, abortando el lote real.
+
+El dry-run no escribe. La ejecucion real usa transaction.atomic, valida todas
+las colisiones antes de guardar y actualiza exclusivamente photocopier_id,
+sin modificar notes, updated_at, serial, responsables, IP o relaciones. Un error
+critico de guardado revierte toda la transaccion. Repetir no modifica equipos ya
+migrados. No hay migraciones de esquema ni nuevas entidades.
