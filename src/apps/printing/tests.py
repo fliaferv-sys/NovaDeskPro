@@ -145,13 +145,13 @@ class PrintingDeviceListLocationTests(TestCase):
             name="Ubicaci\u00f3n pendiente de verificar - Planta Villa Elisa",
         )
 
-    def location_cell(self, response):
+    def location_cell(self, response, index=-1):
         import re
 
         row = re.search(r'<tr class="clickable-row".*?</tr>', response.content.decode(), re.DOTALL)
         self.assertIsNotNone(row)
         cells = re.findall(r'<td>(.*?)</td>', row.group(), re.DOTALL)
-        return cells[-1].strip()
+        return cells[index].strip()
 
     def test_list_shows_device_organizational_location_without_asset(self):
         from .models import PrintingDevice
@@ -179,6 +179,25 @@ class PrintingDeviceListLocationTests(TestCase):
         response = self.client.get(reverse("printing:devices_by_model"))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self.location_cell(response), "\u2014")
+
+
+    def test_list_shows_structured_ip_without_asset(self):
+        from .models import PrintingDevice
+
+        PrintingDevice.objects.create(ip_address="192.0.2.55")
+        response = self.client.get(reverse("printing:devices_by_model"))
+        self.assertEqual(response.status_code, 200)
+        self.assertInHTML('<span class="status-chip neutral">192.0.2.55</span>', self.location_cell(response, 5))
+
+    def test_list_without_structured_ip_shows_dash_even_with_asset_ip(self):
+        from apps.inventory.models import Asset
+        from .models import PrintingDevice
+
+        asset = Asset.objects.create(internal_code="IP-ASSET", asset_type=Asset.AssetType.PRINTER, current_ip="192.0.2.99")
+        PrintingDevice.objects.create(asset=asset, ip_address=None)
+        response = self.client.get(reverse("printing:devices_by_model"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.location_cell(response, 5), "\u2014")
 
 
 class PrintingAdminSearchFieldsTests(TestCase):

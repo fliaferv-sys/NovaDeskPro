@@ -124,6 +124,10 @@ class PrintingDevice(models.Model):
         default=False,
     )
 
+    ip_address = models.GenericIPAddressField(
+        "IP actual", protocol="IPv4", null=True, blank=True,
+    )
+
     web_interface_url = models.URLField(
         "Dirección de administración web",
         blank=True,

@@ -333,9 +333,9 @@
                                     {% endif %}
                                 </td>
                                 <td>
-                                    {% if device.asset.current_ip %}
+                                    {% if device.ip_address %}
                                         <span class="status-chip neutral">
-                                            {{ device.asset.current_ip }}
+                                            {{ device.ip_address }}
                                         </span>
                                     {% else %}
                                         —
