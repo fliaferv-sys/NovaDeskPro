@@ -324,3 +324,29 @@ class ImportPrintersTests(TestCase):
 
     def test_contract_formula_is_ignored(self):
         self.assertIn("NUEVO=1", self.run_import([self.row(**{"Contrato": '=CONCAT("PR", "012/22")'})]))
+
+    def test_current_ipv4_is_saved_and_previous_ip_stays_in_notes(self):
+        self.run_import([self.row(**{"IP actual": " 192.0.2.15 ", "IP anterior": "192.0.2.14"})])
+        device = PrintingDevice.objects.get()
+        self.assertEqual(device.ip_address, "192.0.2.15")
+        self.assertIn("IP anterior: 192.0.2.14", device.notes)
+        self.assertIn("IP actual: 192.0.2.15", device.notes)
+        self.assertEqual(PrintingDeviceNetworkDetection.objects.count(), 0)
+        self.assertEqual(device.web_interface_url, "")
+
+    def test_empty_current_ip_is_null_for_new_and_existing_device(self):
+        self.run_import([self.row()])
+        device = PrintingDevice.objects.get()
+        self.assertIsNone(device.ip_address)
+        device.ip_address = "192.0.2.1"
+        device.save(update_fields=["ip_address"])
+        self.run_import([self.row()])
+        device.refresh_from_db()
+        self.assertIsNone(device.ip_address)
+
+    def test_invalid_current_ip_reviews_only_bad_rows(self):
+        output = self.run_import([self.row(**{"IP actual": "2001:db8::1"}), self.row(**{"Serie": "GOOD-IP", "IP actual": "192.0.2.2"})])
+        self.assertIn("RECHAZADO=1", output)
+        self.assertIn("REVISAR", output)
+        self.assertIn("NUEVO=1", output)
+        self.assertEqual(PrintingDevice.objects.get().ip_address, "192.0.2.2")

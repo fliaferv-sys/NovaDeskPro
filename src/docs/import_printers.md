@@ -35,7 +35,7 @@ ya vinculado, para evitar crear otra impresora para el mismo equipo.
 | Dependencia | organizational_location, solo code/name/full_path exactos dentro de la sede activa; si no existe equivalencia, se usa UBICACION-PENDIENTE de la sede cuando no hay una ubicación existente válida; la Dependencia original se conserva íntegra en notes |
 | Responsable | responsible_user, solo correo o username exacto de una cuenta activa y aprobada, con una única coincidencia; en otro caso texto en notes |
 | IP anterior | IP validada y normalizada en notes |
-| IP actual | IP validada y normalizada en notes; no crea una detección de red |
+| IP actual | IPv4 validada en PrintingDevice.ip_address y notes; no crea una detección de red |
 | Conexión | Texto en notes; no se traduce a supports_network por suposición |
 | Calcomanía | Texto en notes; no se presume photocopier_id |
 | Nombre impresora | Texto en notes; el modelo no tiene ese campo |
@@ -90,11 +90,11 @@ no permite confirmar esas propiedades con las equivalencias actualmente conocida
 ## Validación y resultados
 
 - Serie debe ser texto, no vacía, con identificación válida y máximo 150 caracteres. Se rechazan marcadores S/N, SIN SERIE, etc. Las celdas numéricas se rechazan para no inventar ceros iniciales.
-- Se validan IP actual e IP anterior como IPv4/IPv6. Una IP no vacía inválida rechaza toda la fila.
+- IP actual requiere IPv4; IP anterior admite IPv4/IPv6 y queda en notes. Una IP no vacía inválida rechaza solo esa fila con aviso REVISAR, sin abortar otras filas.
 - Las fórmulas se rechazan; convertirlas a valores antes de importar. Las filas totalmente vacías no se procesan. Límite: 50.000 filas.
 - Una serie repetida en el Excel rechaza todas sus filas procesables. Las filas REVISAR no cuentan como duplicados ni se validan.
 - Varias impresoras existentes con la misma serie normalizada producen RECHAZADO; el comando no elige una ni borra registros.
-- Valores vacíos no borran campos estructurados existentes. Asociaciones no resueltas se conservan como texto pendiente sin reemplazar asociaciones actuales.
+- Valores vacíos no borran campos estructurados existentes, excepto IP actual: una celda vacía deja ip_address=NULL. Asociaciones no resueltas se conservan como texto pendiente sin reemplazar asociaciones actuales.
 - NUEVO / ACTUALIZADO / SIN CAMBIOS / RECHAZADO / IGNORADO se reportan por número de fila, con resumen final y cantidad de filas pendientes. No se imprime el contenido personal de Responsable.
 
 Las notas manuales se preservan. El bloque entre
@@ -181,3 +181,36 @@ usa transaction.atomic y se actualizan solo notes y updated_at de los registros
 afectados. Repetirla produce SIN CAMBIOS para equipos ya limpiados. Un error
 critico de guardado revierte toda la limpieza. Los reportes usan UUID y estado,
 sin imprimir el contenido de las notas.
+
+## IP actual estructurada y migracion desde notas
+
+La migracion printing.0017_printingdevice_ip_address agrega un campo opcional
+GenericIPAddressField(protocol="IPv4", null=True, blank=True). Debe aplicarse
+antes de usar el codigo nuevo. No incluye migracion automatica de datos.
+El listado muestra exclusivamente device.ip_address o una raya si esta vacio.
+El admin mantiene su formulario explicito sin agregar edicion manual de IP.
+
+El importador guarda una IPv4 actual valida en ip_address y mantiene su copia en
+notes por trazabilidad. IP anterior permanece en notes. Una celda IP actual vacia
+establece NULL, incluso en una actualizacion. Una celda invalida/IPv6 rechaza la
+fila con aviso REVISAR sin detener el resto. No usa web_interface_url ni crea
+PrintingDeviceNetworkDetection.
+
+Despues de aplicar la migracion de esquema en el entorno autorizado:
+
+```powershell
+python manage.py migrate_printer_ips_from_notes --dry-run
+python manage.py migrate_printer_ips_from_notes
+```
+
+La ejecucion real requiere autorizacion para ese entorno. El comando solo toma
+IP actual de un unico bloque [[NOVADESK_IMPORT_PRINTERS_V1]] bien delimitado.
+IP ausente/vacia o ya igual -> SIN CAMBIOS; IPv4 valida con campo vacio ->
+ACTUALIZADO; IPv4 invalida, varias lineas IP actual o conflicto con una IP ya
+almacenada -> REVISAR, sin sobrescribir. Bloques danados -> ERROR, abortando la
+ejecucion real antes de guardar. Un fallo critico revierte todo el lote.
+
+--dry-run no escribe. La ejecucion real usa transaction.atomic y bloquea los
+equipos existentes; solo actualiza ip_address, sin alterar notes, updated_at,
+relaciones u otros campos. Es idempotente y no crea detecciones de red. Los
+reportes muestran UUID/estado/motivo, sin imprimir notas ni direcciones IP.

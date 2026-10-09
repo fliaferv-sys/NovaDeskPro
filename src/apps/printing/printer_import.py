@@ -2,7 +2,7 @@
 from collections import Counter, defaultdict
 from copy import copy
 from dataclasses import dataclass, field
-from ipaddress import ip_address
+from ipaddress import IPv4Address, ip_address
 from pathlib import Path
 import re
 from zipfile import BadZipFile
@@ -172,16 +172,16 @@ class PrinterImportPlanner:
             for name in ("IP anterior", "IP actual"):
                 if row[name]:
                     try:
-                        row[name] = str(ip_address(row[name]))
+                        row[name] = str(IPv4Address(row[name]) if name == "IP actual" else ip_address(row[name]))
                     except ValueError as exc:
-                        raise ValidationError(f"{name}: dirección IP inválida.") from exc
+                        raise ValidationError(f"REVISAR: {name}: dirección IP inválida (IP actual requiere IPv4).") from exc
             new = not existing
             original = existing[0] if existing else None
             device = copy(original) if original else PrintingDevice()
             if original:
                 device._state = copy(original._state)
                 device._state.fields_cache = original._state.fields_cache.copy()
-            changes = {}
+            changes = {"ip_address": row["IP actual"] or None}
             pending = []
             if new or not normalize_text(device.serial_number):
                 changes["serial_number"] = serial
@@ -229,7 +229,7 @@ class PrinterImportPlanner:
                 else:
                     pending.append("Responsable sin correo/username local inequívoco")
             if row["IP actual"] or row["IP anterior"]:
-                pending.append("IP conservada como texto; no constituye detección de red")
+                pending.append("IP conservada por trazabilidad; no constituye detección de red")
             for name, value in changes.items():
                 setattr(device, name, value)
             notes_row = row.copy()
