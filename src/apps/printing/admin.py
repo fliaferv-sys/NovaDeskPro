@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django import forms
 from django.core.exceptions import ValidationError
 from django.http import JsonResponse
 from django.shortcuts import redirect
@@ -10,7 +11,7 @@ from django.utils.html import format_html
 
 from apps.inventory.models import StockCategory, StockProduct
 
-from .forms import ConsumableAdminForm, find_stock_product_candidates
+from .forms import ConsumableAdminForm, find_stock_product_candidates, PrintingResponsibleIdentityMixin
 
 from .models import (
     Consumable,
@@ -32,6 +33,33 @@ from .reconciliation import (
 
 @admin.register(PrintingDevice)
 class PrintingDeviceAdmin(admin.ModelAdmin):
+    change_form_template = "admin/printing/printingdevice/identity_form.html"
+
+    def get_form(self, request, obj=None, **kwargs):
+        base = super().get_form(request, obj, **kwargs)
+        return type("PrintingResponsibleForm", (PrintingResponsibleIdentityMixin, base), {"identity_request": request})
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "responsible_user":
+            kwargs["widget"] = forms.HiddenInput()
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    def render_change_form(self, request, context, add=False, change=False, form_url="", obj=None):
+        context.update(
+            identity_context="printing.add" if add else "printing.change",
+            identity_object_id=str(obj.pk) if obj else "",
+            identity_mode="add" if add else "change",
+            identity_reference=request.POST.get("institutional_identity_ref", ""),
+            identity_field_map={"local_user_id": "responsible_user"},
+            identity_config_id="printing-responsible-identity-map",
+            identity_bound=context["adminform"].form.is_bound,
+            identity_explicit_only=True,
+            identity_clear_fields=True,
+            identity_help="Busque por nombre, apellido, correo o usuario. Seleccione una persona con cuenta local para asignarla como responsable.",
+            current_responsible=obj.responsible_user if obj else None,
+        )
+        return super().render_change_form(request, context, add, change, form_url, obj)
+
     list_display = (
         "photocopier_id",
         "asset",
@@ -68,7 +96,7 @@ class PrintingDeviceAdmin(admin.ModelAdmin):
     )
     
     autocomplete_fields = (
-        "asset", "branch", "organizational_location", "responsible_user"
+        "asset", "branch", "organizational_location"
     )
     
     readonly_fields = ("created_at", "updated_at")

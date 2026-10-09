@@ -37,7 +37,7 @@ function setup(configs = [{}]) {
             elements[name] = new Element(name, config.initial?.[name] ?? (name === 'employment_type' ? 'PERMANENT' : ''), ['employment_type', 'department'].includes(name) ? 'SELECT' : 'INPUT');
         }
         const form = {elements: [...Object.values(elements), new Element('csrfmiddlewaretoken', 'csrf')]};
-        const container = {dataset: {mode: config.mode || 'add', context: 'accounts.' + (config.mode || 'add'), objectId: config.mode === 'change' ? 'test-id' : '', bound: String(config.bound || false), searchUrl: '/search', resolveUrl: '/resolve'}, closest: () => form, querySelector: selector => selectors[selector]};
+        const container = {dataset: {mode: config.mode || 'add', context: 'accounts.' + (config.mode || 'add'), objectId: config.mode === 'change' ? 'test-id' : '', bound: String(config.bound || false), explicitOnly: String(config.explicitOnly || false), clearFields: String(config.clearFields || false), searchUrl: '/search', resolveUrl: '/resolve'}, closest: () => form, querySelector: selector => selectors[selector]};
         return {container, selectors, elements, control: name => selectors['[data-identity-' + name + ']']};
     });
     const document = {readyState: 'complete', querySelectorAll: () => instances.map(i => i.container), createElement: () => new Element('', '', 'BUTTON')};
@@ -158,5 +158,40 @@ test('new search removes old automatic values but keeps manual fields', async ()
     i.elements.first_name.value = 'Manual'; i.elements.first_name.emit('input');
     i.control('query').value = 'different'; i.control('query').emit('input');
     assert.equal(i.elements.username.value, ''); assert.equal(i.elements.first_name.value, 'Manual');
+    assert.equal(i.control('reference').value, '');
+});
+
+
+test('printing exact search requires selection and maps only local responsible', async () => {
+    const h = setup([{explicitOnly: true, mapping: {local_user_id: 'responsible_user'}}]);
+    const i = search(h);
+    await h.resolve(0, {...found, candidates: [candidate], values: {local_user_id: 'local-1'}});
+    assert.equal(i.elements.responsible_user.value, '');
+    assert.equal(i.control('results').children.length, 1);
+    i.control('results').children[0].emit('click');
+    await h.resolve(1, {status: 'resolved', identity: {reference: 'printing-ref'}, values: {local_user_id: {value: 'local-1', label: 'Persona Local'}}});
+    assert.equal(i.elements.responsible_user.value, 'local-1');
+    assert.equal(i.control('reference').value, 'printing-ref');
+    assert.equal(i.elements.password1.value, '');
+});
+
+test('printing identity without local account preserves existing responsible', async () => {
+    const h = setup([{mode: 'change', explicitOnly: true, mapping: {local_user_id: 'responsible_user'}, initial: {responsible_user: 'existing'}}]);
+    const i = search(h);
+    await h.resolve(0, {status: 'candidates', candidates: [candidate]});
+    i.control('results').children[0].emit('click');
+    await h.resolve(1, {status: 'unassignable', message: 'Sin cuenta local asociable'});
+    assert.equal(i.elements.responsible_user.value, 'existing');
+    assert.equal(i.control('reference').value, '');
+    assert.equal(i.control('status').textContent, 'Sin cuenta local asociable');
+});
+
+test('printing clear removes assigned user and never searches on edit open', () => {
+    const h = setup([{mode: 'change', clearFields: true, explicitOnly: true, mapping: {local_user_id: 'responsible_user'}, initial: {responsible_user: 'existing'}}]);
+    const i = h.instances[0];
+    assert.equal(h.requests.length, 0);
+    assert.equal(i.elements.responsible_user.value, 'existing');
+    i.control('clear').emit('click');
+    assert.equal(i.elements.responsible_user.value, '');
     assert.equal(i.control('reference').value, '');
 });

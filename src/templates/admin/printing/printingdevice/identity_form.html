@@ -1,0 +1,12 @@
+{% extends "admin/change_form.html" %}
+{% load static %}
+{% block extrahead %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'shared/css/institutional_identity.css' %}">
+<script src="{% static 'shared/js/institutional_identity.js' %}" defer></script>
+{% endblock %}
+{% block form_top %}
+{{ block.super }}
+<p>Responsable actualmente asignado: <strong>{{ current_responsible|default:"Sin asignar" }}</strong></p>
+{% include "components/institutional_identity.html" %}
+{% endblock %}
