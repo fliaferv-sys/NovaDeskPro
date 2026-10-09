@@ -253,3 +253,32 @@ migrados. No hay migraciones de esquema ni nuevas entidades.
 
 IDs como 55/BK son validos y conservan exactamente la barra /. Los marcadores
 S/N y N/A siguen siendo invalidos, sin distinguir mayusculas.
+
+## Diagnostico de dependencias y ubicaciones (solo analisis)
+
+```powershell
+python manage.py analyze_printer_locations
+python manage.py analyze_printer_locations --output 'RUTA\reporte_ubicaciones_impresoras.csv'
+```
+
+Este comando no tiene modo de aplicacion ni ejecuta escrituras en la base.
+Procesa exclusivamente equipos con el marcador del bloque importado. Lee Sede y
+Dependencia del bloque, muestra IDs, series y ubicacion actual, y agrupa por
+branch guardado y Dependencia normalizada. Preserva todas las variantes de texto
+original en consola/CSV. No infiere branch desde notes; las discrepancias se
+advierten. Un bloque danado o con campos repetidos aborta sin adivinar valores.
+
+Comparacion basica: case, tildes y espacios. Una unica coincidencia de nombre
+normalizado en la misma sede activa es COINCIDENCIA EXACTA. Para posibles
+coincidencias solamente se expanden Dpto./Depto. a Departamento o se comparan
+prefijos completos Oficina de / Departamento de / Direccion de. No se usan
+puntuaciones fuzzy, distancia de edicion ni candidatos de otras sedes. Varias
+ubicaciones compatibles producen AMBIGUA; ninguna produce NO EXISTE; Dependencia
+vacia produce SIN DEPENDENCIA. Solo se comparan ubicaciones activas, excluyendo
+el codigo provisional UBICACION-PENDIENTE. Nunca se elige ni asigna un candidato.
+
+El resumen cuenta dependencias normalizadas por sede (sin contar valores vacios)
+y estados por grupo; total_impresoras cuenta equipos. El CSV se genera solo con
+--output, usa UTF-8 y no sobrescribe archivos existentes. La carpeta de destino
+debe existir. El reporte puede contener datos institucionales y debe mantenerse
+fuera de Git. No se genera una estructura institucional ni nuevos niveles.
