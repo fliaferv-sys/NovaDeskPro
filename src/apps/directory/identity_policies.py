@@ -35,6 +35,7 @@ class IdentityPolicy:
     object_id: str = ""
     fields: frozenset = CONTRACT_FIELDS
     summary_fields: frozenset = SUMMARY_FIELDS
+    auto_resolve: bool = True
 
 
 def authorize_identity_context(request, context, object_id=""):
@@ -51,6 +52,21 @@ def authorize_identity_context(request, context, object_id=""):
             obj = None
         if obj is None or not user_admin.has_change_permission(request, obj):
             raise PermissionDenied
+    elif context in {"printing.add", "printing.change"}:
+        from apps.printing.models import PrintingDevice
+        device_admin = admin.site._registry[PrintingDevice]
+        if context == "printing.add":
+            if object_id or not device_admin.has_add_permission(request):
+                raise PermissionDenied
+        else:
+            try:
+                obj = PrintingDevice.objects.filter(pk=object_id).first() if object_id else None
+            except (ValueError, ValidationError):
+                obj = None
+            if obj is None or not device_admin.has_change_permission(request, obj):
+                raise PermissionDenied
+        fields = frozenset({"full_name", "email", "username", "source", "local_user_id"})
+        return IdentityPolicy(context, str(object_id or ""), fields, fields, auto_resolve=False)
     else:
         # Additional modules must explicitly register their own policies.
         raise PermissionDenied
@@ -109,3 +125,21 @@ def serialize_identity(request, policy, identity, *, summary=False):
     payload = {key: identity.get(key) for key in fields}
     payload["reference"] = issue_identity_reference(request, policy, identity)
     return payload
+
+
+def identity_form_values(policy, identity):
+    if policy.context.startswith("printing."):
+        user = associated_local_user(identity)
+        return {"local_user_id": {"value": str(user.pk), "label": str(user)}} if user else {}
+    return account_form_values(identity)
+
+
+def associated_local_user(identity):
+    """Only use the secure link established by the common resolver."""
+    user_id = identity.get("local_user_id")
+    if not user_id:
+        return None
+    try:
+        return User.objects.filter(pk=user_id).first()
+    except (ValueError, ValidationError):
+        return None

@@ -176,3 +176,27 @@ class PrintingTicketStockUsageForm(forms.Form):
                 self.add_error("quantity", "Stock insuficiente para registrar el consumo.")
 
         return cleaned_data
+
+
+class PrintingResponsibleIdentityMixin:
+    """Validate a fresh explicit selection without changing unrelated fields."""
+    def clean(self):
+        from apps.directory.identity_policies import (
+            authorize_identity_context, validate_identity_reference, associated_local_user,
+        )
+        cleaned = super().clean()
+        reference = self.data.get("institutional_identity_ref", "")
+        if reference:
+            request = self.identity_request
+            editing = not self.instance._state.adding
+            policy = authorize_identity_context(
+                request, "printing.change" if editing else "printing.add",
+                str(self.instance.pk) if editing else "",
+            )
+            identity = validate_identity_reference(request, policy, reference)
+            user = associated_local_user(identity)
+            if user is None:
+                self.add_error("responsible_user", "Esta persona no tiene una cuenta local asociable. No se crean usuarios desde Printing.")
+            elif cleaned.get("responsible_user") != user:
+                self.add_error("responsible_user", "El responsable no coincide con la seleccion institucional. Seleccione nuevamente o quite la seleccion.")
+        return cleaned

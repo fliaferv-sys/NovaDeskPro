@@ -7,7 +7,7 @@ from django.views.decorators.debug import sensitive_post_parameters
 from django.views.decorators.http import require_POST
 
 from .identity_policies import (
-    authorize_identity_context, account_form_values, serialize_identity,
+    authorize_identity_context, identity_form_values, serialize_identity,
     issue_identity_reference, validate_identity_reference,
 )
 from .identity_services import search_common_identities
@@ -106,7 +106,7 @@ def identity_search_api(request):
         return JsonResponse({"status": "invalid"}, status=400)
     candidates = [serialize_identity(request, policy, item, summary=True) for item in result["identities"]]
     data = {"status": "candidates" if candidates else "not_found", "candidates": candidates, "incomplete": result["incomplete"]}
-    if result["exact_unique"]:
+    if result["exact_unique"] and policy.auto_resolve:
         # Resolve once more before returning an automatic match.
         selected = result["exact_identity"]
         reference = issue_identity_reference(request, policy, selected)
@@ -115,7 +115,7 @@ def identity_search_api(request):
         except ValidationError:
             data["incomplete"] = True
         else:
-            data.update(status="resolved", identity=serialize_identity(request, policy, selected), values=account_form_values(selected))
+            data.update(status="resolved", identity=serialize_identity(request, policy, selected), values=identity_form_values(policy, selected))
     if data["incomplete"] and not candidates:
         data["status"] = "unavailable"
     return JsonResponse(data, status=503 if data["status"] == "unavailable" else 200)
@@ -134,7 +134,10 @@ def identity_resolve_api(request):
         return JsonResponse({"status": "invalid"}, status=400)
     except ValidationError:
         return JsonResponse({"status": "invalid_selection"}, status=409)
-    return JsonResponse({"status": "resolved", "identity": serialize_identity(request, policy, identity), "values": account_form_values(identity)})
+    values = identity_form_values(policy, identity)
+    if policy.context.startswith("printing.") and not values:
+        return JsonResponse({"status": "unassignable", "message": "Esta persona todav\u00eda no tiene una cuenta local asociable. No se cambi\u00f3 el responsable."})
+    return JsonResponse({"status": "resolved", "identity": serialize_identity(request, policy, identity), "values": values})
 
 
 def _identity_request_payload(request):

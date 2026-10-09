@@ -108,6 +108,7 @@
             try {
                 const data = await post(container.dataset.resolveUrl, {reference: candidate.reference}, requestId);
                 if (data?.status === 'resolved') apply(data, true, snapshot);
+                else if (data?.status === 'unassignable') setStatus(data.message || 'Esta persona no tiene una cuenta local asociable.');
             } catch (error) {
                 if (error.name !== 'AbortError' && requestId === sequence) setStatus('No fue posible validar la selección. Busque nuevamente o continúe manualmente.');
             }
@@ -135,7 +136,7 @@
             try {
                 const data = await post(container.dataset.searchUrl, {q: term, field: searchField}, requestId);
                 if (!data) return;
-                if (data.status === 'resolved' && container.dataset.mode === 'add' && container.dataset.bound !== 'true') {
+                if (data.status === 'resolved' && container.dataset.mode === 'add' && container.dataset.bound !== 'true' && container.dataset.explicitOnly !== 'true') {
                     apply(data, false);
                     return;
                 }
@@ -168,6 +169,7 @@
         container.querySelector('[data-identity-search]')?.addEventListener('click', () => search());
         container.querySelector('[data-identity-clear]')?.addEventListener('click', () => {
             resetReference();
+            if (container.dataset.clearFields === 'true') states.forEach(state => { setValue(state, ''); state.manual = false; state.filled = null; });
             setStatus('Selección quitada. Puede continuar con carga manual.');
         });
         query.setAttribute('aria-expanded', 'false');
