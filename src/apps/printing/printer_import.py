@@ -13,7 +13,7 @@ from openpyxl.utils.exceptions import InvalidFileException
 
 from apps.accounts.models import Branch, User
 from apps.inventory.models import OrganizationalLocation
-from .models import PrintingContract, PrintingDevice
+from .models import PrintingDevice
 
 
 SHEET_NAME = "IMPORTACION_PRINTING"
@@ -91,7 +91,7 @@ def read_import_rows(filename):
             if not any(normalize_text(cell.value) for cell in cells):
                 continue
             row = {name: cells[index].value if index < len(cells) else None for name, index in indices.items()}
-            formulas = [name for name, index in indices.items() if index < len(cells) and cells[index].data_type == "f"]
+            formulas = [name for name, index in indices.items() if name != "Contrato" and index < len(cells) and cells[index].data_type == "f"]
             rows.append((number, row, formulas))
         return rows
     except (OSError, BadZipFile, InvalidFileException, ValueError, KeyError) as exc:
@@ -111,7 +111,7 @@ def _import_notes(existing, row, pending):
     existing = existing or ""
     if existing.count(START_NOTES) != existing.count(END_NOTES) or existing.count(START_NOTES) > 1:
         raise ValidationError("El bloque de notas de importación existente está dañado; revisar manualmente.")
-    labels = ("N° origen", "ID origen", "Sede", "Dependencia", "Responsable", "IP anterior", "IP actual", "Conexión", "Calcomanía", "Nombre impresora", "Contrato", "Tipo servicio", "Estado validación", "Observaciones")
+    labels = ("N° origen", "ID origen", "Sede", "Dependencia", "Responsable", "IP anterior", "IP actual", "Conexión", "Calcomanía", "Nombre impresora", "Tipo servicio", "Estado validación", "Observaciones")
     lines = [f"{name}: {row[name]}" for name in labels if row[name]]
     if pending:
         lines.append("Datos pendientes: " + "; ".join(pending))
@@ -131,8 +131,6 @@ class ImportRow:
     status: str
     device: PrintingDevice | None = None
     fields: list = field(default_factory=list)
-    contract: PrintingContract | None = None
-    add_contract: bool = False
     pending: list = field(default_factory=list)
     errors: list = field(default_factory=list)
 
@@ -152,7 +150,6 @@ class PrinterImportPlanner:
         self.branches = list(Branch.objects.filter(is_active=True))
         self.locations = list(OrganizationalLocation.objects.filter(is_active=True, branch__is_active=True).select_related("branch", "parent"))
         self.users = list(User.objects.filter(is_active=True, approval_status=User.ApprovalStatus.APPROVED))
-        self.contracts = list(PrintingContract.objects.all())
 
     def plan(self, rows):
         serial_counts = Counter(serial_key(row["Serie"]) for _, row, _ in rows if serial_key(row["Estado validación"]) != "revisar" and normalize_text(row["Serie"]))
@@ -231,11 +228,6 @@ class PrinterImportPlanner:
                     changes["responsible_user"] = responsible
                 else:
                     pending.append("Responsable sin correo/username local inequívoco")
-            contract = None
-            if row["Contrato"]:
-                contract = _unique_match(self.contracts, row["Contrato"], ("contract_number",))
-                if contract is None:
-                    pending.append("Contrato sin número existente inequívoco")
             if row["IP actual"] or row["IP anterior"]:
                 pending.append("IP conservada como texto; no constituye detección de red")
             for name, value in changes.items():
@@ -247,9 +239,8 @@ class PrinterImportPlanner:
             changes["notes"] = device.notes
             device.full_clean()
             fields = list(changes) if new else [name for name in changes if getattr(original, name) != getattr(device, name)]
-            add_contract = bool(contract and (new or not device.contracts.filter(pk=contract.pk).exists()))
-            status = "NUEVO" if new else "ACTUALIZADO" if fields or add_contract else "SIN CAMBIOS"
-            return ImportRow(number, status, device, fields, contract, add_contract, pending)
+            status = "NUEVO" if new else "ACTUALIZADO" if fields else "SIN CAMBIOS"
+            return ImportRow(number, status, device, fields, pending=pending)
         except ValidationError as exc:
             return ImportRow(number, "RECHAZADO", errors=exc.messages)
 
@@ -260,5 +251,3 @@ def save_import_row(row):
         row.device.save()
     elif row.status == "ACTUALIZADO" and row.fields:
         row.device.save(update_fields=[*row.fields, "updated_at"])
-    if row.add_contract:
-        row.contract.devices.add(row.device)

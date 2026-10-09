@@ -176,7 +176,7 @@ class ImportPrintersTests(TestCase):
         self.assertIn("RECHAZADO=1", output)
         self.assertEqual(PrintingDevice.objects.count(), 0)
 
-    def test_rollback_on_critical_error_including_updates_and_contract_links(self):
+    def test_rollback_on_critical_error_including_updates(self):
         device = self.device(notes="Original")
         contract = PrintingContract.objects.create(contract_number="CONTRACT-1", provider="Proveedor Prueba", start_date=date(2026, 1, 1), end_date=date(2027, 1, 1))
         self.workbook([self.row(**{"Contrato": "CONTRACT-1"}), self.row(**{"Serie": "SERIAL-002"})])
@@ -217,13 +217,14 @@ class ImportPrintersTests(TestCase):
         self.assertEqual(device.contracts.count(), 0)
         self.assertEqual(PrintingContract.objects.count(), 0)
 
-    def test_exact_contract_link_added_only_once(self):
+    def test_existing_contract_is_ignored_without_link_or_notes(self):
         contract = PrintingContract.objects.create(contract_number="CONTRACT-1", provider="Proveedor Prueba", start_date=date(2026, 1, 1), end_date=date(2027, 1, 1))
         output = self.run_import([self.row(**{"Contrato": "contract-1"})])
         self.assertIn("NUEVO=1", output)
-        self.assertEqual(contract.devices.count(), 1)
+        self.assertEqual(contract.devices.count(), 0)
         self.assertIn("SIN CAMBIOS=1", self.run_import())
-        self.assertEqual(contract.devices.count(), 1)
+        self.assertEqual(contract.devices.count(), 0)
+        self.assertNotIn("Contrato:", PrintingDevice.objects.get().notes)
 
     def test_confirmed_model_infers_brand_without_explicit_option(self):
         output = self.run_import([self.row()], brand="")
@@ -310,3 +311,16 @@ class ImportPrintersTests(TestCase):
         OrganizationalLocation.objects.create(branch=self.branch, code="UBICACION-PENDIENTE", name="Pendiente")
         self.assertIn("RECHAZADO=1", self.run_import([self.row(**{"Sede": "Unknown", "Dependencia": "Unmapped"})], brand=""))
         self.assertEqual(PrintingDevice.objects.count(), 0)
+
+    def test_unconfirmed_contract_ignored_and_not_queried(self):
+        self.workbook([self.row(**{"Contrato": "PR/PR N\u00b0 012/22"})])
+        with CaptureQueriesContext(connection) as queries:
+            self.run_import()
+        device = PrintingDevice.objects.get()
+        self.assertNotIn("Contrato:", device.notes)
+        self.assertNotIn("012/22", device.notes)
+        self.assertEqual(PrintingContract.objects.count(), 0)
+        self.assertFalse(any("printing_printingcontract" in q["sql"].lower() for q in queries))
+
+    def test_contract_formula_is_ignored(self):
+        self.assertIn("NUEVO=1", self.run_import([self.row(**{"Contrato": '=CONCAT("PR", "012/22")'})]))

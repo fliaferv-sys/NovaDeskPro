@@ -10,7 +10,7 @@ El formulario de equipos lo genera el ModelAdmin a partir del modelo.
 Relaciones: asset opcional OneToOne a Inventory.Asset; branch a Accounts.Branch;
 organizational_location a Inventory.OrganizationalLocation; responsible_user a
 Accounts.User. No existe department directo. PrintingContract.devices relaciona
-contratos existentes con equipos. PrintingDeviceNetworkDetection guarda observaciones
+contratos con equipos, pero el importador no consulta ni modifica esa relacion. PrintingDeviceNetworkDetection guarda observaciones
 de red con fecha, no una configuración IP importable del equipo.
 
 La clave del importador es Serie, comparada sin distinguir mayúsculas y tras
@@ -39,7 +39,7 @@ ya vinculado, para evitar crear otra impresora para el mismo equipo.
 | Conexión | Texto en notes; no se traduce a supports_network por suposición |
 | Calcomanía | Texto en notes; no se presume photocopier_id |
 | Nombre impresora | Texto en notes; el modelo no tiene ese campo |
-| Contrato | Añade relación con PrintingContract existente por contract_number exacto; no crea contratos ni retira relaciones anteriores |
+| Contrato | Ignorado: no se guarda en notes ni se resuelve o vincula PrintingContract |
 | Tipo servicio | Texto en notes; no se presume ownership_type ni contract_type |
 | Estado validación | REVISAR ignora la fila; otros valores se conservan en notes |
 | Observaciones | Texto dentro del bloque de importación de notes |
@@ -107,7 +107,7 @@ sobre el equipo; no exponerlas públicamente ni versionar archivos de origen.
 La aplicación real usa una sola transaction.atomic y bloquea equipos existentes.
 Los errores de fila permiten importar las filas válidas. Los errores críticos de
 lectura/esquema cancelan antes de guardar; errores críticos durante guardado hacen
-rollback de toda la importación, incluidos vínculos M2M. El resumen de éxito solo
+rollback de toda la importación. El resumen de éxito solo
 se emite después de confirmar la transacción.
 
 IMPORTANTE: sin restricción única en la base no hay garantía de unicidad frente a
@@ -152,3 +152,32 @@ restricciones existentes de code y (branch, code) protegen contra duplicados;
 una colision concurrente aborta y revierte. Los errores criticos de guardado
 revierten todo el lote. No hay migraciones ni dependencia del Excel para preparar
 estos maestros. La importacion de equipos sigue siendo un paso separado.
+
+## Contratos pendientes de validacion oficial y limpieza
+
+Los contratos no se importan hasta validacion oficial. La columna Contrato del
+Excel se ignora, incluso si coincide con un PrintingContract existente. No se
+crean, consultan ni vinculan contratos desde este importador. El valor
+PR/PR N° 012/22 de la planilla puede ser de prueba y no es un dato confirmado.
+
+Para retirar ese valor de notas generadas anteriormente:
+
+```powershell
+python manage.py clean_printer_import_contract_notes --dry-run
+python manage.py clean_printer_import_contract_notes
+```
+
+La ejecucion real debe hacerse solo en un entorno autorizado, despues de revisar
+el dry-run. Esta preparacion no ejecuta limpieza real en produccion.
+
+El comando elimina exclusivamente la linea Contrato: PR/PR N° 012/22 dentro
+del bloque delimitado por [[NOVADESK_IMPORT_PRINTERS_V1]] y su cierre. Preserva
+notas manuales, dependencia, responsable, IPs y todas las otras lineas. No toca
+contratos ni relaciones existentes. Marcadores incompletos, duplicados o en orden
+incorrecto se reportan como ERROR; la limpieza real aborta sin cambios.
+
+--dry-run no escribe y muestra cuantos equipos serian limpiados. Sin ese flag se
+usa transaction.atomic y se actualizan solo notes y updated_at de los registros
+afectados. Repetirla produce SIN CAMBIOS para equipos ya limpiados. Un error
+critico de guardado revierte toda la limpieza. Los reportes usan UUID y estado,
+sin imprimir el contenido de las notas.
