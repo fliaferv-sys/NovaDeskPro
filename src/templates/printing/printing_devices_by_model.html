@@ -350,8 +350,8 @@
                                     {% endif %}
                                 </td>
                                 <td>
-                                    {% if device.asset.location %}
-                                        {{ device.asset.location }}
+                                    {% if device.organizational_location %}
+                                        {{ device.organizational_location.name }}
                                     {% else %}
                                         —
                                     {% endif %}

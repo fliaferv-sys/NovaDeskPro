@@ -132,6 +132,55 @@ class PrintingDeviceDetailTests(TestCase):
         PrintingDevice.objects.create(asset=second_asset)
 
 
+class PrintingDeviceListLocationTests(TestCase):
+    def setUp(self):
+        from apps.accounts.models import Branch
+        from apps.inventory.models import OrganizationalLocation
+
+        user = User.objects.create_user(username="printing-location-admin", role=User.Role.ADMIN)
+        self.client.force_login(user)
+        self.branch = Branch.objects.create(code="PRINT-LOCATION", name="Sede de prueba")
+        self.location = OrganizationalLocation.objects.create(
+            branch=self.branch, code="PENDING",
+            name="Ubicaci\u00f3n pendiente de verificar - Planta Villa Elisa",
+        )
+
+    def location_cell(self, response):
+        import re
+
+        row = re.search(r'<tr class="clickable-row".*?</tr>', response.content.decode(), re.DOTALL)
+        self.assertIsNotNone(row)
+        cells = re.findall(r'<td>(.*?)</td>', row.group(), re.DOTALL)
+        return cells[-1].strip()
+
+    def test_list_shows_device_organizational_location_without_asset(self):
+        from .models import PrintingDevice
+
+        PrintingDevice.objects.create(
+            branch=self.branch, organizational_location=self.location,
+            brand="Lexmark", model="MX622", serial_number="LOCATION-1",
+        )
+        response = self.client.get(reverse("printing:devices_by_model"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.location_cell(response), self.location.name)
+        devices = list(response.context["devices"])
+        with self.assertNumQueries(0):
+            self.assertEqual(devices[0].organizational_location.name, self.location.name)
+
+    def test_list_without_organizational_location_shows_dash(self):
+        from apps.inventory.models import Asset
+        from .models import PrintingDevice
+
+        asset = Asset.objects.create(
+            internal_code="LOCATION-ASSET", asset_type=Asset.AssetType.PRINTER,
+            physical_location=self.location,
+        )
+        PrintingDevice.objects.create(asset=asset, organizational_location=None)
+        response = self.client.get(reverse("printing:devices_by_model"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.location_cell(response), "\u2014")
+
+
 class PrintingAdminSearchFieldsTests(TestCase):
     def test_all_printing_admin_search_fields_resolve_to_existing_fields(self):
         printing_admins = (
