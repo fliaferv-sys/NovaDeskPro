@@ -383,3 +383,10 @@ class ImportPrintersTests(TestCase):
                 self.assertIn("RECHAZADO=1", self.run_import([self.row(**{"ID origen": identifier})]))
                 device.refresh_from_db()
                 self.assertEqual(device.photocopier_id, "OLD-1")
+
+    def test_import_preserves_slash_id_and_rejects_slash_duplicates(self):
+        self.run_import([self.row(**{"ID origen": "55/BK"})])
+        self.assertEqual(PrintingDevice.objects.get().photocopier_id, "55/BK")
+        output = self.run_import([self.row(**{"Serie": "NEW-1", "ID origen": "66/BK"}), self.row(**{"Serie": "NEW-2", "ID origen": "66/bk"})])
+        self.assertIn("RECHAZADO=2", output)
+        self.assertEqual(PrintingDevice.objects.count(), 1)
