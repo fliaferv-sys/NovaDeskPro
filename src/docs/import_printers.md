@@ -282,3 +282,37 @@ y estados por grupo; total_impresoras cuenta equipos. El CSV se genera solo con
 --output, usa UTF-8 y no sobrescribe archivos existentes. La carpeta de destino
 debe existir. El reporte puede contener datos institucionales y debe mantenerse
 fuera de Git. No se genera una estructura institucional ni nuevos niveles.
+
+## Propuestas de dependencias (sin aplicacion)
+
+```powershell
+python manage.py propose_printer_locations
+python manage.py propose_printer_locations --output 'RUTA\propuesta_ubicaciones_impresoras.csv'
+```
+
+Reutiliza location_analysis: mismos bloques, textos originales, branch guardado
+y agrupacion normalizada. No crea jerarquias ni asociaciones y no tiene opcion
+de aplicar propuestas. Nunca escribe en la base. CSV opcional, UTF-8, sin
+sobrescribir archivos existentes; el directorio destino debe existir.
+
+Reglas por prioridad:
+- REVISAR: advertencias de sede/ubicacion, texto vacio, generico, extrano, mayor
+  a 150 caracteres, datos provisionales/test/backup, denominacion sin contenido
+  especifico o nivel incompatible con la estructura solicitada.
+- Sin senal institucional: POSIBLE PERSONA solo con 2-3 palabras alfabeticas,
+  capitalizadas o en mayusculas y nombre inicial de una lista conservadora de
+  nombres comunes. Otros textos sin senal suficiente quedan en REVISAR.
+- POSIBLE DUPLICADO: variantes originales de case/tildes/espacios en un grupo o
+  equivalencia Dpto./Depto./Departamento con otro grupo de la MISMA sede. Se
+  muestran las variantes relacionadas; no se fusionan ni se usa fuzzy matching.
+- REVISAR si ya hay una ubicacion real compatible en esa sede.
+- PROPUESTA CREAR solo con senal institucional explicita y sin las alertas
+  anteriores. Direccion, Secretaria, Departamento, Gerencia, Unidad, Laboratorio,
+  Informatica, Recursos Humanos y Programacion y Evaluacion son algunas senales.
+  La propuesta requiere validacion humana, no acredita existencia oficial.
+
+El resumen cuenta estados por grupo y dependencias normalizadas no vacias por
+sede; las impresoras se cuentan individualmente. El CSV conserva sede, originales,
+normalizado, cantidad, IDs, series, ubicacion actual, clasificacion, motivo y
+candidato relacionado. Los reportes pueden incluir nombres de personas: mantener
+fuera de Git. No se generan archivos si no se proporciona --output.
