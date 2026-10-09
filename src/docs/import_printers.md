@@ -223,7 +223,7 @@ ID invalido, incompatible o duplicado rechaza la fila con aviso REVISAR; no se
 elige arbitrariamente una fila ganadora. REVISAR del Excel sigue ignorandose.
 
 Validacion compartida: texto/entero, 1-50 caracteres ASCII, empieza por letra o
-digito y contiene solo letras, digitos, guion o guion bajo. Se quitan espacios
+digito y contiene solo letras, digitos, guion, guion bajo o barra /. Se quitan espacios
 externos, se conservan ceros iniciales y no se aceptan decimales, booleanos,
 espacios internos, marcadores sin identificacion o valores solo de ceros.
 Duplicados se comparan sin distinguir mayusculas, incluyendo equipos sin bloque
@@ -250,3 +250,6 @@ las colisiones antes de guardar y actualiza exclusivamente photocopier_id,
 sin modificar notes, updated_at, serial, responsables, IP o relaciones. Un error
 critico de guardado revierte toda la transaccion. Repetir no modifica equipos ya
 migrados. No hay migraciones de esquema ni nuevas entidades.
+
+IDs como 55/BK son validos y conservan exactamente la barra /. Los marcadores
+S/N y N/A siguen siendo invalidos, sin distinguir mayusculas.

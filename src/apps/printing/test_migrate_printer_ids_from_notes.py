@@ -132,3 +132,29 @@ class MigratePrinterIdsFromNotesTests(TestCase):
         for value in (True, 1.5, 1.0):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 origin_id(value)
+
+    def test_slash_id_is_valid_and_preserved_exactly(self):
+        self.assertEqual(origin_id("55/BK"), "55/BK")
+        device = PrintingDevice.objects.create(notes=self.notes("55/BK"))
+        self.assertIn("ACTUALIZADO=1", self.run_command())
+        device.refresh_from_db()
+        self.assertEqual(device.photocopier_id, "55/BK")
+        self.assertIn("SIN CAMBIOS=1", self.run_command())
+
+    def test_slash_duplicates_in_batch_are_reviewed(self):
+        for value in ("55/BK", "55/bk"):
+            PrintingDevice.objects.create(notes=self.notes(value))
+        self.assertIn("REVISAR=2", self.run_command())
+        self.assertEqual(PrintingDevice.objects.filter(photocopier_id__isnull=True).count(), 2)
+
+    def test_slash_existing_duplicate_is_reviewed(self):
+        PrintingDevice.objects.create(photocopier_id="55/bk")
+        device = PrintingDevice.objects.create(notes=self.notes("55/BK"))
+        self.assertIn("REVISAR=1", self.run_command())
+        device.refresh_from_db()
+        self.assertIsNone(device.photocopier_id)
+
+    def test_invalid_markers_with_slash_remain_invalid(self):
+        for value in ("S/N", "s/n", "N/A", "n/a", "55 /BK", "55/ BK", "55/BK" + "X" * 46):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                origin_id(value)

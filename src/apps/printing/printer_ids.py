@@ -3,8 +3,8 @@ from collections import defaultdict
 import re
 
 
-ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,49}\Z")
-INVALID_MARKERS = {"na", "n-a", "none", "null", "pendiente", "sin-id", "sin_id", "sin-dato", "sin_dato"}
+ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_/-]{0,49}\Z")
+INVALID_MARKERS = {"s/n", "n/a", "na", "n-a", "none", "null", "pendiente", "sin-id", "sin_id", "sin-dato", "sin_dato"}
 
 
 def origin_id(value):
@@ -14,7 +14,7 @@ def origin_id(value):
         raise ValueError("ID origen debe ser texto o entero; no se convierten decimales ni otros tipos")
     value = str(value).strip()
     if not ID_PATTERN.fullmatch(value):
-        raise ValueError("ID origen invalido: requiere 1-50 caracteres ASCII, letras/digitos, guion o guion bajo; sin espacios internos")
+        raise ValueError("ID origen invalido: requiere 1-50 caracteres ASCII, letras/digitos, guion, guion bajo o barra /; sin espacios internos")
     if value.casefold() in INVALID_MARKERS or (value.isdecimal() and not int(value)):
         raise ValueError("ID origen contiene un marcador sin identificacion valida")
     return value
