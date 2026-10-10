@@ -14,6 +14,7 @@ from .identity_services import InstitutionalIdentityError, resolve_common_identi
 
 
 CONTRACT_FIELDS = frozenset({
+    "selectable", "has_local_user", "selection_requirement", "selection_reason",
     "name", "first_name", "last_name", "full_name", "email", "username",
     "document_number", "employee_number", "phone", "position", "location",
     "organizational_unit", "organizational_path", "employment_relationship",
@@ -36,6 +37,7 @@ class IdentityPolicy:
     fields: frozenset = CONTRACT_FIELDS
     summary_fields: frozenset = SUMMARY_FIELDS
     auto_resolve: bool = True
+    selection_requirement: str = "autofill"
 
 
 def authorize_identity_context(request, context, object_id=""):
@@ -66,7 +68,7 @@ def authorize_identity_context(request, context, object_id=""):
             if obj is None or not device_admin.has_change_permission(request, obj):
                 raise PermissionDenied
         fields = frozenset({"full_name", "email", "username", "source", "local_user_id"})
-        return IdentityPolicy(context, str(object_id or ""), fields, fields, auto_resolve=False)
+        return IdentityPolicy(context, str(object_id or ""), fields, fields, auto_resolve=False, selection_requirement="institutional")
     else:
         # Additional modules must explicitly register their own policies.
         raise PermissionDenied
@@ -96,6 +98,7 @@ def validate_identity_reference(request, policy, reference):
         fingerprint = hashlib.sha256(json.dumps(identity_identifiers(identity), sort_keys=True).encode()).hexdigest()
         if fingerprint != claims.get("fingerprint"):
             raise ValueError("Identity identifiers changed")
+        validate_selection(policy, identity)
         return identity
     except (signing.BadSignature, ValueError, KeyError, TypeError, InstitutionalIdentityError) as exc:
         raise ValidationError("La selección institucional venció, cambió o no pudo validarse. Seleccione nuevamente o quite la selección para continuar manualmente.") from exc
@@ -123,6 +126,7 @@ def account_form_values(identity):
 def serialize_identity(request, policy, identity, *, summary=False):
     fields = policy.summary_fields if summary else policy.fields
     payload = {key: identity.get(key) for key in fields}
+    payload.update(selection_capabilities(policy, identity))
     payload["reference"] = issue_identity_reference(request, policy, identity)
     return payload
 
@@ -130,7 +134,7 @@ def serialize_identity(request, policy, identity, *, summary=False):
 def identity_form_values(policy, identity):
     if policy.context.startswith("printing."):
         user = associated_local_user(identity)
-        return {"local_user_id": {"value": str(user.pk), "label": str(user)}} if user else {}
+        return {"local_user_id": {"value": str(user.pk) if user else "", "label": str(user) if user else ""}}
     return account_form_values(identity)
 
 
@@ -143,3 +147,23 @@ def associated_local_user(identity):
         return User.objects.filter(pk=user_id).first()
     except (ValueError, ValidationError):
         return None
+
+
+def selection_capabilities(policy, identity):
+    from .identity_selection import institutional_selection
+    eligible, reason = institutional_selection(identity)
+    has_local = associated_local_user(identity) is not None
+    requirement = policy.selection_requirement
+    selectable = (True if requirement == "autofill" else
+                  has_local if requirement == "local_user" else
+                  eligible and has_local if requirement == "both" else eligible)
+    if not selectable and requirement in {"local_user", "both"} and not has_local:
+        reason = "Esta seleccion requiere una cuenta local existente."
+    return {"selectable": selectable, "has_local_user": has_local,
+            "selection_requirement": requirement, "selection_reason": "" if selectable else reason}
+
+
+def validate_selection(policy, identity):
+    capabilities = selection_capabilities(policy, identity)
+    if not capabilities["selectable"]:
+        raise ValidationError(capabilities["selection_reason"])

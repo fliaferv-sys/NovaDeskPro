@@ -195,8 +195,12 @@ class PrintingResponsibleIdentityMixin:
             )
             identity = validate_identity_reference(request, policy, reference)
             user = associated_local_user(identity)
-            if user is None:
-                self.add_error("responsible_user", "Esta persona no tiene una cuenta local asociable. No se crean usuarios desde Printing.")
-            elif cleaned.get("responsible_user") != user:
-                self.add_error("responsible_user", "El responsable no coincide con la seleccion institucional. Seleccione nuevamente o quite la seleccion.")
+            from apps.directory.identity_selection import institutional_snapshot
+            cleaned["responsible_user"] = user
+            self.instance.responsible_identity = institutional_snapshot(identity)
+        elif self.data.get("institutional_identity_clear") == "1":
+            cleaned["responsible_user"] = None
+            self.instance.responsible_identity = {}
+        elif self.instance.responsible_identity and cleaned.get("responsible_user") != self.instance.responsible_user:
+            self.add_error("responsible_user", "Para cambiar el usuario vinculado a una identidad, seleccione nuevamente o quite la seleccion.")
         return cleaned

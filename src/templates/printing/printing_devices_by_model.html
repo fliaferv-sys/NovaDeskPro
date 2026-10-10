@@ -342,9 +342,9 @@
                                     {% endif %}
                                 </td>
                                 <td>
-                                    {% if device.responsible_user %}
-                                        {{ device.responsible_user.first_name }}
-                                        {{ device.responsible_user.last_name }}
+                                    {% if device.responsible_display_name %}
+                                        {{ device.responsible_display_name }}
+                                        {% if device.responsible_display_email %}<br><small>{{ device.responsible_display_email }}</small>{% endif %}
                                     {% else %}
                                         <span style="color:#667085;">Sin asignar</span>
                                     {% endif %}

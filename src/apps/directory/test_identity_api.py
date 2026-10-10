@@ -146,7 +146,7 @@ class CommonIdentityAPITests(TestCase):
         self.rrhh()
         data = self.search().json()
         self.assertEqual(set(data["identity"]), CONTRACT_FIELDS | {"reference"})
-        self.assertEqual(set(data["candidates"][0]), {"full_name", "email", "employee_number", "source", "reference"})
+        self.assertEqual(set(data["candidates"][0]), {"full_name", "email", "employee_number", "source", "reference", "selectable", "has_local_user", "selection_requirement", "selection_reason"})
         self.assertNotIn("document_number", data["candidates"][0])
         self.assertEqual(self.search(fields="password,is_superuser").status_code, 400)
         self.assertEqual(self.search(context="deliveries.add").status_code, 403)

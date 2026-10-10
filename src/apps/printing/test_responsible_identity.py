@@ -16,12 +16,12 @@ from apps.printing.models import PrintingDevice
 class PrintingResponsibleIdentityTests(TestCase):
     def setUp(self):
         self.actor = User.objects.create_superuser(username="printing-identity-admin", password="test-password")
-        self.person = User.objects.create_user(username="local-person", email="person@example.test", first_name="Persona", last_name="Local")
+        self.person = User.objects.create_user(username="local-person", email="person@petropar.gov.py", first_name="Persona", last_name="Local")
         self.client.force_login(self.actor)
         self.request = RequestFactory().post("/admin/printing/printingdevice/add/")
         self.request.user = self.actor
         self.model_admin = admin.site._registry[PrintingDevice]
-        self.identity = {"source": "LOCAL", "local_user_id": str(self.person.pk), "full_name": "Persona Local", "email": self.person.email, "username": self.person.username, "_locator": {"source": "LOCAL", "id": str(self.person.pk)}}
+        self.identity = {"source": "LOCAL", "local_user_id": str(self.person.pk), "full_name": "Persona Local", "email": self.person.email, "username": self.person.username, "is_active": True, "_locator": {"source": "LOCAL", "id": str(self.person.pk)}}
 
     def reference(self, identity=None, obj=None):
         policy = authorize_identity_context(self.request, "printing.change" if obj else "printing.add", str(obj.pk) if obj else "")
@@ -64,21 +64,23 @@ class PrintingResponsibleIdentityTests(TestCase):
             device.refresh_from_db()
             self.assertEqual(device.responsible_user_id, self.person.pk if value else None)
 
-    def test_institutional_identity_without_local_user_cannot_be_assigned(self):
+    def test_institutional_identity_without_local_user_is_assigned_without_account(self):
         identity = {**self.identity, "local_user_id": None, "source": "RRHH", "_locator": {"source": "RRHH", "id": "701"}}
         count = User.objects.count()
         with patch("apps.directory.identity_policies.resolve_common_identity", return_value=identity):
             form = self.model_admin.get_form(self.request)(data=self.data(responsible_user=str(self.person.pk), institutional_identity_ref=self.reference(identity)))
-            self.assertFalse(form.is_valid())
-            self.assertIn("responsible_user", form.errors)
+            self.assertTrue(form.is_valid(), form.errors)
+            device = form.save()
+            self.assertIsNone(device.responsible_user)
+            self.assertEqual(device.responsible_identity["email"], identity["email"])
         self.assertEqual(User.objects.count(), count)
-        self.assertEqual(PrintingDevice.objects.count(), 0)
+        self.assertEqual(PrintingDevice.objects.count(), 1)
 
     def test_selection_cannot_assign_another_local_account(self):
         with patch("apps.directory.identity_policies.resolve_common_identity", return_value=self.identity):
             form = self.model_admin.get_form(self.request)(data=self.data(responsible_user=str(self.actor.pk), institutional_identity_ref=self.reference()))
-            self.assertFalse(form.is_valid())
-            self.assertIn("responsible_user", form.errors)
+            self.assertTrue(form.is_valid(), form.errors)
+            self.assertEqual(form.cleaned_data["responsible_user"], self.person)
 
     def test_reference_cannot_be_reused_across_add_and_edit(self):
         device = PrintingDevice.objects.create(is_outsourced=False)
@@ -98,7 +100,7 @@ class PrintingResponsibleIdentityTests(TestCase):
             form = self.model_admin.get_form(self.request, device)(data=data, instance=device)
             self.assertTrue(form.is_valid(), form.errors); form.save()
         after = PrintingDevice.objects.values().get(pk=device.pk)
-        for field in ("responsible_user_id", "updated_at"):
+        for field in ("responsible_user_id", "responsible_identity", "updated_at"):
             before.pop(field); after.pop(field)
         self.assertEqual(after, before)
 
@@ -111,7 +113,7 @@ class PrintingResponsibleIdentityTests(TestCase):
             response = self.client.post(reverse("directory:identity_search_api"), data=json.dumps({"context": "printing.add", "q": "Persona", "field": "name"}), content_type="application/json")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["status"], "candidates")
-        self.assertEqual(set(response.json()["candidates"][0]), {"full_name", "email", "username", "source", "local_user_id", "reference"})
+        self.assertEqual(set(response.json()["candidates"][0]), {"full_name", "email", "username", "source", "local_user_id", "reference", "selectable", "has_local_user", "selection_requirement", "selection_reason"})
         self.assertFalse(response.json().get("values"))
         response = self.client.post(reverse("directory:identity_search_api"), data=json.dumps({"context": "accounts.add", "q": "Persona", "field": "name"}), content_type="application/json")
         self.assertEqual(response.status_code, 403)
@@ -124,8 +126,9 @@ class PrintingResponsibleIdentityTests(TestCase):
         with patch("apps.directory.identity_policies.resolve_common_identity", return_value=identity):
             response = self.client.post(reverse("directory:identity_resolve_api"), data=json.dumps({"context": "printing.add", "reference": self.reference(identity)}), content_type="application/json")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["status"], "unassignable")
-        self.assertNotIn("values", response.json())
+        self.assertEqual(response.json()["status"], "resolved")
+        self.assertTrue(response.json()["identity"]["selectable"])
+        self.assertFalse(response.json()["identity"]["has_local_user"])
 
     def test_nonstaff_admin_and_api_permissions_remain_denied(self):
         self.client.force_login(self.person)
@@ -133,3 +136,30 @@ class PrintingResponsibleIdentityTests(TestCase):
         self.assertEqual(response.status_code, 302)
         response = self.client.post(reverse("directory:identity_search_api"), data=json.dumps({"context": "printing.add", "q": "Persona", "field": "name"}), content_type="application/json")
         self.assertEqual(response.status_code, 403)
+
+    def test_invalid_email_inactive_technical_and_manipulated_reference_rejected(self):
+        for changes in ({"email": ""}, {"email": "external@example.test"}, {"is_active": False}, {"is_technical": True}, {"is_shared": True}, {"username": "svc_print"}):
+            identity = {**self.identity, **changes}
+            with self.subTest(changes=changes), patch("apps.directory.identity_policies.resolve_common_identity", return_value=identity):
+                form = self.model_admin.get_form(self.request)(data=self.data(institutional_identity_ref=self.reference(identity)))
+                self.assertFalse(form.is_valid())
+        form = self.model_admin.get_form(self.request)(data=self.data(institutional_identity_ref="tampered"))
+        self.assertFalse(form.is_valid())
+
+    def test_institutional_snapshot_is_displayed_and_removed_explicitly(self):
+        device = PrintingDevice.objects.create(is_outsourced=False, responsible_identity={"name": "Persona Institucional", "email": "person@petropar.gov.py", "locator": {"source": "RRHH", "id": 701}, "source": "RRHH"})
+        response = self.client.get(reverse("printing:devices_by_model"))
+        self.assertContains(response, "Persona Institucional")
+        self.assertContains(response, "person@petropar.gov.py")
+        form = self.model_admin.get_form(self.request, device)(data=self.data(institutional_identity_clear="1"), instance=device)
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save(); device.refresh_from_db()
+        self.assertEqual(device.responsible_identity, {})
+        self.assertIsNone(device.responsible_user)
+
+    def test_backend_revalidates_after_source_deactivation(self):
+        reference = self.reference()
+        with patch("apps.directory.identity_policies.resolve_common_identity", return_value={**self.identity, "is_active": False}) as resolver:
+            form = self.model_admin.get_form(self.request)(data=self.data(institutional_identity_ref=reference))
+            self.assertFalse(form.is_valid())
+            resolver.assert_called_once()

@@ -135,8 +135,6 @@ def identity_resolve_api(request):
     except ValidationError:
         return JsonResponse({"status": "invalid_selection"}, status=409)
     values = identity_form_values(policy, identity)
-    if policy.context.startswith("printing.") and not values:
-        return JsonResponse({"status": "unassignable", "message": "Esta persona todav\u00eda no tiene una cuenta local asociable. No se cambi\u00f3 el responsable."})
     return JsonResponse({"status": "resolved", "identity": serialize_identity(request, policy, identity), "values": values})
 
 

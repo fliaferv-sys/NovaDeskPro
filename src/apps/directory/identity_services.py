@@ -302,6 +302,9 @@ def _normalize_ad_user(user):
     tercero = _get_tercerizado(user)
 
     return {
+        "is_person": user.get("is_person"),
+        "is_technical": bool(user.get("is_technical", False)),
+        "is_shared": bool(user.get("is_shared", False)),
         "source": SOURCE_ACTIVE_DIRECTORY,
         "id_personal": None,
         "employee_number": "",
@@ -562,6 +565,10 @@ def _common_identity(identity, locator, local_user=None, document_number=""):
         local_user_id=str(local_user.pk) if local_user else None,
         rrhh_id=identity.get("id_personal"),
         _locator=locator,
+        is_active=identity.get("is_active"),
+        is_person=identity.get("is_person"),
+        is_technical=bool(identity.get("is_technical", False)),
+        is_shared=bool(identity.get("is_shared", False)),
     )
     return result
 
@@ -590,6 +597,7 @@ def _outsourced_records():
 
 def _mapping_identity(row):
     identity = _normalize_ad_user(row)
+    identity["is_active"] = None  # Mapping alone has no activity status.
     identity["source"] = SOURCE_OUTSOURCED
     identity["employment_type"] = "Tercerizado"
     identity["photo_url"] = _build_tercerizado_photo_url(row["record"])
@@ -635,6 +643,11 @@ def _merge_linked_identities(identities):
             for key, value in item.items():
                 if not key.startswith("_") and not merged.get(key) and value:
                     merged[key] = value
+        known_activity = [item.get("is_active") for item in linked if item.get("is_active") is not None]
+        merged["is_active"] = all(known_activity) if known_activity else None
+        merged["is_technical"] = any(item.get("is_technical") for item in linked)
+        merged["is_shared"] = any(item.get("is_shared") for item in linked)
+        merged["is_person"] = False if any(item.get("is_person") is False for item in linked) else primary.get("is_person")
         merged["local_user_id"] = local["local_user_id"]
         merged["_locator"] = {"source": SOURCE_LOCAL, "id": local["local_user_id"]}
         merged["_linked"] = [item["_locator"] for item in linked]
@@ -752,6 +765,10 @@ def resolve_common_identity(locator, linked=None):
                     for key in ("name", "first_name", "last_name"):
                         identity[key] = account.get(key) or ""
                     identity["full_name"] = identity["name"]
+                    identity["is_active"] = account.get("is_active")
+                    identity["is_technical"] = account.get("is_technical", False)
+                    identity["is_shared"] = account.get("is_shared", False)
+                    identity["is_person"] = account.get("is_person")
         else:
             identity = None
         if identity is None:

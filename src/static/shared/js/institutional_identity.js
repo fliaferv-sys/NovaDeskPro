@@ -63,6 +63,12 @@
             } finally { applying = false; }
         }
         function apply(data, explicit, snapshot = null) {
+            if (data.identity?.selectable === false) {
+                setStatus(data.identity.selection_reason || 'Esta identidad no es seleccionable.');
+                return;
+            }
+            const clearReference = container.querySelector('[data-identity-clear-reference]');
+            if (clearReference) clearReference.value = '';
             let preserved = false;
             states.forEach((state, key) => {
                 if (explicit && snapshot && (state.revision !== snapshot.get(key)?.revision || state.input.value !== snapshot.get(key)?.value)) {
@@ -119,6 +125,7 @@
                 const button = document.createElement('button');
                 button.type = 'button';
                 button.textContent = [candidate.full_name, candidate.email, candidate.employee_number, candidate.source].filter(Boolean).join(' · ') || 'Seleccionar persona';
+                if (candidate.selectable === false) { button.disabled = true; button.title = candidate.selection_reason || 'Identidad no seleccionable'; }
                 button.addEventListener('click', () => select(candidate));
                 results.appendChild(button);
             });
@@ -169,6 +176,8 @@
         container.querySelector('[data-identity-search]')?.addEventListener('click', () => search());
         container.querySelector('[data-identity-clear]')?.addEventListener('click', () => {
             resetReference();
+            const clearReference = container.querySelector('[data-identity-clear-reference]');
+            if (container.dataset.clearFields === 'true' && clearReference) clearReference.value = '1';
             if (container.dataset.clearFields === 'true') states.forEach(state => { setValue(state, ''); state.manual = false; state.filled = null; });
             setStatus('Selección quitada. Puede continuar con carga manual.');
         });

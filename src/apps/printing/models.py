@@ -161,6 +161,16 @@ class PrintingDevice(models.Model):
         blank=True,
     )
 
+    responsible_identity = models.JSONField(default=dict, blank=True, editable=False)
+
+    @property
+    def responsible_display_name(self):
+        return self.responsible_identity.get("name") or (str(self.responsible_user) if self.responsible_user_id else "")
+
+    @property
+    def responsible_display_email(self):
+        return self.responsible_identity.get("email") or (self.responsible_user.email if self.responsible_user_id else "")
+
     responsible_user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,

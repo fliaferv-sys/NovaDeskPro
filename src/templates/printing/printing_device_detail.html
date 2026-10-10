@@ -48,7 +48,7 @@
                                 <td>{{ device.get_device_type_display }}</td>
                                 <td>{{ device.asset.get_connection_status_display }}</td>
                                 <td>{{ device.asset.current_ip|default:"—" }}</td>
-                                <td>{{ device.responsible_user|default:"—" }}</td>
+                                <td>{{ device.responsible_display_name|default:"—" }}{% if device.responsible_display_email %}<br><small>{{ device.responsible_display_email }}</small>{% endif %}</td>
                                 <td>{{ device.asset.location_detail|default:"—" }}</td>
                                 <td>
                                     <a class="detail-link"

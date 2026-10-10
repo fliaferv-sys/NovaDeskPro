@@ -22,5 +22,6 @@
     <p data-identity-status role="status" aria-live="polite"></p>
     <div data-identity-results hidden></div>
     <input type="hidden" name="{{ identity_reference_name|default:'institutional_identity_ref' }}" data-identity-reference value="{{ identity_reference }}">
+    <input type="hidden" name="institutional_identity_clear" data-identity-clear-reference value="{{ identity_clear_reference }}">
     {{ identity_field_map|json_script:identity_config_id }}
 </section>

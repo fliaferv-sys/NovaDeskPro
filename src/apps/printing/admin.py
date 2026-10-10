@@ -50,13 +50,14 @@ class PrintingDeviceAdmin(admin.ModelAdmin):
             identity_object_id=str(obj.pk) if obj else "",
             identity_mode="add" if add else "change",
             identity_reference=request.POST.get("institutional_identity_ref", ""),
+            identity_clear_reference=request.POST.get("institutional_identity_clear", ""),
             identity_field_map={"local_user_id": "responsible_user"},
             identity_config_id="printing-responsible-identity-map",
             identity_bound=context["adminform"].form.is_bound,
             identity_explicit_only=True,
             identity_clear_fields=True,
-            identity_help="Busque por nombre, apellido, correo o usuario. Seleccione una persona con cuenta local para asignarla como responsable.",
-            current_responsible=obj.responsible_user if obj else None,
+            identity_help="Busque por nombre, apellido, correo o usuario. Seleccione una persona institucional con correo; no necesita cuenta local.",
+            current_responsible=obj.responsible_display_name if obj else None,
         )
         return super().render_change_form(request, context, add, change, form_url, obj)
 

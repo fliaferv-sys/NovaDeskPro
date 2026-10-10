@@ -28,7 +28,7 @@ function setup(configs = [{}]) {
     }
     const instances = configs.map(config => {
         const selectors = {};
-        for (const name of ['query', 'field', 'results', 'status', 'reference', 'search', 'clear']) selectors['[data-identity-' + name + ']'] = new Element();
+        for (const name of ['query', 'field', 'results', 'status', 'reference', 'search', 'clear', 'clear-reference']) selectors['[data-identity-' + name + ']'] = new Element();
         selectors['[data-identity-field]'].value = 'email';
         const mapping = config.mapping || Object.fromEntries(['email', 'username', 'first_name', 'last_name', 'phone', 'employment_type', 'department'].map(key => [key, key]));
         selectors['script[type="application/json"]'] = {textContent: JSON.stringify(mapping)};
@@ -193,5 +193,31 @@ test('printing clear removes assigned user and never searches on edit open', () 
     assert.equal(i.elements.responsible_user.value, 'existing');
     i.control('clear').emit('click');
     assert.equal(i.elements.responsible_user.value, '');
+    assert.equal(i.control('reference').value, '');
+});
+
+
+test('institutional selection without User is accepted and clears old local FK', async () => {
+    const h = setup([{mode: 'change', explicitOnly: true, clearFields: true, mapping: {local_user_id: 'responsible_user'}, initial: {responsible_user: 'old-local'}}]);
+    const i = search(h);
+    await h.resolve(0, {status: 'candidates', candidates: [{...candidate, selectable: true, has_local_user: false}]});
+    i.control('results').children[0].emit('click');
+    await h.resolve(1, {status: 'resolved', identity: {reference: 'institutional-ref', selectable: true, has_local_user: false}, values: {local_user_id: {value: '', label: ''}}});
+    assert.equal(i.elements.responsible_user.value, '');
+    assert.equal(i.control('reference').value, 'institutional-ref');
+    assert.equal(i.control('clear-reference').value, '');
+    i.control('clear').emit('click');
+    assert.equal(i.control('clear-reference').value, '1');
+    assert.equal(i.control('reference').value, '');
+});
+
+test('nonselectable identity is disabled and cannot replace mapped fields', async () => {
+    const h = setup([{mode: 'change', explicitOnly: true, mapping: {local_user_id: 'responsible_user'}, initial: {responsible_user: 'old-local'}}]);
+    const i = search(h);
+    await h.resolve(0, {status: 'candidates', candidates: [{...candidate, selectable: false, has_local_user: true, selection_reason: 'Cuenta tecnica'}]});
+    assert.equal(i.control('results').children[0].disabled, true);
+    i.control('results').children[0].emit('click');
+    await h.resolve(1, {status: 'resolved', identity: {reference: 'bad', selectable: false, selection_reason: 'Cuenta tecnica'}, values: {local_user_id: 'new-local'}});
+    assert.equal(i.elements.responsible_user.value, 'old-local');
     assert.equal(i.control('reference').value, '');
 });
