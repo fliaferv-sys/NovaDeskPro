@@ -73,15 +73,16 @@ class PrintingDeviceAdmin(admin.ModelAdmin):
 
     list_display = (
         "ordered_photocopier_id",
-        "asset",
+        "patrimony_display",
         "brand",
         "model",
-        "serial_number",
-        "branch",
-        "device_type",
+        "serial_display",
+        "branch_display",
+        "location_display",
+        "type_display",
         "technology",
         "color_mode",
-        "ownership_type",
+        "ownership_display",
         "is_active",
     )
     
@@ -113,7 +114,7 @@ class PrintingDeviceAdmin(admin.ModelAdmin):
     readonly_fields = ("created_at", "updated_at")
 
     def get_queryset(self, request):
-        queryset = super().get_queryset(request).alias(
+        queryset = super().get_queryset(request).select_related("asset", "branch", "organizational_location__branch").alias(
             _id_digits=NumericIdentifierDigits("photocopier_id", Value("0")),
         ).alias(_id_length=Length("_id_digits"))
         return queryset.alias(
@@ -134,9 +135,38 @@ class PrintingDeviceAdmin(admin.ModelAdmin):
             ),
         )
 
-    @admin.display(description="ID de fotocopiadora", ordering="_photocopier_order")
+    @admin.display(description="ID Equipo", ordering="_photocopier_order")
     def ordered_photocopier_id(self, obj):
         return obj.photocopier_id
+
+    @admin.display(description="N° Patrimonio", ordering="asset")
+    def patrimony_display(self, obj):
+        return obj.asset.internal_code if obj.asset_id else None
+
+    @admin.display(description="Serie", ordering="serial_number")
+    def serial_display(self, obj):
+        return obj.serial_number or None
+
+    @admin.display(description="Sede", ordering="branch")
+    def branch_display(self, obj):
+        return obj.branch.name if obj.branch_id else None
+
+    @admin.display(description="Ubicación", ordering="organizational_location__name")
+    def location_display(self, obj):
+        location = obj.organizational_location
+        if not location:
+            return None
+        if location.name.startswith("Ubicación pendiente de verificar"):
+            return location.name
+        return f"{location.branch.name} - {location.name}"
+
+    @admin.display(description="Tipo", ordering="device_type")
+    def type_display(self, obj):
+        return obj.get_device_type_display()
+
+    @admin.display(description="Propiedad", ordering="ownership_type")
+    def ownership_display(self, obj):
+        return obj.get_ownership_type_display()
     
     fieldsets = (
         (
