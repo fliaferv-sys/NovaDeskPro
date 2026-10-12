@@ -4,8 +4,8 @@ from django.core.exceptions import ValidationError
 from django.http import JsonResponse
 from django.shortcuts import redirect
 from django.urls import path, reverse
-from django.db.models import IntegerField, Sum
-from django.db.models.functions import Coalesce
+from django.db.models import Case, CharField, Func, IntegerField, Sum, Value, When
+from django.db.models.functions import Cast, Coalesce, Concat, Length, Lower
 from django.utils import timezone
 from django.utils.html import format_html
 
@@ -29,6 +29,16 @@ from .reconciliation import (
     consolidate_consumable_stock_items,
     generate_consumable_stock_migration_batch,
 )
+
+
+class NumericIdentifierDigits(Func):
+    """Remove leading zeroes for sorting only, without numeric overflow."""
+    function = "LTRIM"
+    output_field = CharField()
+
+    def as_mysql(self, compiler, connection, **extra_context):
+        sql, params = compiler.compile(self.source_expressions[0])
+        return f"TRIM(LEADING '0' FROM {sql})", params
 
 
 @admin.register(PrintingDevice)
@@ -62,7 +72,7 @@ class PrintingDeviceAdmin(admin.ModelAdmin):
         return super().render_change_form(request, context, add, change, form_url, obj)
 
     list_display = (
-        "photocopier_id",
+        "ordered_photocopier_id",
         "asset",
         "brand",
         "model",
@@ -101,6 +111,32 @@ class PrintingDeviceAdmin(admin.ModelAdmin):
     )
     
     readonly_fields = ("created_at", "updated_at")
+
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request).alias(
+            _id_digits=NumericIdentifierDigits("photocopier_id", Value("0")),
+        ).alias(_id_length=Length("_id_digits"))
+        return queryset.alias(
+            _photocopier_order=Case(
+                When(
+                    photocopier_id__regex=r"^[0-9]+$",
+                    then=Concat(
+                        Value("0"),
+                        Case(When(_id_length__lt=10, then=Value("0")), default=Value("")),
+                        Cast("_id_length", CharField()), "_id_digits",
+                        Value(":"), "photocopier_id",
+                    ),
+                ),
+                When(photocopier_id__isnull=True, then=Value("2")),
+                When(photocopier_id="", then=Value("2")),
+                default=Concat(Value("1"), Lower("photocopier_id"), Value(":"), "photocopier_id"),
+                output_field=CharField(),
+            ),
+        )
+
+    @admin.display(description="ID de fotocopiadora", ordering="_photocopier_order")
+    def ordered_photocopier_id(self, obj):
+        return obj.photocopier_id
     
     fieldsets = (
         (
