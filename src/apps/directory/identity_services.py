@@ -654,7 +654,7 @@ def _merge_linked_identities(identities):
                     safe = bool(local["rrhh_id"] and local["rrhh_id"] == item["rrhh_id"] and (same_email or not item["email"]))
                 else:
                     safe = same_email and bool(local["username"] and local["username"].casefold() == item["username"].casefold())
-                if safe and not any(local[key] and item[key] and str(local[key]).casefold() != str(item[key]).casefold() for key in ("document_number", "employee_number")):
+                if safe and not any(local.get(key) and item.get(key) and str(local.get(key)).casefold() != str(item.get(key)).casefold() for key in ("document_number", "employee_number")):
                     matches.append(item)
             if len(matches) == 1:
                 linked.extend(matches)
