@@ -40,6 +40,13 @@ def technical_ip_identity_payload(identity):
     return {key: identity.get(key) for key in TECHNICAL_IP_IDENTITY_FIELDS}
 
 
+def technical_context_identity_payload(identity):
+    """Server-owned whitelist for a ticket context; never client-selected fields."""
+    return {**technical_ip_identity_payload(identity),
+            "employee_number": identity.get("employee_number"),
+            "employment_type": identity.get("employment_relationship") or identity.get("employment_type")}
+
+
 @dataclass(frozen=True)
 class IdentityPolicy:
     context: str

@@ -48,7 +48,9 @@ class TicketTechnicalContextTests(TestCase):
         self.assertIn("data-technical-context", render_to_string("tickets/technical_context.html", {"request": request}))
         self.assertNotIn("data-technical-context", render_to_string("tickets/technical_context.html", {"request": request, "editing": True}))
         self.user.role = "CLIENT"
-        self.assertNotIn("data-technical-context", render_to_string("tickets/technical_context.html", {"request": request}))
+        client_html = render_to_string("tickets/technical_context.html", {"request": request})
+        self.assertIn('data-context-client="true"', client_html)
+        self.assertNotIn("data-context-query", client_html)
         other = User.objects.create_user(username="other-context-owner", email="other-context@example.test")
         Asset.objects.create(internal_code="NO-AUTO", assigned_user=other)
         form = TicketForm(user=self.user)

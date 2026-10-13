@@ -84,3 +84,29 @@ class TechnicalContextTests(TestCase):
         result = resolve_technical_context(requester=self.requester, asset=asset, client_factory=lambda: mock_glpi(count=0))
         self.assertEqual(result["devices"][0]["novadesk_assets"][0]["id"], str(asset.pk))
         self.assertTrue(result["devices"][0]["novadesk_assets"][0]["can_select"])
+
+    def test_contact_lookup_is_filtered_memoized_and_assets_are_batched(self):
+        client = mock_glpi()
+        client.items.side_effect = lambda kind, **kwargs: [
+            {"id": 1, "name": "pc1", "serial": "SER-1", "contact": self.requester.username},
+            {"id": 2, "name": "pc2", "serial": "SER-2", "contact": self.requester.username},
+        ]
+        people = {"confidence": "PROBABLE", "incomplete": False, "candidates": []}
+        with patch("apps.integrations.technical_context.institutional_people", return_value=people) as identity, CaptureQueriesContext(connection) as queries:
+            context = resolve_technical_context(requester=self.requester, client_factory=lambda: client)
+        self.assertEqual(len(context["devices"]), 4)
+        self.assertEqual(client.items.call_count, 2)
+        for call in client.items.call_args_list:
+            self.assertEqual(call.kwargs["filters"], {"contact": self.requester.username})
+        self.assertEqual(identity.call_count, 2)  # requester + one repeated contact
+        self.assertEqual(len(queries), 1)  # all serial matches in one read
+        self.assertFalse(any(q["sql"].lstrip().upper().startswith(("INSERT", "UPDATE", "DELETE")) for q in queries))
+
+    @patch("apps.integrations.ip_lookup.search_common_identities")
+    def test_requester_legajo_and_relationship_use_context_whitelist(self, search):
+        search.return_value = {"incomplete": False, "identities": [{"source": "RRHH", "full_name": "Solicitante",
+            "email": self.requester.email, "username": self.requester.username, "employee_number": "0002", "employment_relationship": "Permanente",
+            "_locator": {"source": "RRHH", "id": 1}}]}
+        result = resolve_technical_context(requester=self.requester, client_factory=lambda: mock_glpi(count=0))
+        self.assertEqual(result["person"]["candidates"][0]["data"]["employee_number"], "0002")
+        self.assertEqual(result["person"]["candidates"][0]["data"]["employment_type"], "Permanente")
