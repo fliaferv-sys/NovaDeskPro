@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const source = fs.readFileSync(path.resolve(__dirname, '../../../static/tickets/js/technical_context.js'), 'utf8');
 const tick = () => new Promise(resolve => setImmediate(resolve));
 
-function setup(mobile = false) {
+function setup(mobile = false, automatic = false, client = false) {
     class Element {
         constructor() { this.children = []; this.listeners = {}; this.value = ''; this.textContent = ''; }
         appendChild(node) { this.children.push(node); }
@@ -18,7 +18,7 @@ function setup(mobile = false) {
     const description = new Element(); description.value = 'Texto manual';
     const asset = new Element(); asset.options = [{value: ''}, {value: 'owned-id'}];
     const nodes = Object.fromEntries(['status', 'results', 'query', 'load', 'clear', 'selection'].map(name => [`[data-context-${name}]`, new Element()]));
-    const panel = {dataset: {url: '/tickets/contexto-tecnico/'}, querySelector: selector => nodes[selector], closest: () => ({querySelector: selector => selector.includes('description') ? description : asset})};
+    const panel = {dataset: {url: '/tickets/contexto-tecnico/', ...(automatic ? {autoUrl: '/tickets/contexto-automatico/'} : {}), ...(client ? {contextClient: 'true'} : {})}, querySelector: selector => nodes[selector], closest: () => ({querySelector: selector => selector.includes('description') ? description : asset})};
     const requests = [];
     vm.runInNewContext(source, {document: {querySelectorAll: () => [panel], createElement: () => new Element()},
         window: {location: {origin: 'http://novadesk.test'}, matchMedia: () => ({matches: mobile})},
@@ -78,8 +78,8 @@ test('empty query never fetches and multiple devices require review', async () =
     assert.equal(buttons.length, 2); buttons[1].click();
     assert.equal(JSON.parse(h.nodes['[data-context-selection]'].value).device, 1);
     h.nodes['[data-context-query]'].dispatchEvent({type: 'input'});
-    assert.equal(h.nodes['[data-context-selection]'].value, '');
-    buttons[0].click(); assert.equal(h.nodes['[data-context-selection]'].value, '');
+    assert.equal(h.nodes['[data-context-selection]'].value, 'skip');
+    buttons[0].click(); assert.equal(h.nodes['[data-context-selection]'].value, 'skip');
 });
 
 test('removing reviewed context leaves manual description intact', async () => {
@@ -87,6 +87,31 @@ test('removing reviewed context leaves manual description intact', async () => {
     await h.resolve(0, context);
     flatten(h.nodes['[data-context-results]']).find(node => node.textContent.startsWith('Seleccionar equipo')).click();
     h.nodes['[data-context-clear]'].click();
+    assert.equal(h.nodes['[data-context-selection]'].value, 'skip');
+    assert.equal(h.description.value, 'Texto manual');
+});
+
+test('staff automatically fetches once and prepares only server-approved selection', async () => {
+    const h = setup(false, true);
+    assert.equal(h.requests.length, 1);
+    const data = structuredClone(context); data.automatic_selection = {device: 0, requester: null, detected: null, asset: 0};
+    await h.resolve(0, data);
+    assert.equal(JSON.parse(h.nodes['[data-context-selection]'].value).device, 0);
+    assert.equal(h.requests.length, 1); assert.equal(h.asset.value, '');
+    assert.equal(h.description.value, 'Texto manual');
+});
+
+test('automatic ambiguity never silently selects a device', async () => {
+    const h = setup(false, true); const data = structuredClone(context);
+    data.devices.push(structuredClone(data.devices[0]));
+    await h.resolve(0, data);
     assert.equal(h.nodes['[data-context-selection]'].value, '');
+});
+
+test('client including mobile gets only a simple automatic status', async () => {
+    const h = setup(true, true, true);
+    await h.resolve(0, {device_name: 'PC601', review_token: 'proof', automatic_selection: {device: 0, asset: 0}});
+    assert.match(h.nodes['[data-context-status]'].textContent, /PC601/);
+    assert.equal(h.nodes['[data-context-results]'].children.length, 0);
     assert.equal(h.description.value, 'Texto manual');
 });

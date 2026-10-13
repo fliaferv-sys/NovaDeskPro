@@ -39,7 +39,7 @@ class ContextSnapshotTests(TestCase):
         return json.dumps(selected)
 
     def resolve(self, selection=None, context=None):
-        with patch("apps.tickets.context_snapshot.resolve_technical_context", return_value=context or self.context):
+        with patch("apps.tickets.context_snapshot.resolve_technical_context", return_value=context or self.context), patch("apps.tickets.context_snapshot.resolve_automatic_context", return_value={"devices": []}):
             return build_snapshot(self.user, selection if selection is not None else self.selection())
 
     def test_distinct_people_no_source_writes(self):
@@ -95,7 +95,7 @@ class ContextSnapshotTests(TestCase):
 
     def create_ticket(self, selection=""):
         self.client.force_login(self.user)
-        with patch("apps.tickets.context_snapshot.resolve_technical_context", return_value=self.context):
+        with patch("apps.tickets.context_snapshot.resolve_technical_context", return_value=self.context), patch("apps.tickets.context_snapshot.resolve_automatic_context", return_value={"devices": []}):
             response = self.client.post(reverse("tickets:ticket_create"), {
                 "title": "Problema", "description": "Descripción manual", "priority": "LOW", "category": "HARDWARE",
                 "request_flow": "OPERATIONAL", "technical_context_selection": selection,

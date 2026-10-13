@@ -400,7 +400,7 @@ def ticket_create_view(request):
             ticket.technical_context_snapshot = build_snapshot(
                 request.user, request.POST.get("technical_context_selection", "")
             )
-            if request.POST.get("technical_context_selection") and ticket.technical_context_snapshot is None:
+            if request.POST.get("technical_context_selection") not in (None, "", "skip") and ticket.technical_context_snapshot is None:
                 messages.warning(request, "No se pudo revalidar el contexto técnico. El ticket se crea sin esa instantánea.")
 
             # ===============================

@@ -48,7 +48,7 @@ def contact_search_terms(value, hint=None):
     return terms
 
 
-def institutional_people(user, emails, contact):
+def institutional_people(user, emails, contact, *, context_fields=False):
     terms = [(email, "email") for email in emails if isinstance(email, str) and email.strip()]
     username = (user or {}).get("name")
     if isinstance(username, str) and username.strip():
@@ -79,6 +79,9 @@ def institutional_people(user, emails, contact):
         status = "DESCONOCIDA" if incomplete or len(consolidated) != 1 or identity.get("is_active") is False or identity.get("is_person") is False or identity.get("is_shared") or identity.get("is_technical") else (
             "CONFIRMADA" if identity.get("_consolidated") or (user and {"email", "username"}.issubset(evidence.get(key, set()))) else "PROBABLE")
         payload = technical_ip_identity_payload(identity)
+        if context_fields:
+            from apps.directory.identity_policies import technical_context_identity_payload
+            payload = technical_context_identity_payload(identity)
         unit = payload.get("organizational_unit")
         if isinstance(unit, dict):
             payload["organizational_unit"] = unit.get("name")
@@ -90,6 +93,8 @@ def institutional_people(user, emails, contact):
             field(label, payload.get(name), "NovaDesk: asignacion institucional" if name == "organizational_unit" else provenance)
             for name, label in (("full_name", "Nombre completo"), ("username", "Username"), ("email", "Correo"), ("position", "Cargo"),
                                 ("organizational_unit", "Dependencia"), ("phone", "Telefono"), ("location", "Ubicacion institucional"))]})
+        if context_fields:
+            results[-1]["context_data"] = {key: payload.get(key) for key in ("employee_number", "employment_type")}
     return {"candidates": results, "incomplete": incomplete,
             "confidence": results[0]["confidence"] if len(results) == 1 else "DESCONOCIDA",
             "reason": "Equivalencia de identidad; no confirma responsabilidad del equipo." if results else "No identificado en el Directorio Institucional."}

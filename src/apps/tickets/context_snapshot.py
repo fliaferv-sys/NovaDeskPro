@@ -7,6 +7,7 @@ from django.core import signing
 from django.utils import timezone
 
 from apps.integrations.technical_context import resolve_technical_context
+from apps.integrations.automatic_context import resolve_automatic_context, automatic_selection
 
 PERSON_FIELDS = ("full_name", "username", "email", "phone", "position", "department",
                  "location", "employee_number", "employment_type")
@@ -45,17 +46,32 @@ def review_token(context, user, query):
 
 def build_snapshot(user, selection):
     """Fail open for ticket creation, closed for context association."""
-    if not selection or not can_review(user) or len(selection) > 12000:
+    if not user.is_authenticated or selection == "skip" or len(selection) > 12000:
         return None
     try:
-        selected = json.loads(selection)
-        proof = signing.loads(selected["token"], salt=SALT, max_age=1800)
-        if proof["user"] != str(user.pk):
-            return None
-        query = proof["query"]
+        if not selection:
+            context = resolve_automatic_context(user)
+            selected = automatic_selection(context)
+            if selected is None:
+                return None
+        else:
+            selected = json.loads(selection)
+            proof = signing.loads(selected["token"], salt=SALT, max_age=1800)
+            if proof["user"] != str(user.pk):
+                return None
+            query = proof["query"]
+            if query.get("automatic"):
+                context = resolve_automatic_context(user)
+                if not can_review(user):
+                    safe_selection = automatic_selection(context)
+                    if safe_selection is None or any(selected.get(key) != value for key, value in safe_selection.items()):
+                        return None
+            elif can_review(user):
+                context = resolve_technical_context(requester=user, **query)
+            else:
+                return None
         # Signed inputs came from the validated, read-only GET endpoint.
-        context = resolve_technical_context(requester=user, **query)
-        if fingerprint(context) != proof["digest"]:
+        if selection and fingerprint(context) != proof["digest"]:
             return None
         index = selected["device"]
         if type(index) is not int or index < 0:
@@ -85,6 +101,12 @@ def build_snapshot(user, selection):
             "metadata": {"reviewed_by": str(user.pk), "reviewed_at": timezone.now().isoformat(),
                          "resolver_version": "1", "warnings": [safe_text(w) for w in context.get("warnings", []) if safe_text(w)]},
         }
+        snapshot["device"]["association_confidence"] = safe_text(device.get("association_confidence"))
+        snapshot["metadata"]["association_mode"] = "AUTOMATICA" if (
+            (not selection or proof["query"].get("automatic")) and
+            automatic_selection(context) is not None and
+            all(selected.get(key) == value for key, value in automatic_selection(context).items())
+        ) else "REVISADA"
         return snapshot
     except Exception:
         # No raw exceptions or external response bodies in logs/UI.

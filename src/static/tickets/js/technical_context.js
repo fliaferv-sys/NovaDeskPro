@@ -1,6 +1,20 @@
 (() => {
     'use strict';
     document.querySelectorAll('[data-technical-context]').forEach(panel => {
+        if (panel.dataset.contextClient === 'true') {
+            const status = panel.querySelector('[data-context-status]');
+            const selection = panel.querySelector('[data-context-selection]');
+            fetch(panel.dataset.autoUrl, {credentials: 'same-origin', cache: 'no-store'}).then(response => {
+                if (!response.ok) throw new Error('Unavailable');
+                return response.json();
+            }).then(context => {
+                if (context.automatic_selection) {
+                    selection.value = JSON.stringify({...context.automatic_selection, token: context.review_token});
+                    status.textContent = `Equipo relacionado: ${context.device_name || 'Equipo asignado'}.`;
+                } else status.textContent = 'No se encontró un equipo relacionado automáticamente. Puede crear el ticket normalmente.';
+            }).catch(() => { status.textContent = 'Puede crear el ticket normalmente.'; });
+            return;
+        }
         if (window.matchMedia('(max-width: 768px)').matches) return;
         const status = panel.querySelector('[data-context-status]');
         const results = panel.querySelector('[data-context-results]');
@@ -36,19 +50,20 @@
         }
         const personLabel = person => [person.data?.full_name, person.data?.email, (person.sources || []).join(' + ')].filter(Boolean).join(' · ');
         function invalidate() {
-            revision++; controller?.abort(); selection.value = ''; results.replaceChildren();
+            revision++; controller?.abort(); selection.value = 'skip'; results.replaceChildren();
             status.textContent = 'Consulte y revise el contexto antes de incluirlo.';
         }
         query.addEventListener('input', invalidate);
         panel.querySelector('[data-context-clear]').addEventListener('click', invalidate);
-        async function load() {
+        async function load(automatic = false) {
+            automatic = automatic === true;
             const current = ++revision;
             controller?.abort(); selection.value = ''; results.replaceChildren();
             const value = query.value.trim();
-            if (!value) { status.textContent = 'Ingrese IP o hostname.'; return; }
+            if (!automatic && !value) { status.textContent = 'Ingrese IP o hostname.'; return; }
             controller = new AbortController();
-            const url = new URL(panel.dataset.url, window.location.origin);
-            url.searchParams.set(/^\d+(\.\d+){3}$/.test(value) ? 'ip' : 'hostname', value);
+            const url = new URL(automatic ? panel.dataset.autoUrl : panel.dataset.url, window.location.origin);
+            if (!automatic) url.searchParams.set(/^\d+(\.\d+){3}$/.test(value) ? 'ip' : 'hostname', value);
             status.textContent = 'Consultando contexto…';
             try {
                 const response = await fetch(url, {signal: controller.signal, credentials: 'same-origin', cache: 'no-store'});
@@ -86,6 +101,15 @@
                         if (assetChoice.value !== '' && asset) section(ownerDetails, 'Responsable registrado', asset.responsible);
                     });
                     requesterChoice.addEventListener('change', () => { selection.value = ''; });
+                    if (automatic && context.automatic_selection?.device === index) {
+                        const approved = context.automatic_selection;
+                        [[requesterChoice, approved.requester], [detectedChoice, approved.detected], [assetChoice, approved.asset]].forEach(([select, number]) => {
+                            if (number !== null && number !== undefined) {
+                                select.value = String(number);
+                                select.dispatchEvent(new Event('change', {bubbles: true}));
+                            }
+                        });
+                    }
                     const button = node('button', 'Seleccionar equipo e incluir contexto revisado', article);
                     button.type = 'button'; button.className = 'btn btn-outline';
                     button.addEventListener('click', () => {
@@ -97,12 +121,16 @@
                     });
                 });
                 (context.warnings || []).forEach(warning => node('p', warning, results));
-                status.textContent = context.devices?.length > 1 ? 'Varios equipos: seleccione explícitamente el correcto.' :
+                if (automatic && context.automatic_selection) {
+                    selection.value = JSON.stringify({...context.automatic_selection, token: context.review_token});
+                    status.textContent = 'Equipo detectado automáticamente. Puede revisarlo o cambiarlo.';
+                } else status.textContent = context.devices?.length > 1 ? 'Encontramos varios equipos relacionados. Seleccione el correspondiente.' :
                     context.devices?.length ? 'Equipo sugerido. Revise y seleccione para incluirlo.' : 'No identificado. Puede continuar sin contexto.';
             } catch (error) {
                 if (error.name !== 'AbortError' && current === revision) status.textContent = 'Contexto no disponible. Puede continuar manualmente.';
             }
         }
         panel.querySelector('[data-context-load]').addEventListener('click', load);
+        if (panel.dataset.autoUrl) load(true);
     });
 })();

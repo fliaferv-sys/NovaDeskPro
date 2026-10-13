@@ -1,4 +1,8 @@
 <details class="table-card">
+    {% if request.user.role == "CLIENT" and not request.user.is_superuser %}
+    <summary>Equipo relacionado</summary>
+    <p>{{ snapshot.device.name|default:"Equipo asignado" }}</p>
+    {% else %}
     <summary>Contexto técnico revisado</summary>
     <p><strong>Solicitante:</strong> {{ snapshot.requester_identity.full_name|default:"—" }} · {{ snapshot.requester_identity.email|default:"—" }}</p>
     <p>{{ snapshot.requester_identity.phone|default:"" }} {{ snapshot.requester_identity.position|default:"" }} {{ snapshot.requester_identity.department|default:"" }}</p>
@@ -8,4 +12,5 @@
     <p>{{ snapshot.detected_user.phone|default:"" }} {{ snapshot.detected_user.position|default:"" }} {{ snapshot.detected_user.department|default:"" }}</p>
     <p><strong>Responsable NovaDesk:</strong> {{ snapshot.novadesk_asset.responsible_identity.full_name|default:"—" }} · {{ snapshot.novadesk_asset.code|default:"" }}</p>
     <small>Revisado: {{ snapshot.metadata.reviewed_at }} · Confianza equipo: {{ snapshot.device.confidence }} · Fuentes: {{ snapshot.device.sources|join:", " }}</small>
+    {% endif %}
 </details>
