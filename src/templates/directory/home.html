@@ -178,6 +178,7 @@
                 <div class="dir-row-cell"><dt>Ubicación</dt><dd>{{ employee.location|default:"—" }}</dd></div>
                 <div class="dir-row-cell"><dt>Teléfono</dt><dd>{{ employee.phone|default:"—" }}</dd></div>
                 <div class="dir-row-cell"><dt>Correo</dt><dd>{% if employee.email %}<a href="mailto:{{ employee.email }}">{{ employee.email }}</a>{% else %}—{% endif %}</dd></div>
+                <div class="dir-row-cell"><dt>Usuario</dt><dd>{{ employee.username|default:"—" }}</dd></div>
                 <div class="dir-row-cell"><dt>Vínculo</dt><dd>{{ employee.employment_type|default:"—" }}</dd></div>
                 <div class="dir-row-cell">
                     <dt>Estado</dt>
@@ -185,7 +186,7 @@
                 </div>
                 <div class="dir-row-cell">
                     <dt>Fuente</dt>
-                    <dd><span class="dir-badge is-source">{% if employee.source == "RRHH" %}RR.HH.{% elif employee.source == "ACTIVE_DIRECTORY" %}Active Directory{% elif employee.source == "LOCAL" %}NovaDesk{% else %}{{ employee.source|default:"—" }}{% endif %}</span></dd>
+                    <dd><span class="dir-badge is-source">{% if employee.source_label %}{{ employee.source_label }}{% elif employee.source == "RRHH" %}RR.HH.{% elif employee.source == "ACTIVE_DIRECTORY" %}Active Directory{% elif employee.source == "LOCAL" %}NovaDesk{% else %}{{ employee.source|default:"—" }}{% endif %}</span></dd>
                 </div>
             </dl>
 

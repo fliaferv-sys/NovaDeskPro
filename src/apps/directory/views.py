@@ -43,6 +43,8 @@ def directory_employee_search_api(request):
     employees = [
         {
             "source": employee["source"],
+            "sources": employee.get("sources", [employee["source"]]),
+            "source_label": employee.get("source_label", ""),
             "id_personal": employee["id_personal"],
             "employee_number": employee["employee_number"],
             "name": employee["name"],

@@ -325,6 +325,10 @@ def search_ad_users(query, limit=20, *, exact_email=False, search_field=None, ex
             f"(mail={escaped_query}))"
         )
 
+    return _search_ad_filter(search_filter, limit, allow_partial=bool(exact_email or search_field is not None))
+
+
+def _search_ad_filter(search_filter, limit, *, allow_partial=False):
     if _use_windows_integrated_authentication():
         return _windows_search(search_filter, limit)
 
@@ -339,7 +343,7 @@ def search_ad_users(query, limit=20, *, exact_email=False, search_field=None, ex
                 )
             except LDAPSizeLimitExceededResult:
                 # Two exact matches already prove ambiguity, even if AD has more.
-                if not (exact_email or search_field is not None) or len(connection.entries) < limit:
+                if not allow_partial or len(connection.entries) < limit:
                     raise
             return [
                 _entry_to_user(entry)
@@ -347,6 +351,19 @@ def search_ad_users(query, limit=20, *, exact_email=False, search_field=None, ex
             ]
     except LDAPException as exc:
         raise ActiveDirectoryError(_GENERIC_AD_ERROR) from exc
+
+
+def search_ad_users_by_emails(emails):
+    """Bounded exact-mail batches; saturated batches cannot prove uniqueness."""
+    values = sorted({str(value).strip().casefold() for value in emails if value and str(value).strip()})
+    result = []
+    for offset in range(0, len(values), 40):
+        batch = values[offset:offset + 40]
+        clauses = "".join(f"(mail={escape_filter_chars(value)})" for value in batch)
+        rows = _search_ad_filter(f"(&(objectCategory=person)(objectClass=user)(|{clauses}))", 100, allow_partial=True)
+        if len(rows) < 100:
+            result.extend(row for row in rows if str(row.get("email") or "").strip().casefold() in batch)
+    return result
 
 
 def authenticate_windows_credentials(identifier, password):

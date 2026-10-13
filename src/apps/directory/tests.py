@@ -1178,7 +1178,7 @@ class InstitutionalIdentityLocalFallbackTests(TestCase):
         )
 
 
-class InstitutionalIdentitySearchTests(SimpleTestCase):
+class InstitutionalIdentitySearchTests(TestCase):
     @contextmanager
     def mock_local_users(self, users=()):
         with patch(
@@ -1213,7 +1213,7 @@ class InstitutionalIdentitySearchTests(SimpleTestCase):
         ad.assert_not_called()
         local_filter.assert_not_called()
 
-    def test_rrhh_and_ad_duplicate_by_case_insensitive_email(self):
+    def test_shared_email_with_conflicting_names_keeps_both(self):
         rrhh_employee = make_rrhh_employee(Mail="person@example.test")
         ad_user = make_ad_user(email="PERSON@EXAMPLE.TEST")
 
@@ -1230,11 +1230,11 @@ class InstitutionalIdentitySearchTests(SimpleTestCase):
         ):
             identities = identity_services.search_institutional_identities("person")
 
-        self.assertEqual([item["source"] for item in identities], ["RRHH"])
+        self.assertEqual([item["source"] for item in identities], ["RRHH", "ACTIVE_DIRECTORY"])
         rrhh.assert_called_once_with("person", limit=20)
         ad.assert_called_once_with("person", limit=20)
 
-    def test_duplicate_id_personal_without_email_keeps_rrhh(self):
+    def test_personal_id_without_email_and_conflicting_names_keeps_both(self):
         rrhh_identity = {
             "source": "RRHH",
             "email": "",
@@ -1270,9 +1270,9 @@ class InstitutionalIdentitySearchTests(SimpleTestCase):
         ):
             identities = identity_services.search_institutional_identities("same")
 
-        self.assertEqual(identities, [rrhh_identity])
+        self.assertEqual([item["source"] for item in identities], ["RRHH", "ACTIVE_DIRECTORY"])
 
-    def test_duplicate_username_without_email_or_id_keeps_first_identity(self):
+    def test_username_without_email_and_conflicting_names_keeps_both(self):
         rrhh_identity = {
             "source": "RRHH",
             "email": "",
@@ -1309,7 +1309,7 @@ class InstitutionalIdentitySearchTests(SimpleTestCase):
         ):
             identities = identity_services.search_institutional_identities("same")
 
-        self.assertEqual(identities, [rrhh_identity])
+        self.assertEqual([item["source"] for item in identities], ["RRHH", "ACTIVE_DIRECTORY"])
 
     def test_rrhh_error_continues_to_ad_and_returns_ad_identity(self):
         with (
@@ -1434,7 +1434,7 @@ class InstitutionalIdentityLocalSearchTests(TestCase):
         rrhh.assert_called_once_with("priority", limit=20)
         ad.assert_called_once_with("priority", limit=20)
 
-    def test_ad_and_local_duplicate_by_email_keeps_ad(self):
+    def test_ad_and_local_shared_email_without_matching_username_keeps_both(self):
         self.create_user("shared-local-account", "shared@example.test")
 
         with (
@@ -1449,7 +1449,7 @@ class InstitutionalIdentityLocalSearchTests(TestCase):
         ):
             identities = identity_services.search_institutional_identities("shared")
 
-        self.assertEqual([item["source"] for item in identities], ["ACTIVE_DIRECTORY"])
+        self.assertEqual([item["source"] for item in identities], ["ACTIVE_DIRECTORY", "LOCAL"])
 
     def test_distinct_people_from_all_sources_are_retained(self):
         self.create_user("all-sources-local", "all-sources-local@example.test")
@@ -1885,6 +1885,8 @@ class DirectoryEmployeeSearchApiTests(TestCase):
             set(employee),
             {
                 "source",
+                "sources",
+                "source_label",
                 "id_personal",
                 "employee_number",
                 "name",
