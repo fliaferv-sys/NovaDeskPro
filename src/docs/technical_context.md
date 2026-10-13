@@ -10,9 +10,12 @@ No escribe en GLPI, RR.HH., AD, User o Asset.
 
 Al abrir el alta, ADMIN/TECHNICIAN reciben una consulta automática por solicitante.
 La búsqueda manual IP/hostname permanece en «Consulta técnica avanzada», plegada.
-CLIENT recibe solo su ficha sencilla y el nombre del equipo seguro, incluso en
-móvil; no recibe candidatos ajenos, IP, MAC, GLPI ID ni confianza técnica.
-La ficha avanzada de escritorio sigue oculta en móvil. Edición no inicia consultas.
+CLIENT prepara el contexto silenciosamente, sin bloque visible, también en móvil;
+no recibe candidatos ajenos, IP, MAC, GLPI ID ni confianza técnica. ADMIN/TECHNICIAN
+ven solo un resumen compacto después de los campos principales. «Revisar datos
+detectados» y «Consulta técnica avanzada» están cerrados por defecto, también en
+móvil. Las fichas se construyen al abrir la revisión y se omiten secciones vacías.
+Edición no inicia consultas.
 
 La ficha ofrece secciones compactas y candidatos seleccionables. Se prepara
 automáticamente solo un equipo único con una relación local inequívoca mediante

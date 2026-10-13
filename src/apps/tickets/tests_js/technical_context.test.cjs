@@ -17,7 +17,7 @@ function setup(mobile = false, automatic = false, client = false) {
     }
     const description = new Element(); description.value = 'Texto manual';
     const asset = new Element(); asset.options = [{value: ''}, {value: 'owned-id'}];
-    const nodes = Object.fromEntries(['status', 'results', 'query', 'load', 'clear', 'selection'].map(name => [`[data-context-${name}]`, new Element()]));
+    const nodes = Object.fromEntries(['status', 'results', 'query', 'load', 'clear', 'selection', 'review'].map(name => [`[data-context-${name}]`, new Element()]));
     const panel = {dataset: {url: '/tickets/contexto-tecnico/', ...(automatic ? {autoUrl: '/tickets/contexto-automatico/'} : {}), ...(client ? {contextClient: 'true'} : {})}, querySelector: selector => nodes[selector], closest: () => ({querySelector: selector => selector.includes('description') ? description : asset})};
     const requests = [];
     vm.runInNewContext(source, {document: {querySelectorAll: () => [panel], createElement: () => new Element()},
@@ -108,10 +108,35 @@ test('automatic ambiguity never silently selects a device', async () => {
     assert.equal(h.nodes['[data-context-selection]'].value, '');
 });
 
-test('client including mobile gets only a simple automatic status', async () => {
+test('client including mobile prepares snapshot silently', async () => {
     const h = setup(true, true, true);
     await h.resolve(0, {device_name: 'PC601', review_token: 'proof', automatic_selection: {device: 0, asset: 0}});
-    assert.match(h.nodes['[data-context-status]'].textContent, /PC601/);
+    assert.equal(h.nodes['[data-context-status]'].textContent, '');
+    assert.equal(JSON.parse(h.nodes['[data-context-selection]'].value).device, 0);
     assert.equal(h.nodes['[data-context-results]'].children.length, 0);
     assert.equal(h.description.value, 'Texto manual');
+});
+
+test('staff mobile only shows compact summary until review is opened', async () => {
+    const h = setup(true, true);
+    const data = structuredClone(context); data.automatic_selection = {device: 0, requester: null, detected: null, asset: 0};
+    await h.resolve(0, data);
+    const prepared = h.nodes['[data-context-selection]'].value;
+    assert.equal(h.nodes['[data-context-results]'].children.length, 0);
+    assert.match(h.nodes['[data-context-status]'].textContent, /detectado automáticamente/);
+    assert.ok(!h.nodes['[data-context-review]'].open);
+    h.nodes['[data-context-review]'].open = true;
+    h.nodes['[data-context-review]'].dispatchEvent({type: 'toggle'});
+    assert.ok(h.nodes['[data-context-results]'].children.length > 0);
+    assert.equal(h.nodes['[data-context-selection]'].value, prepared);
+});
+
+test('empty identity and responsible sections are not rendered', async () => {
+    const h = setup(false, true);
+    const data = structuredClone(context);
+    data.person.candidates = []; data.devices[0].detected_user.candidates = []; data.devices[0].novadesk_assets = [];
+    await h.resolve(0, data);
+    h.nodes['[data-context-review]'].open = true; h.nodes['[data-context-review]'].dispatchEvent({type: 'toggle'});
+    const content = flatten(h.nodes['[data-context-results]']).map(node => node.textContent).join(' ');
+    assert.doesNotMatch(content, /Identidad del solicitante|Usuario detectado|Responsable NovaDesk|Sin selección/);
 });
