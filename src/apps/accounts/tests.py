@@ -730,10 +730,10 @@ class AccountAccessTests(TestCase):
         initials = self.create_user("initials@example.test")
         self.client.force_login(admin)
 
-        def photo_for(user):
+        def photo_for(user, **kwargs):
             return "/media/funcionarios/testF.jpg" if user.pk == institutional.pk else ""
 
-        with patch("apps.accounts.views.get_user_photo_url", side_effect=photo_for) as lookup:
+        with patch("apps.accounts.user_presentation.get_institutional_directory", return_value=[]), patch("apps.accounts.user_presentation.get_user_photo_url", side_effect=photo_for) as lookup:
             response = self.client.get(reverse("user_list"))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, uploaded.profile_image.url)
@@ -741,7 +741,7 @@ class AccountAccessTests(TestCase):
         self.assertContains(response, 'data-photo-preview', count=3)
         self.assertContains(response, 'id="photoPreviewModal"', count=1)
         self.assertContains(response, "shared/js/photo_preview.js", count=1)
-        self.assertNotIn(uploaded.pk, [call.args[0].pk for call in lookup.call_args_list])
+        self.assertIn(institutional.pk, [call.args[0].pk for call in lookup.call_args_list])
         institutional.refresh_from_db()
         initials.refresh_from_db()
         self.assertFalse(institutional.profile_image)

@@ -392,6 +392,11 @@ Gestión de Usuarios
                                     <span>
                                         {{ system_user.email }}
                                     </span>
+                                    <span>{{ system_user.username }}</span>
+                                    {% if system_user.display_employee_number %}<span>Legajo: {{ system_user.display_employee_number }}</span>{% endif %}
+                                    {% if system_user.display_phone %}<span>Tel.: {{ system_user.display_phone }}</span>{% endif %}
+                                    {% if system_user.display_position %}<span>{{ system_user.display_position }}</span>{% endif %}
+                                    {% if system_user.institutional_source %}<span>{{ system_user.institutional_source }}</span>{% endif %}
 
                                 </div>
 
@@ -420,8 +425,8 @@ Gestión de Usuarios
                         </td>
 
                         <td>
-                            {% if system_user.organizational_unit %}
-                                {{ system_user.organizational_unit }}
+                            {% if system_user.display_unit %}
+                                {{ system_user.display_unit }}
                             {% else %}
                                 <span class="text-muted">
                                     Sin asignar
@@ -430,7 +435,7 @@ Gestión de Usuarios
                         </td>
 
                         <td>
-                            {{ system_user.department|default:"Sin registrar" }}
+                            {{ system_user.display_location|default:"Sin registrar" }}
                         </td>
 
                         <td>
