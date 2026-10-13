@@ -1,5 +1,6 @@
 from django.contrib.auth.views import LogoutView
 from django.urls import path
+from .institutional_sync_views import sync_user_institutional_data
 
 from .views import (
     CustomLoginView,
@@ -9,6 +10,7 @@ from .views import (
 )
 
 urlpatterns = [
+    path("usuarios/<uuid:pk>/sincronizar/", sync_user_institutional_data, name="sync_user_institutional_data"),
     path("", home_view, name="home"),
 
     path(
