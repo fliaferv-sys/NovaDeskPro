@@ -120,6 +120,7 @@
             ["Ubicación", "location"],
             ["Teléfono", "phone"],
             ["Correo", "email"],
+            ["Usuario", "username"],
             ["Vínculo", "employment_type"],
         ].forEach(([label, field]) => {
             const value = text(employee[field]).trim();
@@ -139,7 +140,7 @@
             ));
         }
         const source = definitionRow("Fuente", "");
-        source.querySelector("dd").appendChild(badge(sourceLabel(employee.source) || "\u2014", "is-source"));
+        source.querySelector("dd").appendChild(badge(employee.source_label || sourceLabel(employee.source) || "\u2014", "is-source"));
         list.append(status, source);
 
         return list;

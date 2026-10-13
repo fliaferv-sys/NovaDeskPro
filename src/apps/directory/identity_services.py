@@ -11,6 +11,7 @@ from apps.directory.ad_services import (
     ActiveDirectoryError,
     get_ad_user_by_email,
     search_ad_users,
+    search_ad_users_by_emails,
 )
 from apps.directory.services import (
     DirectoryDatabaseError,
@@ -90,24 +91,62 @@ def build_institutional_kpis(identities):
 
 
 def get_institutional_directory(limit=DIRECTORY_DEFAULT_LIMIT):
-    """Devuelve el directorio completo de funcionarios de RR.HH. en orden
-    alfabético (el que entrega SQL).
-
-    Se usa exclusivamente para la vista completa: no mezcla Active Directory
-    ni cuentas locales. El enriquecimiento de dependencia se sigue resolviendo
-    persona por persona con ``_enrich_with_organizational_unit``, conservando el
-    comportamiento actual y el orden recibido de la base.
-    """
+    """RRHH base list enriched only by safely corresponding AD identities."""
     rows = get_directory_employees(limit=limit)
+    rrhh = [_normalize_rrhh_employee(row) for row in rows]
+    anchors = list(User.objects.filter(id_personal__in=[row["id_personal"] for row in rrhh if row["id_personal"] is not None]))
+    try:
+        ad = search_ad_users_by_emails([row["email"] for row in rrhh] + [user.email for user in anchors])
+    except ActiveDirectoryError:
+        ad = []
+    return _directory_consolidation(rrhh, [_normalize_ad_user(user) for user in ad], anchors, include_local=False)
 
-    directory = []
-    for row in rows:
-        identity = _normalize_rrhh_employee(row)
-        enriched = _enrich_with_organizational_unit(identity)
-        if enriched is not None:
-            directory.append(enriched)
 
-    return directory
+def _directory_consolidation(rrhh, ad, local_users=(), *, include_local=True):
+    """Adapt the legacy directory contract to the shared safe identity merges."""
+    identities = []
+    for identity in rrhh + ad:
+        item = identity.copy()
+        item["full_name"] = item["name"]
+        item["rrhh_id"] = item.get("id_personal")
+        item["_locator"] = ({"source": SOURCE_RRHH, "id": item["id_personal"]} if item["source"] == SOURCE_RRHH
+                            else {"source": SOURCE_ACTIVE_DIRECTORY, "username": item["username"], "email": item["email"]})
+        if item["source"] == SOURCE_RRHH and not item.get("email"):
+            anchors = [user for user in local_users if user.id_personal and user.id_personal == item["id_personal"]]
+            if len(anchors) == 1:
+                anchor = anchors[0]
+                matches = [other for other in ad if anchor.email and anchor.username
+                    and other.get("email", "").strip().casefold() == anchor.email.strip().casefold()
+                    and other.get("username", "").casefold() == anchor.username.casefold()]
+                if len(matches) == 1:
+                    item["email"] = matches[0]["email"]
+                    item["_directory_original_email"] = ""
+        identities.append(item)
+    for user in local_users if include_local else ():
+        item = _normalize_local_user(user)
+        item.update(full_name=item["name"], rrhh_id=item.get("id_personal"), local_user_id=str(user.pk),
+                    _locator={"source": SOURCE_LOCAL, "id": str(user.pk)})
+        identities.append(item)
+    original = {repr(item["_locator"]): index for index, item in enumerate(identities)}
+    institutional = consolidate_institutional_identities([item for item in identities if item["source"] != SOURCE_LOCAL])
+    for item in institutional:
+        if "_directory_original_email" in item and not item.get("_consolidated"):
+            item["email"] = item["_directory_original_email"]
+    protected = [item for item in institutional if item["source"] == SOURCE_RRHH and not item.get("_consolidated")]
+    merged = protected + _merge_linked_identities([item for item in institutional if item not in protected]
+        + [item for item in identities if item["source"] == SOURCE_LOCAL])
+    merged.sort(key=lambda item: min(original.get(repr(locator), len(original)) for locator in
+        [item["_locator"], *(item.get("_linked") or [])]))
+    result = []
+    for item in merged:
+        sources = item.get("sources") or sorted({loc["source"] for loc in item.get("_linked", [])}) or [item["source"]]
+        item["sources"] = sources
+        item["source_label"] = " + ".join({SOURCE_RRHH: "RR.HH.", SOURCE_ACTIVE_DIRECTORY: "AD", SOURCE_LOCAL: "NovaDesk"}.get(source, source) for source in sources)
+        if item["source"] == SOURCE_ACTIVE_DIRECTORY and item.get("email") and not item.get("employment_type"):
+            item["employment_type"] = "Tercerizado"
+        # Internal locators/identifiers are never part of the directory display contract.
+        result.append(_enrich_with_organizational_unit({key: value for key, value in item.items() if not key.startswith("_") and key not in {"local_user_id", "rrhh_id"}}))
+    return result
 
 
 def _enrich_with_organizational_unit(identity):
@@ -443,43 +482,17 @@ def search_institutional_identities(query="", limit=20):
         return []
 
     try:
-        identities = []
-        seen = set()
-
-        def add_identity(identity):
-            email = identity.get("email")
-            if isinstance(email, str) and email.strip():
-                key = f"email:{email.strip().casefold()}"
-            elif identity.get("id_personal") is not None:
-                key = f"id_personal:{identity['id_personal']}"
-            elif identity.get("username"):
-                key = f"username:{identity['username'].casefold()}"
-            else:
-                key = ":".join(
-                    (
-                        str(identity.get("source") or ""),
-                        str(identity.get("name") or ""),
-                        str(identity.get("employee_number") or ""),
-                    )
-                )
-
-            if key not in seen:
-                seen.add(key)
-                identities.append(identity)
-
         try:
             rrhh_employees = search_directory_employees(query, limit=limit)
         except DirectoryDatabaseError:
             rrhh_employees = []
-        for employee in rrhh_employees or []:
-            add_identity(_normalize_rrhh_employee(employee))
+        rrhh = [_normalize_rrhh_employee(employee) for employee in rrhh_employees or []]
 
         try:
             ad_users = search_ad_users(query, limit=limit)
         except ActiveDirectoryError:
             ad_users = []
-        for ad_user in ad_users or []:
-            add_identity(_normalize_ad_user(ad_user))
+        ad = [_normalize_ad_user(user) for user in ad_users or []]
 
         local_filter = (
             Q(email__icontains=query)
@@ -491,11 +504,21 @@ def search_institutional_identities(query="", limit=20):
         if query.isdecimal():
             local_filter |= Q(id_personal=int(query))
 
-        local_users = User.objects.filter(local_filter).distinct()[:limit]
-        for local_user in local_users:
-            add_identity(_normalize_local_user(local_user))
-
-        return identities[:limit]
+        local_users = list(User.objects.filter(local_filter).distinct()[:limit])
+        missing_ids = [item["id_personal"] for item in rrhh if not item["email"] and item["id_personal"] is not None]
+        anchors = list(User.objects.filter(id_personal__in=missing_ids)) if missing_ids else []
+        try:
+            extra = search_ad_users_by_emails([item["email"] for item in rrhh] + [user.email for user in anchors])
+        except ActiveDirectoryError:
+            extra = []
+        for user in extra:
+            normalized = _normalize_ad_user(user)
+            if normalized not in ad:
+                ad.append(normalized)
+        for user in anchors:
+            if user not in local_users:
+                local_users.append(user)
+        return _directory_consolidation(rrhh, ad, local_users)[:limit]
     except Exception as exc:
         raise InstitutionalIdentityError(
             "No fue posible buscar identidades institucionales."
