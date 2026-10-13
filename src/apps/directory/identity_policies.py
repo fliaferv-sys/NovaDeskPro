@@ -29,6 +29,16 @@ ACCOUNT_FORM_FIELDS = frozenset({
 REFERENCE_SALT = "directory.identity.v1"
 REFERENCE_MAX_AGE = 1800
 
+# Read-only technical IP query. No CI, employee numbers, local IDs or signed
+# form-selection references are needed. Authorization lives in the query view.
+TECHNICAL_IP_IDENTITY_FIELDS = frozenset({
+    "full_name", "username", "email", "position", "organizational_unit", "phone", "location", "source",
+})
+
+
+def technical_ip_identity_payload(identity):
+    return {key: identity.get(key) for key in TECHNICAL_IP_IDENTITY_FIELDS}
+
 
 @dataclass(frozen=True)
 class IdentityPolicy:

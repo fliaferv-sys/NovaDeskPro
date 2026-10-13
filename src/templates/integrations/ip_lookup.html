@@ -1,0 +1,41 @@
+{% extends "layouts/base.html" %}
+{% block title %}Consulta técnica por IP{% endblock %}
+{% block extra_css %}
+<style>
+.ip-query-fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:12px 24px; }
+.ip-query-fields dt { font-weight:600; }
+.ip-query-fields dd { margin:4px 0 0; overflow-wrap:anywhere; }
+.ip-query-fields small { display:block; color:var(--muted); }
+.ip-query-notice { padding:12px; border-left:4px solid var(--primary); background:#f1f5f9; }
+.ip-query-submit { margin-top:12px; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="page-header"><div><h1 class="page-title">Consulta técnica por IP</h1><p class="page-subtitle">Solo lectura · GLPI y Directorio Institucional</p></div></div>
+<form method="get" class="table-card">
+    {{ form.ip.label_tag }} {{ form.ip }} {{ form.ip.errors }}
+    <div class="ip-query-submit"><button type="submit" class="btn-primary">Consultar</button></div>
+</form>
+<p>Las relaciones corresponden al inventario visible en GLPI. No prueban presencia actual en la red ni responsabilidad en NovaDesk.</p>
+{% if lookup_error %}<div class="ip-query-notice" role="alert">{{ lookup_error }}</div>{% endif %}
+{% if result %}
+<h2>IP consultada: {{ result.ip }}</h2>
+{% for warning in result.warnings %}<p class="ip-query-notice">{{ warning }}</p>{% endfor %}
+{% if not result.candidates %}<p role="status">No identificado</p>{% endif %}
+{% if result.candidates|length > 1 %}<p class="ip-query-notice">Varios candidatos. No se selecciona ninguno automáticamente.</p>{% endif %}
+{% for candidate in result.candidates %}
+<section class="table-card" aria-label="Candidato {{ forloop.counter }}">
+    <h3>{{ candidate.device_type }} · ID GLPI {{ candidate.device_id|default:"No disponible" }}</h3>
+    <p>Relación de red registrada: <strong>{{ candidate.network_confidence }}</strong></p>
+    <dl class="ip-query-fields">{% for field in candidate.fields %}<div><dt>{{ field.label }}</dt><dd>{{ field.value }} <small>{{ field.source }}</small></dd></div>{% endfor %}</dl>
+    <h4>Directorio Institucional · {{ candidate.people.confidence }}</h4>
+    <p>{{ candidate.people.reason }}</p>
+    {% if candidate.people.incomplete %}<p class="ip-query-notice">Consulta institucional incompleta; no se confirma la asociación.</p>{% endif %}
+    {% for person in candidate.people.candidates %}
+    <p><strong>Asociación {{ person.confidence }}</strong></p>
+    <dl class="ip-query-fields">{% for field in person.fields %}<div><dt>{{ field.label }}</dt><dd>{{ field.value }} <small>{{ field.source }}</small></dd></div>{% endfor %}</dl>
+    {% endfor %}
+</section>
+{% endfor %}
+{% endif %}
+{% endblock %}

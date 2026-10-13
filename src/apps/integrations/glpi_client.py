@@ -49,7 +49,7 @@ class GLPIConfig:
 
 
 class GLPIClient:
-    ALLOWED = re.compile(r"^(?:initSession|killSession|Printer|Computer|User|Location|NetworkPort|NetworkName|IPAddress|User/[0-9]+/UserEmail)$")
+    ALLOWED = re.compile(r"^(?:initSession|killSession|Printer|Computer|User|Location|NetworkPort|NetworkName|IPAddress|User/[0-9]+/UserEmail|(?:Printer|Computer|User|Location|NetworkPort|NetworkName|State)/[1-9][0-9]*)$")
 
     def __init__(self, config, session=None):
         self.config = config
@@ -121,11 +121,25 @@ class GLPIClient:
             self.token = None
             self.http.close()
 
-    def items(self, endpoint, *, expand=False):
+    def item(self, itemtype, identifier):
+        if itemtype not in {"Printer", "Computer", "User", "Location", "NetworkPort", "NetworkName", "State"} or not re.fullmatch(r"[1-9][0-9]*", str(identifier)):
+            raise GLPIError("Identificador o tipo de consulta no permitido.")
+        response = self.request(f"{itemtype}/{identifier}", {"expand_dropdowns": "false", "get_hateoas": "false"})
+        data = self.json(response)
+        if response.status_code != 200 or not isinstance(data, dict) or str(data.get("id")) != str(identifier):
+            raise GLPIError("GLPI devolvio un objeto incompatible con el identificador solicitado.")
+        return data
+
+    def items(self, endpoint, *, expand=False, filters=None):
         rows, seen, start, total = [], set(), 0, None
         for _ in range(10000):
-            response = self.request(endpoint, {"range": f"{start}-{start + self.config.page_size - 1}",
-                "sort": "id", "order": "ASC", "expand_dropdowns": str(expand).lower(), "get_hateoas": "false"})
+            params = {"range": f"{start}-{start + self.config.page_size - 1}",
+                "sort": "id", "order": "ASC", "expand_dropdowns": str(expand).lower(), "get_hateoas": "false"}
+            if filters:
+                if endpoint != "IPAddress" or set(filters) != {"name"}:
+                    raise GLPIError("Filtro de lectura no permitido.")
+                params["searchText[name]"] = filters["name"]
+            response = self.request(endpoint, params)
             content_range = response.headers.get("Content-Range", "").strip()
             if response.status_code == 416:
                 empty = re.fullmatch(r"(?:\w+\s+)?\*/(\d+)", content_range)

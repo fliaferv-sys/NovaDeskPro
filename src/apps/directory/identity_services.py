@@ -659,6 +659,66 @@ def _merge_linked_identities(identities):
     return result
 
 
+def consolidate_institutional_identities(identities):
+    """Read-only RRHH/AD consolidation. Does not alter signed selection flows."""
+    from collections import defaultdict
+    import unicodedata
+    from django.core.validators import validate_email
+
+    def normalized(value):
+        text = unicodedata.normalize("NFD", str(value or ""))
+        return " ".join("".join(c for c in text if not unicodedata.combining(c)).split()).casefold()
+
+    groups, result = defaultdict(list), []
+    for identity in identities:
+        email = str(identity.get("email") or "").strip().casefold()
+        try:
+            validate_email(email)
+            valid = email.rsplit("@", 1)[-1] == settings.DIRECTORY_AD_DOMAIN.casefold()
+        except ValidationError:
+            valid = False
+        if valid and identity.get("source") in {SOURCE_RRHH, SOURCE_ACTIVE_DIRECTORY}:
+            groups[email].append(identity)
+        else:
+            result.append(identity)
+    for email, members in groups.items():
+        sources = [item["source"] for item in members]
+        safe = len(members) == 2 and set(sources) == {SOURCE_RRHH, SOURCE_ACTIVE_DIRECTORY}
+        account = email.split("@", 1)[0]
+        usernames = {str(item.get("username") or "").strip().casefold() for item in members if item.get("username")}
+        shared_id = any(len({normalized(item.get(key)) for item in members if item.get(key)}) == 1
+                        and all(item.get(key) for item in members)
+                        for key in ("rrhh_id", "employee_number", "document_number"))
+        safe &= bool(usernames == {account} or (not usernames and shared_id))
+        # Missing complementary fields are fine; contradicting populated fields
+        # and duplicate records from one source are never silently collapsed.
+        for key in ("rrhh_id", "employee_number", "document_number", "local_user_id", "full_name", "name",
+                    "position", "phone", "location", "organizational_unit"):
+            values = {normalized(item.get(key)) for item in members if item.get(key)}
+            if len(values) > 1:
+                safe = False
+        for flag in ("is_active", "is_person", "is_shared", "is_technical"):
+            known = {item[flag] for item in members if item.get(flag) is not None}
+            if len(known) > 1:
+                safe = False
+        if not safe:
+            result.extend(members)
+            continue
+        rrhh = next(item for item in members if item["source"] == SOURCE_RRHH)
+        ad = next(item for item in members if item["source"] == SOURCE_ACTIVE_DIRECTORY)
+        merged = rrhh.copy()
+        for key, value in ad.items():
+            if not key.startswith("_") and merged.get(key) in (None, "", [], {}):
+                merged[key] = value
+        merged["username"] = ad.get("username") or rrhh.get("username") or ""
+        merged["email"] = email
+        merged["sources"] = sorted(set(sources))
+        merged["_linked"] = [item["_locator"] for item in members]
+        merged["_consolidated"] = True
+        result.append(merged)
+    return result
+
+
 def search_common_identities(query, field="email", *, exact=False):
     """Bounded searches with explicit completeness and ambiguity information."""
     if field not in IDENTITY_SEARCH_FIELDS or not isinstance(query, str):

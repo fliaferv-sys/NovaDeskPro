@@ -1,0 +1,10 @@
+{% if request.user.is_authenticated %}
+{% if request.user.is_superuser or request.user.role == "ADMIN" or request.user.role == "TECHNICIAN" %}
+<article class="staff-quick-access-card">
+    <div class="staff-quick-access-icon"><i class="bi bi-search"></i></div>
+    <h3>Consulta Técnica por IP</h3>
+    <p>Identifica equipo, MAC, usuario asociado e identidad institucional a partir de una dirección IP.</p>
+    <a href="{% url 'integrations:ip_lookup' %}" class="staff-quick-access-link">Consultar IP <i class="bi bi-arrow-right"></i></a>
+</article>
+{% endif %}
+{% endif %}
