@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 from django.db import connection
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.template.loader import render_to_string
 from django.urls import reverse
@@ -103,7 +103,8 @@ class AutomaticContextTests(TestCase):
     def test_template_client_simple_staff_collapsible_manual_tool(self):
         request = SimpleNamespace(user=self.user)
         html = render_to_string("tickets/technical_context.html", {"request": request})
-        self.assertIn("Datos detectados automáticamente", html)
+        self.assertIn('<div hidden data-technical-context', html)
+        self.assertNotIn("Datos detectados automáticamente", html)
         for forbidden in ("data-context-query", "hostname", "Consulta técnica avanzada", "Confianza", "GLPI"):
             self.assertNotIn(forbidden, html)
         detail = render_to_string("tickets/context_snapshot_detail.html", {"request": request, "snapshot": {
@@ -115,7 +116,25 @@ class AutomaticContextTests(TestCase):
         html = render_to_string("tickets/technical_context.html", {"request": request})
         self.assertIn("<details><summary>Consulta técnica avanzada", html)
         self.assertIn("data-auto-url", html)
-        self.assertIn("max-width:768px", html)
+        self.assertIn('<details data-context-review>', html)
+        self.assertNotIn(" open", html)
+        for role in ("ADMIN", "TECHNICIAN"):
+            self.user.role = role
+            markup = render_to_string("tickets/technical_context.html", {"request": request})
+            self.assertIn("data-context-status", markup)
+            self.assertIn("Revisar datos detectados", markup)
+
+    @override_settings(STORAGES={"default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+                                 "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
+    def test_ticket_fields_precede_context(self):
+        self.user.role = "TECHNICIAN"
+        self.user.save(update_fields=["role"])
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("tickets:ticket_create"))
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode()
+        for field in ("asset", "printing_device", "title", "description", "priority", "category"):
+            self.assertLess(html.index(f'name="{field}"'), html.index('data-context-review'))
 
     def test_failures_allow_creating_without_snapshot(self):
         for failure in (RuntimeError("GLPI secret"), RuntimeError("Directory secret")):

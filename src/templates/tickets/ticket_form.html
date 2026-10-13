@@ -1317,7 +1317,6 @@
                 </div>
               
 
-                {% include "tickets/technical_context.html" %}
                 {% for hidden in form.hidden_fields %}{{ hidden }}{% endfor %}
 
                 {% for field in form.visible_fields %}
@@ -1363,6 +1362,7 @@
                 <!--  BOTONES - DEBAJO DE PRIORIDAD, HORIZONTALES A LA DERECHA -->
                 <!-- ========================================================== -->
 
+                {% include "tickets/technical_context.html" %}
                 <div class="form-actions">
                     <a href="{% url 'tickets:ticket_list' %}" class="btn btn-outline">
                         <i class="bi bi-x-circle"></i> Cancelar

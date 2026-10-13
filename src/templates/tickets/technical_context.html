@@ -1,30 +1,31 @@
 {% if not editing %}
 {% if request.user.role == "CLIENT" and not request.user.is_superuser %}
-<section class="ticket-form-card" data-technical-context data-context-client="true" data-auto-url="{% url 'tickets:automatic_context' %}">
-    <h3>Datos detectados automáticamente</h3>
-    <p>{{ request.user.get_full_name|default:request.user.username }}</p>
-    <p role="status" aria-live="polite" data-context-status>Buscando un equipo relacionado…</p>
+<div hidden data-technical-context data-context-client="true" data-auto-url="{% url 'tickets:automatic_context' %}">
     <input type="hidden" name="technical_context_selection" data-context-selection>
-</section>
+</div>
 {% endif %}
 {% if request.user.is_superuser or request.user.role == "ADMIN" or request.user.role == "TECHNICIAN" %}
 <style>
-@media (max-width:768px) { [data-technical-context] { display:none; } }
 .context-fields { display:grid; grid-template-columns:auto 1fr; gap:.25rem 1rem; }
 .context-fields dd { margin:0; overflow-wrap:anywhere; }
+[data-technical-context] { margin-top:.75rem; }
+[data-technical-context].ticket-form-card { padding:10px 14px; margin-bottom:8px; }
+[data-technical-context] > p { margin:0 0 .35rem; }
+[data-technical-context] summary { cursor:pointer; }
+[data-technical-context] section { margin:.5rem 0; }
+[data-technical-context] h4 { margin:.5rem 0; }
 </style>
 <section class="ticket-form-card" data-technical-context data-url="{% url 'tickets:technical_context' %}" data-auto-url="{% url 'tickets:automatic_context' %}">
-    <h3>Datos detectados automáticamente</h3>
-    <p>Solicitante: {{ request.user.get_full_name|default:request.user.username }}. Usuario detectado y responsable del activo se muestran por separado.</p>
+    <p role="status" aria-live="polite" data-context-status>Buscando un equipo relacionado…</p>
+    <details data-context-review><summary>Revisar datos detectados</summary>
+        <div data-context-results></div>
+        <button type="button" class="btn btn-outline" data-context-clear>Quitar contexto</button>
+    </details>
     <details><summary>Consulta técnica avanzada</summary>
     <label>IP o hostname para revisar <input type="text" class="form-control" data-context-query maxlength="150"></label>
     <button type="button" class="btn btn-outline" data-context-load>Consultar contexto</button>
     </details>
-    <button type="button" class="btn btn-outline" data-context-clear>Quitar contexto</button>
     <input type="hidden" name="technical_context_selection" data-context-selection>
-    <p role="status" aria-live="polite" data-context-status></p>
-    <div data-context-results></div>
-    <p>La selección revisada se guarda por separado. Solicitante, asignación y custodia se mantienen.</p>
 </section>
 {% endif %}
 {% endif %}
