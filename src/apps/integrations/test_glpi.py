@@ -12,6 +12,7 @@ from apps.accounts.models import Branch
 from apps.inventory.models import Asset, OrganizationalLocation
 from apps.printing.models import PrintingDevice
 from apps.integrations.glpi_client import GLPIClient, GLPIConfig, GLPIError
+from apps.integrations.glpi_diagnostic_stage import DiagnosticStage
 from apps.integrations.glpi_diagnostics import (
     printer_diagnostics, serial_comparison, user_diagnostics, printer_network_ips,
     computer_diagnostics, location_diagnostics,
@@ -254,3 +255,106 @@ class GLPICommandTests(TestCase):
         self.assertIn("NO_ENCONTRADO", output.getvalue())
         search.assert_called_once_with("persona@petropar.gov.py", "email", exact=True)
         self.assertFalse(any(q["sql"].lstrip().upper().startswith(("INSERT", "UPDATE", "DELETE")) for q in queries))
+
+
+class GLPINetworkStageTests(TestCase):
+    def datasets(self):
+        return {
+            "Location": [],
+            "Printer": [{"id": 7, "serial": "ABC", "name": "Printer"}],
+            "NetworkPort": [{"id": 10, "itemtype": "Printer", "items_id": 7}],
+            "NetworkName": [{"id": 20, "itemtype": "NetworkPort", "items_id": 10}],
+            "IPAddress": [{"id": 30, "itemtype": "NetworkName", "items_id": 20, "name": "192.0.2.2"}],
+        }
+
+    def run_mocked(self, datasets, **options):
+        output, errors = StringIO(), StringIO()
+        http = Mock()
+        http.get.side_effect = [response({"session_token": "session-secret-test"}), response(True)]
+        with patch("apps.core.management.commands.sync_glpi.GLPIConfig.from_env", return_value=config()), \
+             patch("apps.integrations.glpi_client.requests.Session", return_value=http), \
+             patch.object(GLPIClient, "items", side_effect=lambda name, **kwargs: datasets[name]):
+            call_command("sync_glpi", dry_run=True, section="printers", with_network=True,
+                stdout=output, stderr=errors, **options)
+        return output.getvalue(), errors.getvalue(), http
+
+    def test_each_network_load_stage_reports_unexpected_exception_safely(self):
+        for name in ("NetworkPort", "NetworkName", "IPAddress"):
+            datasets = self.datasets()
+            del datasets[name]
+            with self.subTest(name=name), self.assertRaises(CommandError) as error:
+                self.run_mocked(datasets)
+            self.assertIn(f"Etapa: carga {name}", str(error.exception))
+            self.assertIn("Excepcion: KeyError", str(error.exception))
+
+    def test_association_stages_identify_failures_without_raw_payload(self):
+        for dataset, stage in (
+            ("NetworkPort", "Printer -> NetworkPort"),
+            ("NetworkName", "NetworkPort -> NetworkName"),
+        ):
+            datasets = self.datasets()
+            del datasets[dataset][0]["id"]
+            with self.subTest(dataset=dataset), self.assertRaises(CommandError) as error:
+                self.run_mocked(datasets)
+            self.assertIn(f"asociacion {stage}", str(error.exception))
+            self.assertIn("Excepcion: KeyError", str(error.exception))
+            self.assertIn("Falta la clave requerida: id", str(error.exception))
+
+    def test_ip_exception_redacts_arbitrary_sensitive_message(self):
+        secret_message = ('pass-secret-test app-secret-test session-secret-test '
+            'Authorization: Basic abcd http://user:password@glpi.test/ '
+            '{"full_payload": "private-person"}\nraw response')
+        with patch("apps.integrations.glpi_diagnostics.ipaddress.ip_address", side_effect=RuntimeError(secret_message)), \
+             self.assertRaises(CommandError) as error:
+            self.run_mocked(self.datasets())
+        message = str(error.exception)
+        self.assertIn("asociacion NetworkName -> IPAddress", message)
+        self.assertIn("Excepcion: RuntimeError", message)
+        self.assertIn("Detalle omitido por seguridad", message)
+        for secret in ("pass-secret-test", "app-secret-test", "session-secret-test", "Authorization", "abcd", "password@", "private-person", "raw response"):
+            self.assertNotIn(secret, message)
+        self.assertLess(len(message), 200)
+
+    def test_printer_diagnostic_stage_is_reported(self):
+        with patch("apps.core.management.commands.sync_glpi.printer_diagnostics", side_effect=TypeError("private data")), \
+             self.assertRaises(CommandError) as error:
+            self.run_mocked(self.datasets())
+        self.assertIn("generacion del diagnostico de impresoras", str(error.exception))
+        self.assertIn("Excepcion: TypeError", str(error.exception))
+        self.assertNotIn("private data", str(error.exception))
+
+    def test_explicit_traceback_preserves_original_exception_in_tests(self):
+        def injected_failure(value):
+            raise RuntimeError("controlled test exception")
+        frames = []
+        with patch("apps.integrations.glpi_diagnostics.ipaddress.ip_address", side_effect=injected_failure):
+            try:
+                self.run_mocked(self.datasets(), traceback=True)
+            except RuntimeError as exc:
+                traceback = exc.__traceback__
+                while traceback:
+                    frames.append(traceback.tb_frame.f_code.co_name)
+                    traceback = traceback.tb_next
+            else:
+                self.fail("Expected the original exception with its traceback")
+        self.assertIn("injected_failure", frames)
+        self.assertIn("printer_network_ips", frames)
+
+    def test_success_output_unchanged_and_no_writes_and_session_closed(self):
+        device = PrintingDevice.objects.create(serial_number="ABC", ip_address="192.0.2.1")
+        before = PrintingDevice.objects.values().get(pk=device.pk)
+        datasets = self.datasets()
+        with CaptureQueriesContext(connection) as queries:
+            output, errors, http = self.run_mocked(datasets)
+        self.assertIn("ERROR=0", output)
+        self.assertIn("IP_DIFERENTE", output)
+        self.assertNotIn("Etapa:", output)
+        self.assertEqual(errors, "")
+        self.assertTrue(http.get.call_args.args[0].endswith("killSession"))
+        self.assertFalse(any(q["sql"].lstrip().upper().startswith(("INSERT", "UPDATE", "DELETE")) for q in queries))
+        self.assertEqual(PrintingDevice.objects.values().get(pk=device.pk), before)
+        stage = DiagnosticStage()
+        datasets = self.datasets()
+        plain = printer_network_ips(datasets["NetworkPort"], datasets["NetworkName"], datasets["IPAddress"])
+        instrumented = printer_network_ips(datasets["NetworkPort"], datasets["NetworkName"], datasets["IPAddress"], stage=stage)
+        self.assertEqual(plain, instrumented)

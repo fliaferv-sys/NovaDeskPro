@@ -154,12 +154,20 @@ def location_diagnostics(locations):
     return results
 
 
-def printer_network_ips(ports, names, addresses):
+def printer_network_ips(ports, names, addresses, *, stage=None):
+    if stage:
+        stage.set("asociacion Printer -> NetworkPort")
     printers = {str(row["id"]): str(row["items_id"]) for row in ports
                 if row.get("itemtype") == "Printer" and row.get("items_id") is not None}
+    if stage:
+        stage.set("asociacion NetworkPort -> NetworkName")
     chains = {str(row["id"]): printers[str(row["items_id"])] for row in names
               if row.get("itemtype") == "NetworkPort" and str(row.get("items_id")) in printers}
+    if stage:
+        stage.set("construccion de indice de IPs")
     ips = defaultdict(set)
+    if stage:
+        stage.set("asociacion NetworkName -> IPAddress")
     for row in addresses:
         if row.get("itemtype") != "NetworkName" or str(row.get("items_id")) not in chains:
             continue
@@ -168,6 +176,8 @@ def printer_network_ips(ports, names, addresses):
         except ValueError:
             continue
         ips[chains[str(row["items_id"])]].add(str(address))
+    if stage:
+        stage.set("generacion del indice de IPs por Printer")
     return {key: sorted(value) for key, value in ips.items()}
 
 
