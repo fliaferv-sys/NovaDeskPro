@@ -20,6 +20,11 @@ from apps.directory.identity_services import (
 )
 from apps.directory.services import DirectoryDatabaseError
 
+
+def active_directory_identities(identities):
+    """Presentation filter: trust only the final activity flag from the service."""
+    return [identity for identity in identities if identity.get("is_active") is True]
+
 @login_required
 def directory_employee_search_api(request):
     query = request.GET.get("q", "").strip()
@@ -62,7 +67,7 @@ def directory_employee_search_api(request):
             "organizational_path": employee.get("organizational_path", []),
 	    "photo_url": employee.get("photo_url", ""),
         }
-        for employee in directory_employees
+        for employee in active_directory_identities(directory_employees)
     ]
     return JsonResponse({"employees": employees})
 
@@ -76,13 +81,13 @@ def directory_home_view(request):
     }
 
     try:
-        directory = get_institutional_directory()
+        directory = active_directory_identities(get_institutional_directory())
         context["directory_kpis"] = build_institutional_kpis(directory)
         if search_query:
-            context["employees"] = search_institutional_identities(
+            context["employees"] = active_directory_identities(search_institutional_identities(
                 search_query,
                 limit=100,
-            )
+            ))
         else:
             context["employees"] = directory
     except (DirectoryDatabaseError, InstitutionalIdentityError):

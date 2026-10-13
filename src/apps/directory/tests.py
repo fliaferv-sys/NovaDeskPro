@@ -1948,8 +1948,8 @@ class DirectoryHomeViewTests(TestCase):
         directory_patch = patch(
             "apps.directory.views.get_institutional_directory",
             return_value=[
-                {"name": "Ana de prueba", "employment_type": "Permanente"},
-                {"name": "Zoe de prueba", "employment_type": "Contratado"},
+                {"name": "Ana de prueba", "employment_type": "Permanente", "is_active": True},
+                {"name": "Zoe de prueba", "employment_type": "Contratado", "is_active": True},
             ],
         )
         self.directory = directory_patch.start()
