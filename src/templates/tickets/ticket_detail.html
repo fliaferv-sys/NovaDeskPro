@@ -1643,6 +1643,10 @@ Detalle del Ticket #{{ ticket.ticket_number }}
             </div>
         </div>
 
+        {% if ticket.technical_context_snapshot %}
+            {% include "tickets/context_snapshot_detail.html" with snapshot=ticket.technical_context_snapshot %}
+        {% endif %}
+
         <!-- ===== CHAT ===== -->
         <div class="table-card ticket-conversation-card">
             <div class="chat-header-modern">

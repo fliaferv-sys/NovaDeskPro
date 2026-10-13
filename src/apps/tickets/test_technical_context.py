@@ -37,6 +37,12 @@ class TicketTechnicalContextTests(TestCase):
         self.assertIn("no-store", response["Cache-Control"])
         self.assertFalse(any(q["sql"].lstrip().upper().startswith(("INSERT", "UPDATE", "DELETE")) for q in queries))
 
+    def test_empty_query_does_not_resolve_or_disclose_context(self):
+        self.client.force_login(self.user)
+        with patch("apps.tickets.technical_context_views.resolve_technical_context") as resolver:
+            self.assertEqual(self.client.get(self.url).status_code, 400)
+        resolver.assert_not_called()
+
     def test_panel_only_create_staff_and_existing_form_rules_kept(self):
         request = SimpleNamespace(user=self.user)
         self.assertIn("data-technical-context", render_to_string("tickets/technical_context.html", {"request": request}))

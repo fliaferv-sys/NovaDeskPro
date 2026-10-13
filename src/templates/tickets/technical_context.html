@@ -1,14 +1,20 @@
 {% if not editing %}
 {% if request.user.is_superuser or request.user.role == "ADMIN" or request.user.role == "TECHNICIAN" %}
-<style>@media (max-width:768px) { [data-technical-context] { display:none; } }</style>
+<style>
+@media (max-width:768px) { [data-technical-context] { display:none; } }
+.context-fields { display:grid; grid-template-columns:auto 1fr; gap:.25rem 1rem; }
+.context-fields dd { margin:0; overflow-wrap:anywhere; }
+</style>
 <section class="ticket-form-card" data-technical-context data-url="{% url 'tickets:technical_context' %}">
     <h3>Contexto técnico · opcional</h3>
     <p>Solicitante: {{ request.user.get_full_name|default:request.user.username }}. Usuario detectado y responsable del activo se muestran por separado.</p>
     <label>IP o hostname para revisar <input type="text" class="form-control" data-context-query maxlength="150"></label>
     <button type="button" class="btn btn-outline" data-context-load>Consultar contexto</button>
+    <button type="button" class="btn btn-outline" data-context-clear>Quitar contexto</button>
+    <input type="hidden" name="technical_context_selection" data-context-selection>
     <p role="status" aria-live="polite" data-context-status></p>
     <div data-context-results></div>
-    <p>Las sugerencias no cambian solicitante, asignación ni custodia. La instantánea revisada se añade como texto a la descripción.</p>
+    <p>La selección revisada se guarda por separado. Solicitante, asignación y custodia se mantienen.</p>
 </section>
 {% endif %}
 {% endif %}
