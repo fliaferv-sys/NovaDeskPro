@@ -297,8 +297,10 @@ def _build_tercerizado_photo_url(tercero):
     return f"{settings.MEDIA_URL}funcionarios/{file_name}"
 
 
-def get_user_photo_url(user):
+def get_user_photo_url(user, *, identity=None):
     """Resolve an existing institutional photo without saving a user image."""
+    if getattr(user, "profile_image", None):
+        return user.profile_image.url
     employee_number = str(
         getattr(user, "employee_number", "") or ""
     ).strip()
@@ -307,6 +309,14 @@ def get_user_photo_url(user):
 
     if photo_url:
         return photo_url
+
+    # Optional already-resolved identity avoids additional institutional queries.
+    if identity:
+        photo_url = _build_employee_photo_url(identity.get("employee_number") or "")
+        if photo_url:
+            return photo_url
+        if identity.get("photo_url"):
+            return identity["photo_url"]
 
     tercero = _get_tercerizado({
         "email": getattr(user, "email", "") or "",

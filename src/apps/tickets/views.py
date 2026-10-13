@@ -396,6 +396,12 @@ def ticket_create_view(request):
         ):
             ticket = form.save(commit=False)
             ticket.requester = request.user
+            from .context_snapshot import build_snapshot
+            ticket.technical_context_snapshot = build_snapshot(
+                request.user, request.POST.get("technical_context_selection", "")
+            )
+            if request.POST.get("technical_context_selection") and ticket.technical_context_snapshot is None:
+                messages.warning(request, "No se pudo revalidar el contexto técnico. El ticket se crea sin esa instantánea.")
 
             # ===============================
             # MAPEO DE CATEGORÍA → DEPARTAMENTO

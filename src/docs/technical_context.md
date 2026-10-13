@@ -1,59 +1,65 @@
-# Contexto técnico reutilizable y primera integración Tickets
+# Contexto técnico revisado en Tickets
 
-Servicio: `apps.integrations.technical_context.resolve_technical_context`.
-Entradas opcionales: requester (actor local), username/email, identity (solo
-claves de búsqueda revalidadas), IPv4, hostname y Asset existente. No escribe.
-El resultado separa requester, person, devices y warnings; cada ficha contiene
-data, provenance y confidence. Los dispositivos separan detected_user y
-novadesk_assets.responsible. Nunca equipara solicitante, contacto y custodio.
+`apps.integrations.technical_context.resolve_technical_context` sigue siendo el
+servicio de lectura compartido. Reutiliza GLPIClient (GET-only), búsqueda por IP,
+identidad institucional consolidada y activos locales por serie exacta. Separa
+solicitante local, identidad institucional, usuario detectado y custodio local.
+No escribe en GLPI, RR.HH., AD, User o Asset.
 
-Reutiliza lookup_ip, institutional_people, contact_search_terms y la consolidación
-AD/RRHH existente. Usa GLPIClient GET-only y whitelists institucionales existentes.
-Los activos locales se buscan por serie trim/uppercase exacta; si hay varios,
-ninguno se elige. El responsable local proviene de Asset.assigned_user, no GLPI.
-Sin IP, la búsqueda GLPI por Computer.name o contact es exacta tras el filtro
-parcial del servidor. Su confianza es PROBABLE; no inventa IP/MAC. No hay escaneo
-de red, selección por similitud o refresh automático de activos.
+## Consulta y revisión
 
-Al buscar hostname se consulta Computer.name: no se afirma que sea FQDN/DNS.
-La búsqueda inversa por persona consulta contact de Computer/Printer, no descubre
-todos los equipos relacionados mediante users_id. Es una limitación de esta
-primera iteración; la consulta por IP conserva el recorrido completo ya existente.
-Si la fuente no está disponible, se devuelven advertencias y se permite carga manual.
+El panel aparece solo en alta de escritorio para ADMIN, TECHNICIAN o superusuario.
+No consulta al abrir: exige IP/hostname y un clic. CLIENT y edición mantienen el
+flujo existente; en móvil el panel está oculto y no inicia peticiones.
 
-Tickets: endpoint GET protegido `/tickets/contexto-tecnico/`, solo ADMIN,
-TECHNICIAN o superusuario. El requester siempre es el usuario autenticado.
-CLIENT no tiene acceso a datos de otras personas. La respuesta no se cachea.
-No cambia ticket_create_view, TicketForm, requester, autoasignación, SLA,
-QuickActions, adjuntos, comentarios o notificaciones.
+La ficha ofrece secciones compactas y candidatos seleccionables. Ningún equipo,
+persona o activo se selecciona automáticamente, incluso si solo existe uno.
+El botón «Seleccionar equipo e incluir contexto revisado» confirma explícitamente
+el equipo y las opciones elegidas. «Quitar contexto» elimina la selección.
+No modifica description, asset, requester, responsable ni asignación.
 
-Un panel opcional aparece solo en alta de escritorio para esos perfiles. La
-consulta inicial sugiere datos del usuario actual; también permite revisar IP o
-hostname. No altera campos al llegar respuestas tardías. Múltiples candidatos
-aparecen por separado. El botón de selección de activo exige coincidencia local
-única y que ese activo ya esté en el queryset autorizado del formulario, que
-sigue limitado a equipos del solicitante. Los demás activos se muestran para
-revisión y permanecen sin asociar. PrintingDevice sigue seleccionándose manualmente.
+El endpoint autenticado `/tickets/contexto-tecnico/` valida IPv4/hostname, no cachea
+la respuesta y emite una referencia firmada que contiene exclusivamente la consulta,
+el identificador del actor y un hash del resultado. No contiene el resultado GLPI
+ni datos personales completos. Caduca en 30 minutos.
 
-Los datos institucionales se precargan como información de consulta, no nuevos
-campos del ticket. La asociación asset solo se rellena tras clic explícito.
-Título, problema, prioridad, categoría, impresora, documentos y demás datos
-operativos siguen bajo el flujo actual.
+Al crear, el servidor verifica firma, actor y caducidad, vuelve a resolver con el
+usuario autenticado y compara el resultado con el hash revisado. Verifica índices
+explícitos y construye el JSON con whitelist, sin aceptar snapshots enviados por JS.
+Si cambian los datos, hay un índice inválido o falla una fuente, crea el ticket sin
+snapshot y avisa. Este mecanismo prioriza evitar asociaciones no revisadas; incluso
+un cambio de orden de candidatos puede exigir repetir la consulta.
 
-Historia: Ticket no tiene snapshot técnico estructurado. ActivityLog tampoco
-es una ficha técnica inmutable. La alternativa menos invasiva en esta fase es
-el botón «Añadir contexto revisado a descripción», que conserva el texto manual
-y añade el bloque NOVADESK_TECHNICAL_CONTEXT_V1. Se guarda únicamente al enviar
-el formulario normal; es texto revisado por el autor, no prueba firmada ni
-historial inmutable. Los permisos/validación de FK existentes siguen vigentes.
-La fecha del ticket sitúa temporalmente la descripción; no se inventa fecha de
-inventario GLPI. No se crea migración.
+## Snapshot histórico
 
-Si se requiere snapshot independiente, inmutable, con auditoría y consulta por
-campos, será necesaria una propuesta de modelo/migración futura aprobada.
-No usar este bloque como prueba automática para cambiar custodia o identidades.
+Migración `tickets.0022_ticket_technical_context_snapshot`: único JSONField opcional,
+`null=True`, `blank=True`, `editable=False`. Aplicar mediante el procedimiento normal
+de despliegue antes de utilizar el código; no hay backfill de tickets históricos.
 
-La UI móvil existente y edición no incorporan el panel. Los errores y resultados
-usan mensajes seguros/whitelists, no respuestas completas ni credenciales.
-Los tests utilizan mocks y comprueban ausencia de escrituras, responsables
-distintos, selección explícita y protección de ediciones manuales.
+Estructura: `requester_identity`, `detected_user`, `device`, `novadesk_asset`, `metadata`.
+Personas: nombre, username, correo, teléfono, cargo, dependencia, ubicación, legajo,
+vínculo, fuentes y confianza cuando el resolver los proporciona. Equipo: tipo,
+nombre, hostname, IP, MAC, serie, ID GLPI, ubicación, fuentes y confianza. Activo:
+ID/código y responsable observado, sin alterar el FK asset del ticket. Metadata:
+actor revisor, fecha de validación/creación, versión y advertencias sanitizadas.
+Los campos no disponibles permanecen null; no se inventa legajo ni vínculo.
+
+El detalle muestra un desplegable únicamente cuando hay snapshot. No lo refresca
+contra las fuentes. La edición normal no incluye el campo ni lo recalcula.
+`requester` permanece el FK local para permisos, notificaciones y autorizaciones.
+
+Se retiró el botón que añadía `NOVADESK_TECHNICAL_CONTEXT_V1` a description. Los textos
+históricos existentes se conservan intactos; no hay limpieza automática.
+
+## Límites
+
+La búsqueda por hostname consulta Computer.name, sin afirmar que sea FQDN/DNS.
+No escanea la red. Contacto GLPI, usuario detectado y responsable NovaDesk no son
+equivalentes. Las fuentes pueden no aportar teléfono, legajo o vínculo. La revisión
+requiere un equipo seleccionado; una consulta sin equipo no genera snapshot.
+El snapshot se mantiene durante edición normal, pero no constituye almacenamiento
+inmutable frente a administradores de base de datos o actualizaciones ORM directas.
+
+Pruebas: creación real con/sin snapshot, firma/actor/cambios, candidatos múltiples,
+fallos de fuentes, permisos, separación de personas, whitelist, ausencia de escrituras
+en fuentes/activos y JS sin consulta inicial ni alteración de descripción/custodia.

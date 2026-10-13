@@ -57,6 +57,8 @@ class Ticket(models.Model):
         verbose_name="Título",
     )
 
+    technical_context_snapshot = models.JSONField(null=True, blank=True, editable=False)
+
     description = models.TextField(
         verbose_name="Descripción",
     )

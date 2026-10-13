@@ -7,6 +7,7 @@ from django.core.validators import RegexValidator
 
 from apps.accounts.access import roles_required
 from apps.integrations.technical_context import resolve_technical_context
+from .context_snapshot import review_token
 
 
 class ContextQueryForm(forms.Form):
@@ -24,7 +25,12 @@ def ticket_technical_context(request):
     form = ContextQueryForm(request.GET)
     if not form.is_valid():
         return JsonResponse({"error": "Datos de consulta invalidos."}, status=400)
+    if not form.cleaned_data.get("ip") and not form.cleaned_data.get("hostname"):
+        return JsonResponse({"error": "Ingrese IP o hostname."}, status=400)
     try:
-        return JsonResponse(resolve_technical_context(requester=request.user, **form.cleaned_data))
+        query = {key: form.cleaned_data[key] for key in ("ip", "hostname")}
+        context = resolve_technical_context(requester=request.user, **query)
+        context["review_token"] = review_token(context, request.user, query)
+        return JsonResponse(context)
     except Exception:
         return JsonResponse({"error": "Contexto tecnico no disponible. Puede continuar manualmente."}, status=503)
