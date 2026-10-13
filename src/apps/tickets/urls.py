@@ -1,4 +1,5 @@
 from django.urls import path
+from .technical_context_views import ticket_technical_context
 
 from .views import (
     dashboard_view,
@@ -19,6 +20,7 @@ from .views import (
 app_name = "tickets"
 
 urlpatterns = [
+    path("contexto-tecnico/", ticket_technical_context, name="technical_context"),
 
     path("", ticket_list_view, name="ticket_list"),
     path("nuevo/", ticket_create_view, name="ticket_create"),

@@ -136,9 +136,10 @@ class GLPIClient:
             params = {"range": f"{start}-{start + self.config.page_size - 1}",
                 "sort": "id", "order": "ASC", "expand_dropdowns": str(expand).lower(), "get_hateoas": "false"}
             if filters:
-                if endpoint != "IPAddress" or set(filters) != {"name"}:
+                allowed_filters = {"IPAddress": {"name"}, "Computer": {"name", "contact"}, "Printer": {"contact"}}
+                if endpoint not in allowed_filters or not set(filters).issubset(allowed_filters[endpoint]):
                     raise GLPIError("Filtro de lectura no permitido.")
-                params["searchText[name]"] = filters["name"]
+                params.update({f"searchText[{key}]": value for key, value in filters.items()})
             response = self.request(endpoint, params)
             content_range = response.headers.get("Content-Range", "").strip()
             if response.status_code == 416:

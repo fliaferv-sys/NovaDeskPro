@@ -1317,6 +1317,7 @@
                 </div>
               
 
+                {% include "tickets/technical_context.html" %}
                 {% for hidden in form.hidden_fields %}{{ hidden }}{% endfor %}
 
                 {% for field in form.visible_fields %}
@@ -1396,6 +1397,7 @@
     {% endfor %}
 </div>
 
+<script src="{% static 'tickets/js/technical_context.js' %}" defer></script>
 <script>
     let departamentoActual = 'SUPPORT';
     let categoriaSeleccionada = '';
