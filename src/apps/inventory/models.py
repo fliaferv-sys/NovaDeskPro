@@ -357,6 +357,13 @@ class Asset(models.Model):
     # CUSTODIO DEL ACTIVO
     # ======================================================
 
+    custodian_identity = models.JSONField(default=dict, blank=True, editable=False)
+
+    @property
+    def custodian_display_name(self):
+        from apps.directory.person_references import person_name
+        return person_name(self.custodian_identity, self.assigned_user)
+
     assigned_user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -538,6 +545,8 @@ class Asset(models.Model):
 
     def clean(self):
         super().clean()
+        from apps.directory.person_references import validate_person_reference
+        validate_person_reference(self.custodian_identity, self.assigned_user_id)
 
         parent_asset = self.parent_asset
         if parent_asset is None:
@@ -1215,6 +1224,13 @@ class StockMovement(models.Model):
         related_name="inventory_stock_movements",
         verbose_name="Registrado por",
     )
+    recipient_identity = models.JSONField(default=dict, blank=True, editable=False)
+
+    @property
+    def recipient_display_name(self):
+        from apps.directory.person_references import person_name
+        return person_name(self.recipient_identity, self.recipient)
+
     recipient = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
@@ -1258,6 +1274,8 @@ class StockMovement(models.Model):
 
     def clean(self):
         super().clean()
+        from apps.directory.person_references import validate_person_reference
+        validate_person_reference(self.recipient_identity, self.recipient_id)
         if self.balance_id and self.product_id != self.balance.product_id:
             raise ValidationError(
                 {"product": "El producto debe coincidir con el saldo seleccionado."}
@@ -1420,7 +1438,14 @@ class StockDelivery(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     number = models.CharField("Número", max_length=30, unique=True, editable=False)
     status = models.CharField("Estado", max_length=20, choices=Status.choices, default=Status.DRAFT)
-    recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="received_stock_deliveries")
+    recipient_identity = models.JSONField(default=dict, blank=True, editable=False)
+
+    @property
+    def recipient_display_name(self):
+        from apps.directory.person_references import person_name
+        return person_name(self.recipient_identity, self.recipient)
+
+    recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="received_stock_deliveries", blank=True, null=True)
     recipient_name = models.CharField("Nombre histórico del receptor", max_length=180, blank=True)
     recipient_document = models.CharField("Documento del receptor", max_length=50, blank=True)
     department = models.ForeignKey("core.Department", on_delete=models.PROTECT, related_name="stock_deliveries")
@@ -1446,7 +1471,15 @@ class StockDelivery(models.Model):
         verbose_name = "Entrega de stock"
         verbose_name_plural = "Entregas de stock"
 
+    def clean(self):
+        super().clean()
+        from apps.directory.person_references import validate_person_reference
+        validate_person_reference(self.recipient_identity, self.recipient_id)
+        if not self.recipient_id and not self.recipient_identity:
+            raise ValidationError({"recipient": "Seleccione una persona o una cuenta local."})
+
     def save(self, *args, **kwargs):
+        self.clean()
         if self.pk and not self._state.adding:
             previous = type(self).objects.filter(pk=self.pk).values("status").first()
             if previous and previous["status"] == self.Status.COMPLETED:
@@ -1766,10 +1799,18 @@ class ToolLoan(models.Model):
         editable=False,
     )
 
+    borrower_identity = models.JSONField(default=dict, blank=True, editable=False)
+
+    @property
+    def borrower_display_name(self):
+        from apps.directory.person_references import person_name
+        return person_name(self.borrower_identity, self.borrower)
+
     borrower = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
         related_name="tool_loans",
+        blank=True, null=True,
         verbose_name="Persona que retira",
     )
 
@@ -1848,6 +1889,10 @@ class ToolLoan(models.Model):
 
     def clean(self):
         super().clean()
+        from apps.directory.person_references import validate_person_reference
+        validate_person_reference(self.borrower_identity, self.borrower_id)
+        if not self.borrower_id and not self.borrower_identity:
+            raise ValidationError({"borrower": "Seleccione una persona o una cuenta local."})
 
         if (
             self.loaned_at
@@ -1874,9 +1919,8 @@ class ToolLoan(models.Model):
                     f"HER-PRE-{next_business_number('tool-loan'):06d}"
                 )
 
-            if not self.borrower_name and self.borrower_id:
-                full_name = self.borrower.get_full_name().strip()
-                self.borrower_name = full_name or self.borrower.username
+            if not self.borrower_name:
+                self.borrower_name = self.borrower_display_name
 
             self.full_clean()
             return super().save(*args, **kwargs)

@@ -3,6 +3,7 @@
 # NOVADESK PRO — SPRINT 19
 # ==========================================================
 
+from django.conf import settings
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -153,7 +154,7 @@ class CustomUserAdmin(UserAdmin):
             validate_email(email)
         except ValidationError:
             return JsonResponse({"status": "invalid"}, status=400)
-        if email.rsplit("@", 1)[-1] != "petropar.gov.py":
+        if email.rsplit("@", 1)[-1] != settings.DIRECTORY_AD_DOMAIN.casefold():
             return JsonResponse({"status": "not_found"})
         try:
             identity = find_institutional_identity_by_email(email)

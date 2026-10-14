@@ -1,3 +1,4 @@
+from apps.directory.person_references import enrich_person_records
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -214,7 +215,8 @@ def printing_devices_by_model(request):
         PrintingDevice.objects
         .select_related(
             "asset",
-            "responsible_user",
+            "responsible_user__organizational_unit",
+            "responsible_user__branch",
             "asset__branch",
             "asset__physical_location",
             "branch",
@@ -256,6 +258,7 @@ def printing_devices_by_model(request):
     has_offline = offline > 0
     has_unknown = unknown > 0
 
+    devices = enrich_person_records(devices, "responsible_identity", "responsible_user")
     context = {
         "devices": devices,
         "brand": brand,
@@ -284,7 +287,8 @@ def printing_device_detail(request, pk):
     device = get_object_or_404(
         PrintingDevice.objects.select_related(
             "asset",
-            "responsible_user",
+            "responsible_user__organizational_unit",
+            "responsible_user__branch",
             "asset__assigned_user",
             "asset__branch",
             "asset__physical_location",
@@ -294,6 +298,7 @@ def printing_device_detail(request, pk):
         pk=pk,
     )
 
+    enrich_person_records([device], "responsible_identity", "responsible_user")
     context = {
         "device": device,
         "devices": [device],

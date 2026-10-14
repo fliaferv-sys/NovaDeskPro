@@ -10,7 +10,7 @@ from apps.integrations.technical_context import resolve_technical_context
 from apps.integrations.automatic_context import resolve_automatic_context, automatic_selection
 
 PERSON_FIELDS = ("full_name", "username", "email", "phone", "position", "department",
-                 "location", "employee_number", "employment_type")
+                 "location", "employee_number", "employment_type", "organizational_unit", "branch")
 DEVICE_FIELDS = ("type", "name", "hostname", "mac", "serial", "location")
 SALT = "tickets.reviewed-context.v1"
 
@@ -99,7 +99,7 @@ def build_snapshot(user, selection):
             "novadesk_asset": {"asset_id": safe_text(asset.get("id")), "code": safe_text(asset.get("code")),
                                "responsible_identity": {key: safe_text((asset.get("responsible") or {}).get(key)) for key in PERSON_FIELDS}} if asset else None,
             "metadata": {"reviewed_by": str(user.pk), "reviewed_at": timezone.now().isoformat(),
-                         "resolver_version": "1", "warnings": [safe_text(w) for w in context.get("warnings", []) if safe_text(w)]},
+                         "resolver_version": "2", "warnings": [safe_text(w) for w in context.get("warnings", []) if safe_text(w)]},
         }
         snapshot["device"]["association_confidence"] = safe_text(device.get("association_confidence"))
         snapshot["metadata"]["association_mode"] = "AUTOMATICA" if (

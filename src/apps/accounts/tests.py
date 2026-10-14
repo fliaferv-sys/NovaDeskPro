@@ -1053,12 +1053,12 @@ class AdminInstitutionalLookupTests(TestCase):
         self.assertEqual(self.lookup().status_code, 302)
 
     @patch("apps.accounts.admin.find_institutional_identity_by_email")
-    def test_department_requires_unique_active_exact_location(self, lookup):
+    def test_institutional_location_never_autocompletes_operational_department(self, lookup):
         from apps.core.models import Department
         department = Department.objects.create(name="Sede", code="LOOKUP-1")
         lookup.return_value = {"location": " sede "}
         fields = self.lookup().json()["fields"]
-        self.assertEqual(fields["department"]["value"], str(department.pk))
+        self.assertNotIn("department", fields)
         Department.objects.create(name="SEDE", code="LOOKUP-2")
         self.assertNotIn("department", self.lookup().json()["fields"])
 

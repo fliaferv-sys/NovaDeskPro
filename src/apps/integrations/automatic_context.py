@@ -6,7 +6,7 @@ from .glpi_diagnostics import serial_key
 
 def resolve_automatic_context(requester):
     context = resolve_technical_context(requester=requester)
-    owned = list(Asset.objects.filter(assigned_user=requester).select_related("assigned_user").order_by("pk"))
+    owned = list(Asset.objects.filter(assigned_user=requester).select_related("assigned_user__department", "assigned_user__organizational_unit", "assigned_user__branch").order_by("pk"))
     devices = context["devices"]
     for device in devices:
         # Contact evidence remains probable. Only an explicit unique local link

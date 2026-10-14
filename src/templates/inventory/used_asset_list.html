@@ -71,8 +71,8 @@
                             <td>{{ asset.full_location }}</td>
                             <td>{{ asset.used_custody_situation_label }}</td>
                             <td>
-                                {% if asset.assigned_user %}
-                                    {{ asset.assigned_user.get_full_name|default:asset.assigned_user.username }}
+                                {% if asset.custodian_display_name %}
+                                    {{ asset.custodian_display_name }}
                                 {% else %}
                                     —
                                 {% endif %}

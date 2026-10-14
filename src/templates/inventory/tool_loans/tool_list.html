@@ -28,7 +28,7 @@
                 <td>{{ tool.category|default:"-" }}</td><td>{{ tool.brand|default:"-" }} {{ tool.model }}</td>
                 <td><span class="tools-badge tools-status-{{ tool.status|lower }}">{{ tool.get_status_display }}</span>{% if tool.has_overdue_loan %} <span class="tools-badge tools-badge-danger">Vencida</span>{% endif %}</td>
                 {% with loan=tool.display_loan %}
-                <td>{% if loan %}<strong class="tools-loan-owner">{{ loan.borrower_name|default:loan.borrower }}</strong>{% else %}-{% endif %}</td>
+                <td>{% if loan %}<strong class="tools-loan-owner">{{ loan.borrower_name|default:loan.borrower_display_name }}</strong>{% else %}-{% endif %}</td>
                 <td>{% if loan %}{{ loan.loaned_at|date:"d/m/Y H:i" }}{% else %}-{% endif %}</td>
                 <td>{% if loan %}<strong class="tools-loan-due{% if tool.has_overdue_loan %} tools-loan-due-overdue{% endif %}">{{ loan.expected_return_at|date:"d/m/Y H:i" }}</strong>{% else %}-{% endif %}</td>
                 <td>{{ tool.branch.name }}</td><td>{{ tool.organizational_location|default:"-" }}</td>

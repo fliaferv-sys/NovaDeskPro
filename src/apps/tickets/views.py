@@ -755,6 +755,7 @@ def ticket_detail_view(request, pk):
             "requester",
             "requester__department",
             "requester__organizational_unit",
+            "requester__branch",
         ),
         pk=pk,
     )
@@ -1469,41 +1470,20 @@ def ticket_detail_view(request, pk):
         reverse=True,
     )
 
+    from apps.directory.identity_services import resolve_identity_for_user
+    identity = resolve_identity_for_user(ticket.requester)
+    unit = identity.get("organizational_unit") or {}
     requester_profile = {
-        "full_name": ticket.requester.get_full_name().strip()
-        or ticket.requester.email,
-        "email": ticket.requester.email,
-        "phone": ticket.requester.phone,
-        "location": (
-            str(ticket.requester.department)
-            if ticket.requester.department
-            else None
-        ),
-        "position": ticket.requester.position,
-        "id_personal": ticket.requester.id_personal,
-        "source": "local",
+        "full_name": identity.get("name") or ticket.requester.get_full_name().strip() or ticket.requester.email,
+        "email": identity.get("email") or ticket.requester.email,
+        "phone": ticket.requester.phone or identity.get("phone"),
+        "position": ticket.requester.position or identity.get("position"),
+        "location": identity.get("location"),
+        "organizational_unit": unit.get("name"),
+        "branch": ticket.requester.branch.name if ticket.requester.branch_id else None,
+        "id_personal": identity.get("id_personal"),
+        "source": identity.get("source_label") or identity.get("source"),
     }
-
-    if ticket.requester.id_personal:
-        try:
-            directory_employee = get_directory_employee_by_id_personal(
-                ticket.requester.id_personal
-            )
-        except DirectoryDatabaseError:
-            directory_employee = None
-
-        if directory_employee:
-            requester_profile.update(
-                {
-                    "full_name": directory_employee["NombresApellidos"],
-                    "email": directory_employee["Mail"],
-                    "phone": directory_employee["Telefono"],
-                    "location": directory_employee["Ubicacion"],
-                    "position": directory_employee["Cargo"],
-                    "id_personal": directory_employee["IdPersonal"],
-                    "source": "directory",
-                }
-            )
 
     return render(
         request,

@@ -344,7 +344,7 @@
                                 <td>
                                     {% if device.responsible_display_name %}
                                         {{ device.responsible_display_name }}
-                                        {% if device.responsible_display_email %}<br><small>{{ device.responsible_display_email }}</small>{% endif %}
+                                        {% if device.responsible_display_email %}<br><small>{{ device.responsible_display_email }}</small>{% endif %}<br><small>Dependencia institucional: {{ device.person_unit|default:"Sin asignar" }} · Sede de la persona: {{ device.person_branch|default:"Sin asignar" }}</small>
                                     {% else %}
                                         <span style="color:#667085;">Sin asignar</span>
                                     {% endif %}

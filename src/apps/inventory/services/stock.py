@@ -62,6 +62,7 @@ def register_stock_movement(
     performed_by,
     movement_date=None,
     recipient=None,
+    recipient_identity=None,
     department=None,
     ticket=None,
     observation="",
@@ -86,6 +87,8 @@ def register_stock_movement(
         raise ValidationError({"performed_by": "Debe indicar el usuario que registra el movimiento."})
     if recipient is not None and not isinstance(recipient, User):
         raise ValidationError({"recipient": "El destinatario no es válido."})
+    from apps.directory.person_references import validate_person_reference
+    validate_person_reference(recipient_identity, recipient.pk if recipient else None)
     if department is not None and not isinstance(department, Department):
         raise ValidationError({"department": "El departamento no es válido."})
     if ticket is not None and not isinstance(ticket, Ticket):
@@ -125,6 +128,7 @@ def register_stock_movement(
         "reason": reason,
         "performed_by": performed_by,
         "recipient": recipient,
+        "recipient_identity": recipient_identity or {},
         "department": department,
         "ticket": ticket,
         "observation": observation,
@@ -396,7 +400,7 @@ def prepare_stock_delivery(*, delivery):
     lines = list(locked.lines.select_related("product"))
     if not lines:
         raise ValidationError({"lines": "Debe agregar al menos un producto."})
-    recipient_name = locked.recipient.get_full_name().strip() or locked.recipient.get_username()
+    recipient_name = locked.recipient_display_name
     StockDelivery.objects.filter(pk=locked.pk).update(
         status=StockDelivery.Status.PREPARED,
         recipient_name=recipient_name,
@@ -422,7 +426,7 @@ def complete_stock_delivery(*, delivery, completed_by):
     ).get(pk=delivery.pk)
     if locked.status not in {StockDelivery.Status.PREPARED, StockDelivery.Status.PENDING_SIGNATURE}:
         raise ValidationError({"status": "La entrega debe estar preparada."})
-    if not locked.recipient_id:
+    if not locked.recipient_id and not locked.recipient_identity:
         raise ValidationError({"recipient": "Debe indicar el receptor."})
     lines = list(locked.lines.select_related("product", "source_branch", "source_location"))
     if not lines:
@@ -454,6 +458,7 @@ def complete_stock_delivery(*, delivery, completed_by):
             reason=StockMovement.Reason.DELIVERY,
             performed_by=completed_by,
             recipient=locked.recipient,
+            recipient_identity=locked.recipient_identity,
             department=locked.department,
             observation=locked.observations,
             document_reference=locked.number,

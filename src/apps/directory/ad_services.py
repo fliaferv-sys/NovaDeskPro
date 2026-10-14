@@ -270,7 +270,9 @@ def get_ad_user_by_email(email):
     )
 
     if _use_windows_integrated_authentication():
-        users = _windows_search(search_filter, 1)
+        users = _windows_search(search_filter, 2)
+        if len(users) > 1:
+            raise ActiveDirectoryError("El correo de Active Directory es ambiguo.")
         return users[0] if users else None
 
     try:
@@ -279,10 +281,12 @@ def get_ad_user_by_email(email):
                 search_base=settings.DIRECTORY_AD_BASE_DN,
                 search_filter=search_filter,
                 attributes=_AD_USER_ATTRIBUTES,
-                size_limit=1,
+                size_limit=2,
             )
             if not connection.entries:
                 return None
+            if len(connection.entries) > 1:
+                raise ActiveDirectoryError("El correo de Active Directory es ambiguo.")
             return _entry_to_user(connection.entries[0])
     except LDAPException as exc:
         raise ActiveDirectoryError(_GENERIC_AD_ERROR) from exc

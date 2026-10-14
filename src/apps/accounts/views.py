@@ -181,6 +181,7 @@ def profile_view(request):
         .get(pk=request.user.pk)
     )
 
+    enrich_user_list([user])
     return render(
         request,
         "accounts/profile.html",

@@ -163,3 +163,21 @@ class PrintingResponsibleIdentityTests(TestCase):
             form = self.model_admin.get_form(self.request)(data=self.data(institutional_identity_ref=reference))
             self.assertFalse(form.is_valid())
             resolver.assert_called_once()
+
+    def test_person_dependency_is_central_and_equipment_branch_is_preserved_on_get(self):
+        from apps.accounts.models import Branch
+        branch = Branch.objects.create(code="PRINT-PERSON-BRANCH", name="Sede del equipo")
+        snapshot = {"name": "Persona Institucional", "email": "persona@petropar.gov.py",
+                    "locator": {"source": "RRHH", "id": 73}, "source": "RRHH"}
+        device = PrintingDevice.objects.create(is_outsourced=False, branch=branch, responsible_identity=snapshot)
+        identity = {"id_personal": 73, "is_active": True, "email": snapshot["email"],
+                    "organizational_unit": {"name": "Dependencia de la persona"}}
+        before = PrintingDevice.objects.values().get(pk=device.pk)
+        with patch("apps.directory.identity_services.get_institutional_directory", return_value=[identity]) as lookup:
+            response = self.client.get(reverse("printing:device_detail", args=[device.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Dependencia de la persona")
+        self.assertContains(response, "Sede de la persona: Sin asignar")
+        self.assertContains(response, "Sede del equipo")
+        self.assertEqual(PrintingDevice.objects.values().get(pk=device.pk), before)
+        lookup.assert_called_once()

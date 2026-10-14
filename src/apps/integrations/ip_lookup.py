@@ -4,6 +4,7 @@ import re
 from django.conf import settings
 
 from apps.directory.identity_services import search_common_identities, consolidate_institutional_identities
+from apps.institution.identity_organization import organization_scope
 from apps.directory.identity_policies import technical_ip_identity_payload
 from .glpi_client import GLPIClient, GLPIConfig, GLPIError
 from .glpi_diagnostic_stage import DiagnosticStage
@@ -48,6 +49,7 @@ def contact_search_terms(value, hint=None):
     return terms
 
 
+@organization_scope
 def institutional_people(user, emails, contact, *, context_fields=False):
     terms = [(email, "email") for email in emails if isinstance(email, str) and email.strip()]
     username = (user or {}).get("name")

@@ -593,10 +593,24 @@ class OrganizationalUnit(models.Model):
     def __str__(self):
         return self.name
 
+    def clean(self):
+        super().clean()
+        parents = dict(type(self).objects.values_list("pk", "parent_id"))
+        current, seen = self.parent_id, {self.pk} if self.pk else set()
+        while current is not None:
+            if current in seen:
+                raise ValidationError({"parent": "La jerarquía institucional no puede contener ciclos."})
+            seen.add(current)
+            current = parents.get(current)
+
     def get_superior_directorate(self):
         current = self.parent
+        seen = {self.pk}
 
         while current is not None:
+            if current.pk in seen:
+                return None
+            seen.add(current.pk)
             if current.unit_type == self.UnitType.DIRECTORATE:
                 return current
             current = current.parent

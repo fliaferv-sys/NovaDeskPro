@@ -1,3 +1,4 @@
+from .person_forms import InventoryPersonAdminMixin
 # ==========================================================
 # ADMINISTRACIÓN DEL INVENTARIO
 # NOVADESK PRO — SPRINT 19
@@ -194,7 +195,12 @@ class AcquisitionBatchAdmin(admin.ModelAdmin):
 # ==========================================================
 
 @admin.register(Asset)
-class AssetAdmin(admin.ModelAdmin):
+class AssetAdmin(InventoryPersonAdminMixin, admin.ModelAdmin):
+    identity_kind = 'asset'
+    person_field = 'assigned_user'
+    snapshot_field = 'custodian_identity'
+    person_required = False
+
 
     list_display = (
         "internal_code",
@@ -673,7 +679,12 @@ class StockDeliveryLineInline(admin.TabularInline):
 
 
 @admin.register(StockDelivery)
-class StockDeliveryAdmin(admin.ModelAdmin):
+class StockDeliveryAdmin(InventoryPersonAdminMixin, admin.ModelAdmin):
+    identity_kind = 'delivery'
+    person_field = 'recipient'
+    snapshot_field = 'recipient_identity'
+    person_required = True
+
     list_display = ("number", "delivery_date", "recipient", "department", "status", "delivery_responsible", "completed_by")
     list_filter = ("status", "department", "branch", "delivery_date")
     search_fields = ("number", "recipient_name", "department_name", "recipient__username")
@@ -906,7 +917,12 @@ class ToolLoanAdminForm(forms.ModelForm):
 
 
 @admin.register(ToolLoan)
-class ToolLoanAdmin(admin.ModelAdmin):
+class ToolLoanAdmin(InventoryPersonAdminMixin, admin.ModelAdmin):
+    identity_kind = 'loan'
+    person_field = 'borrower'
+    snapshot_field = 'borrower_identity'
+    person_required = True
+
     form = ToolLoanAdminForm
     list_display = (
         "number",

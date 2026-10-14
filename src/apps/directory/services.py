@@ -182,43 +182,45 @@ def search_directory_employees(query="", limit=100, *, exact_email=False, search
 
 
 def get_directory_employee_by_id_personal(id_personal):
-	if isinstance(id_personal, bool):
-		raise ValueError("IdPersonal debe ser un entero positivo.")
+    if isinstance(id_personal, bool):
+        raise ValueError("IdPersonal debe ser un entero positivo.")
 
-	if isinstance(id_personal, int):
-		validated_id = id_personal
-	elif isinstance(id_personal, str):
-		id_text = id_personal.strip()
-		if not id_text or not id_text.isascii() or not id_text.isdecimal():
-			raise ValueError("IdPersonal debe ser un entero positivo.")
-		try:
-			validated_id = int(id_text)
-		except ValueError as exc:
-			raise ValueError("IdPersonal debe ser un entero positivo.") from exc
-	else:
-		raise ValueError("IdPersonal debe ser un entero positivo.")
+    if isinstance(id_personal, int):
+        validated_id = id_personal
+    elif isinstance(id_personal, str):
+        id_text = id_personal.strip()
+        if not id_text or not id_text.isascii() or not id_text.isdecimal():
+            raise ValueError("IdPersonal debe ser un entero positivo.")
+        try:
+            validated_id = int(id_text)
+        except ValueError as exc:
+            raise ValueError("IdPersonal debe ser un entero positivo.") from exc
+    else:
+        raise ValueError("IdPersonal debe ser un entero positivo.")
 
-	if validated_id <= 0:
-		raise ValueError("IdPersonal debe ser un entero positivo.")
+    if validated_id <= 0:
+        raise ValueError("IdPersonal debe ser un entero positivo.")
 
-	columns = ", ".join(_DIRECTORY_COLUMNS)
-	sql = (
-		f"SELECT {columns} "
-		"FROM dbo.FuncionariosFotosVista "
-		"WHERE IdPersonal = ?"
-	)
+    columns = ", ".join(_DIRECTORY_COLUMNS)
+    sql = (
+        f"SELECT TOP (2) {columns} "
+        "FROM dbo.FuncionariosFotosVista "
+        "WHERE IdPersonal = ?"
+    )
 
-	try:
-		connection = _open_directory_connection()
-		with closing(connection):
-			with closing(connection.cursor()) as cursor:
-				cursor.execute(sql, validated_id)
-				row = cursor.fetchone()
+    try:
+        connection = _open_directory_connection()
+        with closing(connection):
+            with closing(connection.cursor()) as cursor:
+                cursor.execute(sql, validated_id)
+                rows = cursor.fetchall()
 
-		if row is None:
-			return None
-		return dict(zip(_DIRECTORY_COLUMNS, row))
-	except pyodbc.Error as exc:
-		raise DirectoryDatabaseError(
-			"No fue posible consultar el funcionario en el directorio."
-		) from exc
+        if not rows:
+            return None
+        if len(rows) > 1:
+            raise DirectoryDatabaseError("El identificador de RR.HH. es ambiguo.")
+        return dict(zip(_DIRECTORY_COLUMNS, rows[0]))
+    except pyodbc.Error as exc:
+        raise DirectoryDatabaseError(
+            "No fue posible consultar el funcionario en el directorio."
+        ) from exc

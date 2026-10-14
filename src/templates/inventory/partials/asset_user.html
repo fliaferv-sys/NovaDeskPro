@@ -1,74 +1,11 @@
-<!-- ======================================================
-     USUARIO ASIGNADO
-     ====================================================== -->
-
-     <div class="table-card">
-
-        <h3>👤 Usuario asignado</h3>
-    
-        {% if asset.assigned_user %}
-    
-            <div class="requester-box compact">
-    
-                <div>
-    
-                    {% if asset.assigned_user.profile_image %}
-    
-                        <img
-                            src="{{ asset.assigned_user.profile_image.url }}"
-                            class="profile-img"
-                            alt="Imagen del usuario">
-    
-                    {% else %}
-    
-                        <div class="profile-placeholder">
-                            {{ asset.assigned_user.first_name|first }}{{ asset.assigned_user.last_name|first }}
-                        </div>
-    
-                    {% endif %}
-    
-                </div>
-    
-                <div>
-    
-                    <p>
-                        <strong>
-                            {{ asset.assigned_user.first_name }}
-                            {{ asset.assigned_user.last_name }}
-                        </strong>
-                    </p>
-    
-                    <p>{{ asset.assigned_user.email }}</p>
-    
-                    <p>
-                        📞 {{ asset.assigned_user.phone|default:"No registrado" }}
-                    </p>
-    
-                    <p>
-                        🏢
-                        {% if asset.department %}
-                            {{ asset.department }}
-                        {% elif asset.assigned_user.department %}
-                            {{ asset.assigned_user.department }}
-                        {% else %}
-                            No registrado
-                        {% endif %}
-                    </p>
-    
-                    <p>
-                        📍 {{ asset.location|default:"No registrada" }}
-                    </p>
-    
-                </div>
-    
-            </div>
-    
-        {% else %}
-    
-            <p class="page-subtitle">
-                Este equipo todavía no tiene un usuario asignado.
-            </p>
-    
-        {% endif %}
-    
-    </div>
+<div class="table-card">
+<h3>Persona custodio</h3>
+{% if asset.custodian_display_name %}
+<p><strong>{{ asset.custodian_display_name }}</strong></p>
+<p>{{ asset.custodian_identity.email|default:asset.assigned_user.email }}</p>
+{% if asset.person_identity.photo_url %}<img src="{{ asset.person_identity.photo_url }}" class="profile-img" alt="Foto institucional">{% endif %}
+<p>Dependencia institucional: {{ asset.person_unit|default:"Sin asignar" }}</p>
+<p>Sede de la persona: {{ asset.person_branch|default:"Sin asignar" }}</p>
+{% if asset.assigned_user %}<p>Cuenta local: {{ asset.assigned_user.username }}</p><p>Equipo de atención: {{ asset.assigned_user.department|default:"Sin asignar" }}</p>{% endif %}
+{% else %}<p class="page-subtitle">Este equipo todavía no tiene una persona asignada.</p>{% endif %}
+</div>
