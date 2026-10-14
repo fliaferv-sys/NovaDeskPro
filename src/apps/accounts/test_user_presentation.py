@@ -1,14 +1,43 @@
 from pathlib import Path
+from html.parser import HTMLParser
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from apps.accounts.models import User
 from apps.accounts.user_presentation import enrich_user_list
 from apps.directory.identity_services import get_user_photo_url
 from apps.directory.services import DirectoryDatabaseError
+from apps.accounts.tests import TEST_STORAGES
+
+
+class UserRowParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.cells = []
+        self.in_row = False
+        self.in_cell = False
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "tr" and "data-user-row" in dict(attrs):
+            self.in_row = True
+        if tag == "td" and self.in_row:
+            self.in_cell = True
+            self.cells.append("")
+
+    def handle_data(self, data):
+        if self.in_cell:
+            self.cells[-1] += data
+
+    def handle_endtag(self, tag):
+        if tag == "td":
+            self.in_cell = False
+        if tag == "tr":
+            self.in_row = False
 
 
 class UserPresentationTests(TestCase):
@@ -31,7 +60,7 @@ class UserPresentationTests(TestCase):
         self.assertEqual(self.user.display_employee_number, "1002")
         self.assertEqual(self.user.display_phone, "123456")
         self.assertEqual(self.user.display_position, "Cargo institucional")
-        self.assertEqual(self.user.display_location, "")
+        self.assertEqual(self.user.display_location, "Secretaría")
         self.assertEqual(self.user.institutional_source, "AD + RR.HH.")
         self.assertEqual(User.objects.values().get(pk=self.user.pk), before)
         self.assertEqual(User.objects.count(), 1)
@@ -49,6 +78,7 @@ class UserPresentationTests(TestCase):
                            [dict(self.identity, email="other@petropar.gov.py")]):
             self.enrich(identities)
             self.assertEqual(self.user.display_phone, "")
+            self.assertEqual(self.user.display_location, "")
 
     def test_id_personal_conflict_rejected(self):
         self.user.id_personal = 99
@@ -105,14 +135,57 @@ class UserPresentationTests(TestCase):
         self.assertEqual(self.user.display_branch, branch)
         self.assertEqual(self.user.display_unit, unit)
         self.assertEqual(self.user.display_department, department)
+        self.assertEqual(self.user.display_location, "Secretaría")
         self.user.branch = self.user.organizational_unit = self.user.department = None
         self.enrich()
         self.assertEqual(self.user.display_branch, "")
         self.assertEqual(self.user.display_unit, "")
         self.assertEqual(self.user.display_department, "")
+        self.assertEqual(self.user.display_location, "Secretaría")
 
     def test_inactive_or_identifier_conflicting_person_is_not_presented(self):
         for identity in (dict(self.identity, is_active=False), dict(self.identity, username="otra")):
             self.enrich([identity])
             self.assertEqual(self.user.display_phone, "")
             self.assertEqual(self.user.institutional_source, "")
+            self.assertEqual(self.user.display_location, "")
+
+    @override_settings(STORAGES=TEST_STORAGES)
+    def test_location_column_is_institutional_independent_and_get_does_not_write(self):
+        from apps.accounts.models import Branch
+        from apps.core.models import Department
+        from apps.institution.models import OrganizationalUnit
+        self.user.branch = Branch.objects.create(code="LOCATION-BRANCH", name="Sede local")
+        self.user.organizational_unit = OrganizationalUnit.objects.create(
+            code="LOCATION-UNIT", name="Dependencia local", unit_type="UNIT")
+        self.user.department = Department.objects.create(code="LOCATION-TEAM", name="Equipo operativo")
+        self.user.save(update_fields=["branch", "organizational_unit", "department"])
+        self.client.force_login(self.user)
+        before = User.objects.values().get(pk=self.user.pk)
+        for location, expected in (("Ubicación RRHH", "Ubicación RRHH"), ("", "Sin registrar"),
+                                   (None, "Sin registrar"), ("   ", "Sin registrar")):
+            identity = dict(self.identity, location=location, organizational_unit={"name": "Mapping institucional"})
+            with self.subTest(location=location), patch(
+                "apps.accounts.user_presentation.get_institutional_directory", return_value=[identity]
+            ), patch("apps.accounts.institutional_sync.try_sync_user_institutional_data") as sync, CaptureQueriesContext(connection) as queries:
+                response = self.client.get(reverse("user_list"))
+            self.assertEqual(response.status_code, 200)
+            self.assertContains(response, "<th>Ubicación</th>", html=True)
+            self.assertNotContains(response, "<th>Sede o planta</th>", html=True)
+            parser = UserRowParser()
+            parser.feed(response.content.decode())
+            cells = [" ".join(cell.split()) for cell in parser.cells]
+            self.assertEqual(cells[3], expected)
+            self.assertEqual(cells[4], "Dependencia local")
+            self.assertEqual(cells[5], "Equipo operativo")
+            self.assertNotContains(response, "Sede local")
+            self.assertEqual(User.objects.values().get(pk=self.user.pk), before)
+            self.assertFalse(any(query["sql"].lstrip().upper().startswith(("INSERT", "UPDATE", "DELETE")) for query in queries))
+            sync.assert_not_called()
+
+    def test_location_does_not_replace_safe_institutional_unit_mapping(self):
+        self.identity["organizational_unit"] = {"name": "Dependencia por mapping"}
+        self.enrich()
+        self.assertEqual(self.user.display_location, "Secretaría")
+        self.assertEqual(self.user.display_unit, "Dependencia por mapping")
+        self.assertEqual(self.user.display_department, "")
