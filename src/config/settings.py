@@ -364,3 +364,7 @@ STORAGES = {
         "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
     },
 }
+
+# Printer connectivity: schedule monitor_printers separately from web requests.
+PRINTING_MONITOR_TIMEOUT_SECONDS = float(os.environ.get("PRINTING_MONITOR_TIMEOUT_SECONDS", "1"))
+PRINTING_MONITOR_MAX_AGE_SECONDS = int(os.environ.get("PRINTING_MONITOR_MAX_AGE_SECONDS", "900"))

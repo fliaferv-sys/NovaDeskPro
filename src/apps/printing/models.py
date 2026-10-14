@@ -11,6 +11,30 @@ from django.utils import timezone
 
 
 class PrintingDevice(models.Model):
+    class ConnectionStatus(models.TextChoices):
+        ONLINE = "ONLINE", "En línea"
+        OFFLINE = "OFFLINE", "Fuera de línea"
+        UNKNOWN = "UNKNOWN", "Desconocido"
+
+    connection_status = models.CharField(max_length=20, choices=ConnectionStatus.choices,
+                                         default=ConnectionStatus.UNKNOWN, editable=False)
+    monitored_ip = models.GenericIPAddressField(protocol="IPv4", null=True, blank=True, editable=False)
+    last_checked_at = models.DateTimeField(null=True, blank=True, editable=False)
+    last_online_at = models.DateTimeField(null=True, blank=True, editable=False)
+    last_status_change_at = models.DateTimeField(null=True, blank=True, editable=False)
+    monitor_method = models.CharField(max_length=20, blank=True, editable=False)
+    monitor_error = models.CharField(max_length=100, blank=True, editable=False)
+    monitor_evidence = models.JSONField(default=dict, blank=True, editable=False)
+
+    @property
+    def effective_connection_status(self):
+        from .connectivity import effective_status
+        return effective_status(self)
+
+    @property
+    def connection_status_label(self):
+        return self.ConnectionStatus(self.effective_connection_status).label
+
     class DeviceType(models.TextChoices):
         PRINTER = "PRINTER", "Impresora"
         MULTIFUNCTION = "MULTIFUNCTION", "Multifuncional"
