@@ -114,17 +114,17 @@
 
         <div class="psline-kpi-card success">
             <span>En línea</span>
-            <strong>{{ online_devices }}</strong>
+            <strong><a href="{% url 'printing:devices_by_model' %}?status=ONLINE" style="color:inherit">{{ online_devices }}</a></strong>
         </div>
 
         <div class="psline-kpi-card danger">
             <span>Fuera de línea</span>
-            <strong>{{ offline_devices }}</strong>
+            <strong><a href="{% url 'printing:devices_by_model' %}?status=OFFLINE" style="color:inherit">{{ offline_devices }}</a></strong>
         </div>
 
         <div class="psline-kpi-card neutral">
             <span>Desconocido</span>
-            <strong>{{ unknown_devices }}</strong>
+            <strong><a href="{% url 'printing:devices_by_model' %}?status=UNKNOWN" style="color:inherit">{{ unknown_devices }}</a></strong>
         </div>
 
         <div class="psline-kpi-card">

@@ -15,6 +15,7 @@ from .models import (
 from apps.accounts.access import roles_required
 from .forms import PrintingTicketStockUsageForm
 from .services import register_printing_ticket_stock_usage
+from .connectivity import with_connectivity
 
 
 # ==========================================================
@@ -24,12 +25,12 @@ from .services import register_printing_ticket_stock_usage
 @roles_required("ADMIN", "SUPERVISOR", "AUDITOR", "TECHNICIAN")
 def psline_dashboard(request):
 
-    devices = PrintingDevice.objects.filter(is_active=True).select_related("asset")
+    devices = list(with_connectivity(PrintingDevice.objects.filter(is_active=True).select_related("asset")))
 
-    total_devices = devices.count()
+    total_devices = len(devices)
 
-    online_devices = devices.filter(asset__connection_status="ONLINE").count()
-    offline_devices = devices.filter(asset__connection_status="OFFLINE").count()
+    online_devices = sum(d.effective_connection_status == "ONLINE" for d in devices)
+    offline_devices = sum(d.effective_connection_status == "OFFLINE" for d in devices)
     unknown_devices = total_devices - online_devices - offline_devices
 
     consumables = Consumable.objects.filter(is_active=True).select_related(
@@ -96,7 +97,7 @@ def psline_dashboard(request):
 
         model_summary_map[key]["total_devices"] += 1
 
-        status = device.asset.connection_status if device.asset_id else "UNKNOWN"
+        status = device.effective_connection_status
         if status == "ONLINE":
             model_summary_map[key]["online_devices"] += 1
         elif status == "OFFLINE":
@@ -231,14 +232,6 @@ def printing_devices_by_model(request):
     if model:
         devices = devices.filter(Q(model=model) | Q(model="", asset__model=model))
 
-    if status:
-        if status == "UNKNOWN":
-            devices = devices.filter(
-                Q(asset__isnull=True) | Q(asset__connection_status="UNKNOWN")
-            )
-        else:
-            devices = devices.filter(asset__connection_status=status)
-
     if search:
         devices = devices.filter(
             Q(photocopier_id__icontains=search)
@@ -249,9 +242,12 @@ def printing_devices_by_model(request):
         )
 
     # KPIs
-    total = devices.count()
-    online = devices.filter(asset__connection_status="ONLINE").count()
-    offline = devices.filter(asset__connection_status="OFFLINE").count()
+    devices = list(with_connectivity(devices))
+    if status in PrintingDevice.ConnectionStatus.values:
+        devices = [device for device in devices if device.effective_connection_status == status]
+    total = len(devices)
+    online = sum(d.effective_connection_status == "ONLINE" for d in devices)
+    offline = sum(d.effective_connection_status == "OFFLINE" for d in devices)
     unknown = total - online - offline
 
     # Alertas
@@ -285,7 +281,7 @@ def printing_devices_by_model(request):
 @roles_required("ADMIN", "SUPERVISOR", "AUDITOR", "TECHNICIAN")
 def printing_device_detail(request, pk):
     device = get_object_or_404(
-        PrintingDevice.objects.select_related(
+        with_connectivity(PrintingDevice.objects.select_related(
             "asset",
             "responsible_user__organizational_unit",
             "responsible_user__branch",
@@ -294,7 +290,7 @@ def printing_device_detail(request, pk):
             "asset__physical_location",
             "branch",
             "organizational_location",
-        ),
+        )),
         pk=pk,
     )
 
