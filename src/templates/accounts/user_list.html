@@ -477,12 +477,6 @@ Gestión de Usuarios
                         </td>
 
                         <td class="user-table-actions">
-                            {% if request.user.is_superuser or request.user.role == "ADMIN" or request.user.role == "SUPERVISOR" %}
-                            <form method="post" action="{% url 'sync_user_institutional_data' system_user.pk %}">
-                                {% csrf_token %}
-                                <button type="submit" class="btn-small" title="Completar datos institucionales vacíos">Sincronizar datos</button>
-                            </form>
-                            {% endif %}
 
                             <a
                                 href="/admin/accounts/user/{{ system_user.pk }}/change/"
