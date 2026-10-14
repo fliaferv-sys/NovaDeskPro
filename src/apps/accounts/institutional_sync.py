@@ -94,11 +94,15 @@ def resolve_sync_identity(user, *, rrhh_search=None, ad_search=None):
         return None, evidence, ["identidad_inactiva"]
     if row.get("Mail") and email and row["Mail"].strip().casefold() != email:
         return None, evidence, ["correo_contradictorio"]
+    attribute_conflicts = []
     if user.phone and row.get("Telefono") and phone_key(user.phone) != phone_key(row["Telefono"]):
-        return None, evidence, ["telefono_contradictorio"]
+        # Phone corroborates weak links; it cannot veto an exact, unique ID.
+        if not any(field in evidence for field in ("rrhh_id", "employee_number")):
+            return None, evidence, ["telefono_contradictorio"]
+        attribute_conflicts.append("phone:valor_local_conservado")
     identity = _normalize_rrhh_employee(row)
     identity["sources"] = ["RRHH", "ACTIVE_DIRECTORY"] if "ad_correo_username" in evidence else ["RRHH"]
-    return identity, evidence, []
+    return identity, evidence, attribute_conflicts
 
 
 def build_user_institutional_sync_plan(user):
@@ -124,8 +128,10 @@ def build_user_institutional_sync_plan(user):
             if current not in (None, ""):
                 equal = phone_key(current) == phone_key(candidate) if field == "phone" else text_key(current) == text_key(candidate)
                 if not equal:
-                    plan["conflicts"].append(field + ":valor_local_conservado")
-                    if field in ("id_personal", "employee_number", "phone"):
+                    conflict = field + ":valor_local_conservado"
+                    if conflict not in plan["conflicts"]:
+                        plan["conflicts"].append(conflict)
+                    if field in ("id_personal", "employee_number"):
                         blocking = True
                 continue
             if field in ("id_personal", "employee_number") and User.objects.exclude(pk=user.pk).filter(**{field: candidate}).exists():

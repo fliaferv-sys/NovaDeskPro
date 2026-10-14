@@ -82,6 +82,46 @@ class InstitutionalSyncTests(TestCase):
         self.user.phone = "0999999999"
         self.assertFalse(self.plan()["can_apply"])
 
+    def test_strong_identifiers_preserve_identity_and_local_phone_idempotently(self):
+        for field, value in (("employee_number", "2100"), ("id_personal", 33)):
+            with self.subTest(field=field):
+                self.user.id_personal = None
+                self.user.employee_number = None
+                self.user.position = "Cargo local"
+                self.user.phone = "0962279257"
+                setattr(self.user, field, value)
+                self.user.save()
+                before_logs = ActivityLog.objects.count()
+                result = self.apply()
+                self.user.refresh_from_db()
+                self.assertTrue(result["can_apply"])
+                self.assertEqual(result["confidence"], "CONFIRMADA")
+                self.assertEqual(result["matched_identity"]["employee_number"], "2100")
+                self.assertEqual(result["conflicts"].count("phone:valor_local_conservado"), 1)
+                self.assertIn("position:valor_local_conservado", result["conflicts"])
+                self.assertEqual(self.user.phone, "0962279257")
+                self.assertEqual(self.user.position, "Cargo local")
+                self.assertEqual(ActivityLog.objects.count(), before_logs + 1)
+                before = User.objects.values().get(pk=self.user.pk)
+                repeat = self.apply()
+                self.assertTrue(repeat["can_apply"])
+                self.assertEqual(repeat["proposed_changes"], {})
+                self.assertEqual(User.objects.values().get(pk=self.user.pk), before)
+                self.assertEqual(ActivityLog.objects.count(), before_logs + 1)
+
+    def test_ambiguous_legajo_still_blocks_with_different_phone(self):
+        self.user.employee_number = "2100"
+        self.user.phone = "0962279257"
+        self.rows.append(dict(self.row, IdPersonal=34))
+        self.assertIsNone(self.plan()["matched_identity"])
+
+    def test_strong_identifier_does_not_override_email_contradiction(self):
+        self.user.employee_number = "2100"
+        self.user.phone = "0962279257"
+        self.row["Mail"] = "otra@petropar.gov.py"
+        self.assertIsNone(self.plan()["matched_identity"])
+        self.assertIn("correo_contradictorio", self.plan()["conflicts"])
+
     def test_identifiers_pointing_to_different_people_block(self):
         self.rows.append(dict(self.row, IdPersonal=34, LegajoNro="2101", Mail="other@petropar.gov.py"))
         self.user.id_personal, self.user.employee_number = 33, "2101"

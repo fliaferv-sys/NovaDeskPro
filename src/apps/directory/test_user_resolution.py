@@ -64,6 +64,8 @@ class UserResolutionParityTests(TestCase):
         return batch
 
     def test_ariel_directory_list_and_individual_share_exact_rrhh_location(self):
+        self.user.phone = "0962279257"
+        self.row["Telefono"] = "0992380600"
         with self.sources() as (batch_rrhh, batch_ad, individual_rrhh, individual_ad), patch(
             "apps.directory.identity_services.get_directory_employees", return_value=[self.row]), patch(
             "apps.directory.identity_services.search_directory_employees", side_effect=self.rrhh_search), patch(
@@ -78,6 +80,7 @@ class UserResolutionParityTests(TestCase):
         self.assertEqual(self.user.display_location, directory[0]["location"])
         self.assertEqual(self.user.display_employee_number, "1173")
         self.assertEqual(self.user.display_position, "Jefe Interino")
+        self.assertEqual(self.user.display_phone, "0962279257")
         batch_rrhh.assert_called_once()
         batch_ad.assert_not_called()
         individual_rrhh.assert_not_called()
@@ -108,10 +111,21 @@ class UserResolutionParityTests(TestCase):
                 enrich_user_list([self.user])
             self.assertEqual(self.user.display_location, "")
 
-    def test_email_and_phone_conflicts_are_identical_in_batch_and_individual(self):
-        for changes in (dict(Mail="otra@petropar.gov.py"), dict(Telefono="0999999999"), dict(Estado="Inactivo")):
+    def test_email_conflict_and_inactive_identity_block_in_batch_and_individual(self):
+        for changes in (dict(Mail="otra@petropar.gov.py"), dict(Estado="Inactivo")):
             self.rows = [dict(self.row, **changes)]
             self.assertEqual(self.assert_parity()["source"], "LOCAL")
+
+    def test_phone_conflict_with_each_strong_identifier_preserves_batch_parity(self):
+        self.user.phone = "0962279257"
+        self.row["Telefono"] = "0992380600"
+        for id_personal, legajo in ((None, "1173"), (41, None), (41, "1173")):
+            self.user.id_personal, self.user.employee_number = id_personal, legajo
+            identity = self.assert_parity()
+            self.assertEqual(identity["location"], "Dir.Tecno. de la Informac.")
+            self.assertEqual(identity["employee_number"], "1173")
+            self.assertEqual(identity["phone"], "0992380600")
+            self.assertNotEqual(identity["source"], "LOCAL")
 
     def test_ad_rrhh_bridge_has_identical_semantics_without_name_only_matching(self):
         self.user.id_personal = None; self.user.employee_number = None; self.user.username = "aferreira"
@@ -124,8 +138,18 @@ class UserResolutionParityTests(TestCase):
         individual_rrhh.assert_not_called(); individual_ad.assert_not_called()
         self.user.phone = ""
         self.assertEqual(self.assert_parity()["source"], "LOCAL")
+        self.user.phone = "0962279257"
+        self.assertEqual(self.assert_parity()["source"], "LOCAL")
+
+    def test_email_points_to_another_person_despite_exact_legajo(self):
+        self.user.username = "aferreira"
+        self.user.phone = "0962279257"
+        self.row["Mail"] = ""
+        self.rows.append(dict(self.row, IdPersonal=99, LegajoNro="9999", Mail=self.user.email))
+        self.assertEqual(self.assert_parity()["source"], "LOCAL")
 
     def test_many_users_share_one_source_load_without_individual_roundtrips(self):
+        self.row["Telefono"] = "0992380600"
         users = [self.user]
         for number in range(42, 62):
             users.append(User.objects.create_user(username=f"local-{number}", email=f"local-{number}@example.test",
@@ -138,6 +162,9 @@ class UserResolutionParityTests(TestCase):
         self.assertTrue(all(user.display_location == self.row["Ubicacion"] for user in users))
 
     def test_get_list_and_profile_do_not_write_or_persist_location(self):
+        self.user.phone = "0962279257"
+        self.user.save(update_fields=["phone"])
+        self.row["Telefono"] = "0992380600"
         with patch("apps.accounts.signals.try_sync_user_institutional_data"):
             self.client.force_login(self.user)
         before = User.objects.values().get(pk=self.user.pk)
