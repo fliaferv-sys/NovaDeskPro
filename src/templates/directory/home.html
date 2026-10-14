@@ -175,7 +175,8 @@
             <dl class="dir-row-meta">
                 <div class="dir-row-cell"><dt>Legajo</dt><dd>{{ employee.employee_number|default:"—" }}</dd></div>
                 <div class="dir-row-cell"><dt>Cargo</dt><dd>{{ employee.position|default:"—" }}</dd></div>
-                <div class="dir-row-cell"><dt>Ubicación</dt><dd>{{ employee.location|default:"—" }}</dd></div>
+                <div class="dir-row-cell"><dt>Referencia RR.HH.</dt><dd>{{ employee.location|default:"—" }}</dd></div>
+                <div class="dir-row-cell"><dt>Sede o planta</dt><dd>{{ employee.branch.name|default:"Sin asignar" }}</dd></div>
                 <div class="dir-row-cell"><dt>Teléfono</dt><dd>{{ employee.phone|default:"—" }}</dd></div>
                 <div class="dir-row-cell"><dt>Correo</dt><dd>{% if employee.email %}<a href="mailto:{{ employee.email }}">{{ employee.email }}</a>{% else %}—{% endif %}</dd></div>
                 <div class="dir-row-cell"><dt>Usuario</dt><dd>{{ employee.username|default:"—" }}</dd></div>

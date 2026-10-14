@@ -24,7 +24,7 @@
         });
         let revision = 0, controller;
         const labels = {full_name: 'Nombre', username: 'Usuario', email: 'Correo', phone: 'Teléfono',
-            position: 'Cargo', department: 'Dependencia', location: 'Ubicación', employee_number: 'Legajo',
+            position: 'Cargo', department: 'Equipo de atención', organizational_unit: 'Dependencia institucional', branch: 'Sede o planta', location: 'Ubicación', employee_number: 'Legajo',
             employment_type: 'Vínculo', type: 'Tipo', name: 'Equipo', hostname: 'Hostname', ip: 'IP', mac: 'MAC', serial: 'Serie'};
         function node(tag, text, parent) {
             const element = document.createElement(tag);

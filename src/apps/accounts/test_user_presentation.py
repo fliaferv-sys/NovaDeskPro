@@ -16,7 +16,7 @@ class UserPresentationTests(TestCase):
         self.user = User.objects.create_user(username="sample", email="sample@petropar.gov.py", role="ADMIN")
         self.identity = dict(id_personal=12, email=self.user.email, employee_number="1002",
                              phone="123456", position="Cargo institucional", location="Secretaría",
-                             source="RRHH", source_label="AD + RR.HH.")
+                             source="RRHH", source_label="AD + RR.HH.", is_active=True)
 
     def enrich(self, identities=None):
         with patch("apps.accounts.user_presentation.get_institutional_directory",
@@ -31,7 +31,7 @@ class UserPresentationTests(TestCase):
         self.assertEqual(self.user.display_employee_number, "1002")
         self.assertEqual(self.user.display_phone, "123456")
         self.assertEqual(self.user.display_position, "Cargo institucional")
-        self.assertEqual(self.user.display_location, "Secretaría")
+        self.assertEqual(self.user.display_location, "")
         self.assertEqual(self.user.institutional_source, "AD + RR.HH.")
         self.assertEqual(User.objects.values().get(pk=self.user.pk), before)
         self.assertEqual(User.objects.count(), 1)
@@ -83,7 +83,7 @@ class UserPresentationTests(TestCase):
         with patch("apps.accounts.user_presentation.get_institutional_directory", return_value=[self.identity]):
             response = self.client.get(reverse("user_list"))
         self.assertEqual(response.status_code, 200)
-        for value in ("123456", "1002", "Cargo institucional", "Secretaría", self.user.email, self.user.username):
+        for value in ("123456", "1002", "Cargo institucional", self.user.email, self.user.username):
             self.assertContains(response, value)
 
     def test_batch_load_once_for_multiple_accounts(self):
@@ -92,3 +92,27 @@ class UserPresentationTests(TestCase):
             enrich_user_list([self.user, other])
         lookup.assert_called_once_with()
         self.assertEqual(other.display_phone, "")
+
+    def test_three_columns_never_use_each_other_as_fallback(self):
+        from apps.accounts.models import Branch
+        from apps.core.models import Department
+        from apps.institution.models import OrganizationalUnit
+        branch = Branch.objects.create(code="PRESENTATION-BRANCH", name="Sede física")
+        unit = OrganizationalUnit.objects.create(code="PRESENTATION-UNIT", name="Dependencia", unit_type="UNIT")
+        department = Department.objects.create(code="PRESENTATION-TEAM", name="Equipo de soporte")
+        self.user.branch, self.user.organizational_unit, self.user.department = branch, unit, department
+        self.enrich()
+        self.assertEqual(self.user.display_branch, branch)
+        self.assertEqual(self.user.display_unit, unit)
+        self.assertEqual(self.user.display_department, department)
+        self.user.branch = self.user.organizational_unit = self.user.department = None
+        self.enrich()
+        self.assertEqual(self.user.display_branch, "")
+        self.assertEqual(self.user.display_unit, "")
+        self.assertEqual(self.user.display_department, "")
+
+    def test_inactive_or_identifier_conflicting_person_is_not_presented(self):
+        for identity in (dict(self.identity, is_active=False), dict(self.identity, username="otra")):
+            self.enrich([identity])
+            self.assertEqual(self.user.display_phone, "")
+            self.assertEqual(self.user.institutional_source, "")

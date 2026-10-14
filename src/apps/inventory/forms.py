@@ -14,6 +14,8 @@ from django.utils import timezone
 from apps.accounts.models import User
 from apps.accounts.models import Branch
 
+from .person_forms import InventoryPersonFormMixin
+
 from .models import (
     Asset,
     AssetTechnicalHistory,
@@ -35,7 +37,12 @@ from .models import (
 )
 
 
-class ToolLoanQuickForm(forms.Form):
+class ToolLoanQuickForm(InventoryPersonFormMixin, forms.Form):
+    identity_kind = "loan"
+    person_field = "borrower"
+    snapshot_field = "borrower_identity"
+    person_required = True
+
     borrower = forms.ModelChoiceField(
         label="Persona que retira",
         queryset=User.objects.none(),
@@ -142,7 +149,7 @@ class OrganizationalLocationChoiceField(
 # FORMULARIO DE ACTIVOS INFORMÁTICOS
 # ==========================================================
 
-class AssetForm(forms.ModelForm):
+class AssetForm(InventoryPersonFormMixin, forms.ModelForm):
 
     physical_location = OrganizationalLocationChoiceField(
         queryset=OrganizationalLocation.objects.none(),
@@ -768,7 +775,12 @@ class StockEntryDocumentForm(forms.ModelForm):
         return uploaded_file
 
 
-class StockDeliveryForm(forms.ModelForm):
+class StockDeliveryForm(InventoryPersonFormMixin, forms.ModelForm):
+    identity_kind = "delivery"
+    person_field = "recipient"
+    snapshot_field = "recipient_identity"
+    person_required = True
+
     class Meta:
         model = StockDelivery
         fields = ["recipient", "department", "branch", "location", "delivery_responsible", "authorized_by", "delivery_date", "observations"]

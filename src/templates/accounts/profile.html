@@ -150,8 +150,8 @@
 {% endif %}
 <section class="profile-page" aria-labelledby="profile-title">
     <header class="profile-hero">
-        {% if profile_user.profile_image %}
-            <img src="{{ profile_user.profile_image.url }}"
+        {% if profile_user.institutional_photo_url %}
+            <img src="{{ profile_user.institutional_photo_url }}"
                  alt="Avatar de {{ profile_user.get_full_name|default:profile_user.email }}"
                  class="profile-avatar">
         {% else %}
@@ -173,13 +173,13 @@
         <h2><i class="bi bi-person-vcard" aria-hidden="true"></i> Datos personales</h2>
         <dl class="profile-details">
             <div class="profile-detail"><dt>Correo</dt><dd>{{ profile_user.email|default:"No registrado" }}</dd></div>
-            <div class="profile-detail"><dt>Teléfono</dt><dd>{{ profile_user.phone|default:"No registrado" }}</dd></div>
-            <div class="profile-detail"><dt>Dependencia institucional</dt><dd>{{ profile_user.organizational_unit|default:"No registrado" }}</dd></div>
+            <div class="profile-detail"><dt>Teléfono</dt><dd>{{ profile_user.display_phone|default:"No registrado" }}</dd></div>
+            <div class="profile-detail"><dt>Dependencia institucional</dt><dd>{{ profile_user.display_unit|default:"No registrado" }}</dd></div>
             <div class="profile-detail"><dt>Dependencia superior</dt><dd>{% if profile_user.organizational_unit and profile_user.organizational_unit.get_superior_directorate %}{{ profile_user.organizational_unit.get_superior_directorate }}{% else %}No registrada{% endif %}</dd></div>
             <div class="profile-detail"><dt>Equipo de atención</dt><dd>{{ profile_user.department|default:"No registrado" }}</dd></div>
-            <div class="profile-detail"><dt>Cargo</dt><dd>{{ profile_user.position|default:"No registrado" }}</dd></div>
+            <div class="profile-detail"><dt>Cargo</dt><dd>{{ profile_user.display_position|default:"No registrado" }}</dd></div>
             <div class="profile-detail"><dt>Sede</dt><dd>{{ profile_user.branch|default:"No registrado" }}</dd></div>
-            <div class="profile-detail"><dt>Tipo de vínculo</dt><dd>{{ profile_user.get_employment_type_display }}</dd></div>
+            <div class="profile-detail"><dt>Tipo de vínculo</dt><dd>{{ profile_user.display_employment_type }}</dd></div>
         </dl>
     </div>
 

@@ -261,7 +261,7 @@ class DirectoryDatabaseServiceTests(SimpleTestCase):
     def test_get_directory_employee_by_id_personal_returns_employee(self, connect):
         connection = MagicMock()
         cursor = connection.cursor.return_value
-        cursor.fetchone.return_value = (
+        cursor.fetchall.return_value = [(
             "TEST-003",
             "Funcionario individual de prueba",
             3003,
@@ -272,7 +272,7 @@ class DirectoryDatabaseServiceTests(SimpleTestCase):
             "Permanente",
             None,
             "Cargo de prueba",
-        )
+        )]
         connect.return_value = connection
 
         employee = get_directory_employee_by_id_personal(" 3003 ")
@@ -308,7 +308,7 @@ class DirectoryDatabaseServiceTests(SimpleTestCase):
         connect,
     ):
         connection = MagicMock()
-        connection.cursor.return_value.fetchone.return_value = None
+        connection.cursor.return_value.fetchall.return_value = []
         connect.return_value = connection
 
         self.assertIsNone(get_directory_employee_by_id_personal(4004))
@@ -499,7 +499,7 @@ class ActiveDirectoryServiceTests(SimpleTestCase):
                 f"(mail={escape_filter_chars(email)}))"
             ),
             attributes=ad_services._AD_USER_ATTRIBUTES,
-            size_limit=1,
+            size_limit=2,
         )
 
     @patch("apps.directory.ad_services._windows_search", return_value=[])
@@ -962,7 +962,7 @@ class InstitutionalIdentityServiceTests(TestCase):
 
         identity = identity_services.resolve_institutional_identity(
             id_personal=1234,
-            email="local@example.test",
+            email=employee["Mail"],
             local_user=local_user,
         )
 
@@ -1117,7 +1117,7 @@ class InstitutionalIdentityLocalFallbackTests(TestCase):
         self.assertEqual(identity["last_name"], "Apellido local")
         self.assertEqual(identity["email"], "local@example.test")
         self.assertEqual(identity["phone"], "555-0200")
-        self.assertEqual(identity["location"], str(self.department))
+        self.assertEqual(identity["location"], "")
         self.assertEqual(identity["position"], "Cargo local")
         self.assertEqual(identity["employment_type"], user.get_employment_type_display())
         self.assertEqual(identity["username"], "identity-local-normalize")
@@ -1161,21 +1161,13 @@ class InstitutionalIdentityLocalFallbackTests(TestCase):
         search_rrhh.assert_called_once_with("PERSON@EXAMPLE.TEST", limit=20)
         find_ad_user.assert_called_once_with("PERSON@EXAMPLE.TEST")
 
-    def test_resolve_identity_for_user_passes_user_fields_to_resolver(self):
+    def test_resolve_identity_for_user_uses_confirmed_matching_and_falls_back_locally(self):
         user = self.create_user("identity-resolve-user", "user@example.test")
-
-        with patch(
-            "apps.directory.identity_services.resolve_institutional_identity",
-            return_value={"source": "LOCAL"},
-        ) as resolve:
+        with patch("apps.accounts.institutional_sync.resolve_sync_identity", return_value=(None, [], [])) as resolve:
             result = identity_services.resolve_identity_for_user(user)
-
-        self.assertEqual(result, {"source": "LOCAL"})
-        resolve.assert_called_once_with(
-            id_personal=user.id_personal,
-            email=user.email,
-            local_user=user,
-        )
+        self.assertEqual(result["source"], "LOCAL")
+        self.assertEqual(result["location"], "")
+        resolve.assert_called_once_with(user)
 
 
 class InstitutionalIdentitySearchTests(TestCase):
@@ -1628,7 +1620,7 @@ class InstitutionalIdentityOrganizationalUnitTests(TestCase):
             self.assertIn("type", item)
             self.assertIn("type_display", item)
 
-    def test_id_personal_assignment_has_priority_over_email_and_username(self):
+    def test_contradictory_assignments_do_not_choose_identifier_priority(self):
         id_assignment = self.create_assignment(
             self.directorate,
             id_personal=1234,
@@ -1650,10 +1642,8 @@ class InstitutionalIdentityOrganizationalUnitTests(TestCase):
             }
         )
 
-        self.assertEqual(
-            enriched["organizational_unit"]["code"],
-            id_assignment.organizational_unit.code,
-        )
+        self.assertIsNone(enriched["organizational_unit"])
+        self.assertTrue(enriched["organization_conflicts"])
 
     def test_email_assignment_enriches_identity_without_id_personal(self):
         self.create_assignment(
@@ -1902,6 +1892,7 @@ class DirectoryEmployeeSearchApiTests(TestCase):
                 "is_active",
                 "organizational_unit",
                 "organizational_path",
+                "branch",
                 "photo_url",
             },
         )

@@ -385,8 +385,7 @@ Gestión de Usuarios
                                 <div>
 
                                     <strong>
-                                        {{ system_user.first_name }}
-                                        {{ system_user.last_name }}
+                                        {{ system_user.display_name }}
                                     </strong>
 
                                     <span>
@@ -409,7 +408,7 @@ Gestión de Usuarios
                         </td>
 
                         <td>
-                            {{ system_user.get_employment_type_display }}
+                            {{ system_user.display_employment_type }}
                         </td>
 
                         <td>
@@ -435,7 +434,7 @@ Gestión de Usuarios
                         </td>
 
                         <td>
-                            {{ system_user.display_location|default:"Sin registrar" }}
+                            {{ system_user.display_department|default:"Sin registrar" }}
                         </td>
 
                         <td>

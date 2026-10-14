@@ -329,9 +329,20 @@ def update_asset_custody(movement):
         AssetCustodyMovement.MovementType.REASSIGNMENT,
     }:
         asset.assigned_user = movement.recipient
+        # Explicit custody transfer replaces the current person, never historical acts.
+        asset.custodian_identity = {}
+        if movement.recipient_id_personal and movement.recipient_name and movement.recipient_email:
+            asset.custodian_identity = {
+                "source": "RRHH", "locator": {"source": "RRHH", "id": movement.recipient_id_personal},
+                "name": movement.recipient_name, "email": movement.recipient_email,
+                "username": movement.recipient.username if movement.recipient_id else "",
+            }
+            if movement.recipient_id:
+                asset.custodian_identity["local_user_id"] = str(movement.recipient_id)
 
     elif movement.movement_type == AssetCustodyMovement.MovementType.RETURN:
         asset.assigned_user = None
+        asset.custodian_identity = {}
         asset.condition = Asset.Condition.RECOVERED
         asset.operational_status = Asset.OperationalStatus.OBSERVATION
 

@@ -272,96 +272,55 @@ class TicketRequesterDirectoryProfileTests(TestCase):
         self.client.force_login(requester)
         return requester, ticket
 
-    def test_ticket_detail_uses_current_directory_profile(self):
-        requester, ticket = self.create_requester_and_ticket(
-            "requester-directory-profile",
-            id_personal=1234,
-        )
-        employee = {
-            "LegajoNro": "999",
-            "NombresApellidos": "Funcionario RRHH",
-            "IdPersonal": 1234,
-            "Ubicacion": "Ubicacion RRHH",
-            "Telefono": "0981000000",
-            "Mail": "rrhh@example.test",
-            "Estado": "Activo",
-            "Vinculo": "Permanente",
-            "DesvinculacionFecha": None,
-            "Cargo": "Cargo RRHH",
-        }
-
-        with patch(
-            "apps.tickets.views.get_directory_employee_by_id_personal",
-            return_value=employee,
-        ) as directory_lookup:
-            response = self.client.get(
-                reverse("tickets:ticket_detail", args=[ticket.pk])
-            )
-
+    def test_ticket_detail_uses_confirmed_central_identity_and_preserves_local_fields(self):
+        requester, ticket = self.create_requester_and_ticket("requester-directory-profile", id_personal=1234)
+        identity = {"source": "RRHH", "source_label": "RR.HH.", "name": "Funcionario RRHH",
+                    "email": requester.email, "phone": requester.phone, "position": "Cargo RRHH",
+                    "location": "Ubicacion RRHH", "id_personal": 1234,
+                    "organizational_unit": {"name": "Dependencia institucional"}}
+        with patch("apps.directory.identity_services.resolve_identity_for_user", return_value=identity) as resolver:
+            response = self.client.get(reverse("tickets:ticket_detail", args=[ticket.pk]))
         self.assertEqual(response.status_code, 200)
-        requester_profile = response.context["requester_profile"]
-        self.assertEqual(requester_profile["source"], "directory")
-        self.assertEqual(requester_profile["full_name"], "Funcionario RRHH")
-        self.assertEqual(requester_profile["email"], "rrhh@example.test")
-        self.assertEqual(requester_profile["phone"], "0981000000")
-        self.assertEqual(requester_profile["location"], "Ubicacion RRHH")
-        self.assertEqual(requester_profile["position"], "Cargo RRHH")
-        self.assertEqual(requester_profile["id_personal"], 1234)
-        directory_lookup.assert_called_once_with(requester.id_personal)
+        profile = response.context["requester_profile"]
+        self.assertEqual(profile["source"], "RR.HH.")
+        self.assertEqual(profile["full_name"], "Funcionario RRHH")
+        self.assertEqual(profile["email"], requester.email)
+        self.assertEqual(profile["phone"], requester.phone)
+        self.assertEqual(profile["position"], "Cargo local")
+        self.assertEqual(profile["organizational_unit"], "Dependencia institucional")
+        self.assertEqual(profile["location"], "Ubicacion RRHH")
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.requester_id, requester.pk)
+        resolver.assert_called_once()
 
-    def test_ticket_detail_uses_local_profile_without_id_personal(self):
-        requester, ticket = self.create_requester_and_ticket(
-            "requester-local-profile"
-        )
-
-        with patch(
-            "apps.tickets.views.get_directory_employee_by_id_personal"
-        ) as directory_lookup:
-            response = self.client.get(
-                reverse("tickets:ticket_detail", args=[ticket.pk])
-            )
-
+    def test_ticket_detail_uses_local_profile_without_organizational_fallback(self):
+        requester, ticket = self.create_requester_and_ticket("requester-local-profile")
+        with patch("apps.accounts.institutional_sync.resolve_sync_identity", return_value=(None, [], [])):
+            response = self.client.get(reverse("tickets:ticket_detail", args=[ticket.pk]))
         self.assertEqual(response.status_code, 200)
-        requester_profile = response.context["requester_profile"]
-        self.assertEqual(requester_profile["source"], "local")
-        self.assertEqual(
-            requester_profile["full_name"],
-            "Nombre local Apellido local",
-        )
-        self.assertEqual(requester_profile["email"], requester.email)
-        self.assertEqual(requester_profile["phone"], "0981000001")
-        self.assertEqual(requester_profile["location"], str(self.department))
-        self.assertEqual(requester_profile["position"], "Cargo local")
-        self.assertIsNone(requester_profile["id_personal"])
-        directory_lookup.assert_not_called()
+        profile = response.context["requester_profile"]
+        self.assertEqual(profile["source"], "LOCAL")
+        self.assertEqual(profile["full_name"], "Nombre local Apellido local")
+        self.assertEqual(profile["email"], requester.email)
+        self.assertEqual(profile["phone"], "0981000001")
+        self.assertEqual(profile["location"], "")
+        self.assertIsNone(profile["organizational_unit"])
+        self.assertEqual(profile["position"], "Cargo local")
+        self.assertIsNone(profile["id_personal"])
 
     def test_ticket_detail_falls_back_to_local_profile_when_directory_fails(self):
-        requester, ticket = self.create_requester_and_ticket(
-            "requester-directory-failure",
-            id_personal=5678,
-        )
-
-        with patch(
-            "apps.tickets.views.get_directory_employee_by_id_personal",
-            side_effect=DirectoryDatabaseError("mock failure"),
-        ) as directory_lookup:
-            response = self.client.get(
-                reverse("tickets:ticket_detail", args=[ticket.pk])
-            )
-
+        requester, ticket = self.create_requester_and_ticket("requester-directory-failure", id_personal=5678)
+        with patch("apps.accounts.institutional_sync.resolve_sync_identity", side_effect=DirectoryDatabaseError("mock failure")):
+            response = self.client.get(reverse("tickets:ticket_detail", args=[ticket.pk]))
         self.assertEqual(response.status_code, 200)
-        requester_profile = response.context["requester_profile"]
-        self.assertEqual(requester_profile["source"], "local")
-        self.assertEqual(
-            requester_profile["full_name"],
-            "Nombre local Apellido local",
-        )
-        self.assertEqual(requester_profile["email"], requester.email)
-        self.assertEqual(requester_profile["phone"], "0981000001")
-        self.assertEqual(requester_profile["location"], str(self.department))
-        self.assertEqual(requester_profile["position"], "Cargo local")
-        self.assertEqual(requester_profile["id_personal"], 5678)
-        directory_lookup.assert_called_once_with(requester.id_personal)
+        profile = response.context["requester_profile"]
+        self.assertEqual(profile["source"], "LOCAL")
+        self.assertEqual(profile["full_name"], "Nombre local Apellido local")
+        self.assertEqual(profile["email"], requester.email)
+        self.assertEqual(profile["phone"], "0981000001")
+        self.assertEqual(profile["location"], "")
+        self.assertEqual(profile["position"], "Cargo local")
+        self.assertEqual(profile["id_personal"], 5678)
 
 
 class TicketAuthorizationTests(TestCase):

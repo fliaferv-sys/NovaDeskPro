@@ -1,0 +1,2 @@
+{% extends "admin/change_form.html" %}
+{% block form_top %}{{ block.super }}{% if current_person %}<p>Persona actualmente asignada: <strong>{{ current_person }}</strong></p>{% endif %}{% include "inventory/person_selector.html" %}{% endblock %}

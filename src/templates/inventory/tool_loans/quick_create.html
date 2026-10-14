@@ -18,7 +18,7 @@
 </form>
 
 <form method="post" class="tools-card" id="tool-loan-form">
-    {% csrf_token %}
+    {% csrf_token %}{% include "inventory/person_selector.html" %}
     <input type="hidden" name="q" value="{{ filters.q }}"><input type="hidden" name="category" value="{{ filters.category }}"><input type="hidden" name="branch" value="{{ filters.branch }}">
     <div class="tools-card-header"><h2>Datos del préstamo</h2></div>
     {{ form.non_field_errors }}

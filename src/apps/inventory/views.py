@@ -1,3 +1,4 @@
+from apps.directory.person_references import enrich_person_records
 from io import BytesIO
 
 import qrcode
@@ -127,7 +128,7 @@ def _used_asset_situation(asset):
 
     if active_delivery:
         return "delivery"
-    if asset.assigned_user_id:
+    if asset.assigned_user_id or asset.custodian_identity:
         return "delivered"
     if asset.operational_status == Asset.OperationalStatus.MAINTENANCE:
         return "repair"
@@ -209,7 +210,9 @@ def asset_list_view(request):
     assets = (
         Asset.objects
         .select_related(
-            "assigned_user",
+            "assigned_user__organizational_unit",
+            "assigned_user__department",
+            "assigned_user__branch",
             "branch",
             "acquisition_batch",
         )
@@ -249,6 +252,8 @@ def asset_list_view(request):
             | Q(assigned_user__first_name__icontains=search)
             | Q(assigned_user__last_name__icontains=search)
             | Q(assigned_user__email__icontains=search)
+            | Q(custodian_identity__name__icontains=search)
+            | Q(custodian_identity__email__icontains=search)
         )
     if asset_type:
         assets = assets.filter(asset_type=asset_type)
@@ -263,13 +268,13 @@ def asset_list_view(request):
     if operational_status:
         assets = assets.filter(operational_status=operational_status)
     if assignment == "AVAILABLE":
-        assets = assets.filter(assigned_user__isnull=True).exclude(
+        assets = assets.filter(assigned_user__isnull=True, custodian_identity={}).exclude(
             pk__in=assets_in_custody_process
         )
     elif assignment == "IN_PROCESS":
         assets = assets.filter(pk__in=assets_in_custody_process)
     elif assignment == "ASSIGNED":
-        assets = assets.filter(assigned_user__isnull=False).exclude(
+        assets = assets.filter(Q(assigned_user__isnull=False) | ~Q(custodian_identity={})).exclude(
             pk__in=assets_in_custody_process
         )
 
@@ -277,7 +282,7 @@ def asset_list_view(request):
         request,
         "inventory/asset_list.html",
         {
-            "assets": assets,
+            "assets": enrich_person_records(assets, "custodian_identity", "assigned_user"),
             "assets_in_custody_process": (
                 assets_in_custody_process
             ),
@@ -331,7 +336,9 @@ def used_asset_list_view(request):
         Asset.objects
         .filter(condition=Asset.Condition.RECOVERED)
         .select_related(
-            "assigned_user",
+            "assigned_user__organizational_unit",
+            "assigned_user__department",
+            "assigned_user__branch",
             "branch",
             "physical_location",
         )
@@ -411,7 +418,7 @@ def asset_create_view(request):
         )
 
     if request.method == "POST":
-        form = AssetForm(request.POST)
+        form = AssetForm(request.POST, request=request)
 
         if form.is_valid():
             asset = form.save()
@@ -422,13 +429,14 @@ def asset_create_view(request):
             )
 
     else:
-        form = AssetForm()
+        form = AssetForm(request=request)
 
     return render(
         request,
         "inventory/asset_form.html",
         {
             "form": form,
+            **form.identity_context_data(),
             "editing": False,
         },
     )
@@ -443,13 +451,17 @@ def asset_create_view(request):
 def asset_detail_view(request, pk):
     asset = get_object_or_404(
         Asset.objects.select_related(
-            "assigned_user",
+            "assigned_user__organizational_unit",
+            "assigned_user__department",
+            "assigned_user__branch",
             "acquisition_batch",
             "parent_asset",
         ),
         pk=pk,
     )
    
+    enrich_person_records([asset], "custodian_identity", "assigned_user")
+
     # ------------------------------------------------------
     # TICKETS RELACIONADOS
     # ------------------------------------------------------
@@ -593,6 +605,7 @@ def asset_update_view(request, pk):
     if request.method == "POST":
         form = AssetForm(
             request.POST,
+            request=request,
             instance=asset,
         )
 
@@ -606,6 +619,7 @@ def asset_update_view(request, pk):
 
     else:
         form = AssetForm(
+            request=request,
             instance=asset,
         )
 
@@ -614,6 +628,7 @@ def asset_update_view(request, pk):
         "inventory/asset_form.html",
         {
             "form": form,
+            **form.identity_context_data(),
             "editing": True,
             "asset": asset,
         },
@@ -972,7 +987,7 @@ def tool_loan_quick_create_view(request):
     if request.method == "POST" and not can_register:
         raise PermissionDenied("No tiene permisos para registrar préstamos.")
 
-    form = ToolLoanQuickForm(request.POST or None, user=request.user)
+    form = ToolLoanQuickForm(request.POST or None, user=request.user, request=request)
     filters = request.POST if request.method == "POST" else request.GET
     available_tools = _available_tools(filters)
 
@@ -982,6 +997,7 @@ def tool_loan_quick_create_view(request):
             with transaction.atomic():
                 loan = ToolLoan.objects.create(
                     borrower=data["borrower"],
+                    borrower_identity=data["borrower_identity"],
                     delivered_by=data["delivered_by"],
                     loaned_at=data["loaned_at"],
                     expected_return_at=data["expected_return_at"],
@@ -1012,6 +1028,7 @@ def tool_loan_quick_create_view(request):
         {
             "form": form,
             "available_tools": available_tools,
+            **form.identity_context_data(),
             "categories": (
                 Tool.objects.filter(is_active=True)
                 .exclude(category="")
@@ -1094,7 +1111,7 @@ def tool_loan_active_list_view(request):
 def tool_loan_detail_view(request, pk):
     loan = get_object_or_404(
         ToolLoan.objects.select_related(
-            "borrower", "delivered_by", "received_by"
+            "borrower__organizational_unit", "borrower__branch", "delivered_by", "received_by"
         ).prefetch_related("items__tool__branch", "items__tool__organizational_location", "items__received_by"),
         pk=pk,
     )
@@ -1122,6 +1139,7 @@ def tool_loan_detail_view(request, pk):
         else:
             messages.success(request, "Devolución registrada correctamente.")
             return redirect("inventory:tool_loan_detail", pk=loan.pk)
+    enrich_person_records([loan], "borrower_identity", "borrower")
     return render(
         request, "inventory/tool_loans/detail.html",
         {"loan": loan, "return_form": form, "can_return": can_return},
@@ -1546,13 +1564,13 @@ def stock_delivery_list_view(request):
 @login_required
 @roles_required("ADMIN", "SUPERVISOR")
 def stock_delivery_create_view(request):
-    form = StockDeliveryForm(request.POST or None, initial={"delivery_responsible": request.user})
+    form = StockDeliveryForm(request.POST or None, request=request, initial={"delivery_responsible": request.user})
     if request.method == "POST" and form.is_valid():
         delivery = form.save(commit=False)
         delivery.created_by = request.user
         delivery.save()
         return redirect("inventory:stock_delivery_detail", pk=delivery.pk)
-    return render(request, "inventory/stock_delivery_form.html", {"form": form, "editing": False})
+    return render(request, "inventory/stock_delivery_form.html", {"form": form, "editing": False, **form.identity_context_data()})
 
 
 @login_required
@@ -1561,17 +1579,18 @@ def stock_delivery_update_view(request, pk):
     delivery = get_object_or_404(StockDelivery, pk=pk)
     if delivery.status != StockDelivery.Status.DRAFT:
         raise PermissionDenied("Solo puede editarse una entrega en borrador.")
-    form = StockDeliveryForm(request.POST or None, instance=delivery)
+    form = StockDeliveryForm(request.POST or None, request=request, instance=delivery)
     if request.method == "POST" and form.is_valid():
         form.save()
         return redirect("inventory:stock_delivery_detail", pk=delivery.pk)
-    return render(request, "inventory/stock_delivery_form.html", {"form": form, "editing": True, "delivery": delivery})
+    return render(request, "inventory/stock_delivery_form.html", {"form": form, "editing": True, "delivery": delivery, **form.identity_context_data()})
 
 
 @login_required
 @roles_required("ADMIN", "SUPERVISOR")
 def stock_delivery_detail_view(request, pk):
-    delivery = get_object_or_404(StockDelivery.objects.select_related("recipient", "department", "branch", "location", "delivery_responsible", "authorized_by", "created_by", "completed_by"), pk=pk)
+    delivery = get_object_or_404(StockDelivery.objects.select_related("recipient__organizational_unit", "recipient__branch", "department", "branch", "location", "delivery_responsible", "authorized_by", "created_by", "completed_by"), pk=pk)
+    enrich_person_records([delivery], "recipient_identity", "recipient")
     return render(request, "inventory/stock_delivery_detail.html", {"delivery": delivery, "lines": delivery.lines.select_related("product", "source_branch", "source_location", "movement")})
 
 

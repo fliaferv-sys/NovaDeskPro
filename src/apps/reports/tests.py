@@ -1,10 +1,11 @@
 from datetime import timedelta
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
 from apps.accounts.models import Branch, User
+from apps.accounts.tests import TEST_STORAGES
 from apps.core.models import Department
 from apps.inventory.models import (
     Asset, OrganizationalLocation, StockBalance, StockDelivery, StockDeliveryLine,
@@ -32,6 +33,7 @@ class ReportsFixtureMixin:
         cls.superuser = User.objects.create_superuser(username="rpt-root", email="root@example.test", password="pass")
 
 
+@override_settings(STORAGES=TEST_STORAGES)
 class ReportAccessTests(ReportsFixtureMixin, TestCase):
     urls = ("reports:index", "reports:tickets", "reports:inventory", "reports:printing")
 

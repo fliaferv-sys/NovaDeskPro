@@ -48,8 +48,8 @@
                                 <td>{{ device.get_device_type_display }}</td>
                                 <td>{{ device.asset.get_connection_status_display }}</td>
                                 <td>{{ device.asset.current_ip|default:"—" }}</td>
-                                <td>{{ device.responsible_display_name|default:"—" }}{% if device.responsible_display_email %}<br><small>{{ device.responsible_display_email }}</small>{% endif %}</td>
-                                <td>{{ device.asset.location_detail|default:"—" }}</td>
+                                <td>{{ device.responsible_display_name|default:"—" }}{% if device.responsible_display_email %}<br><small>{{ device.responsible_display_email }}</small>{% endif %}<br><small>Dependencia institucional: {{ device.person_unit|default:"Sin asignar" }} · Sede de la persona: {{ device.person_branch|default:"Sin asignar" }}</small></td>
+                                <td>Sede del equipo: {{ device.effective_branch.name|default:"Sin asignar" }}{% if device.effective_location %}<br>{{ device.effective_location.full_path }}{% elif device.asset.location %}<br>{{ device.asset.location }}{% endif %}</td>
                                 <td>
                                     <a class="detail-link"
                                        href="/psline/equipo/{{ device.pk }}/">

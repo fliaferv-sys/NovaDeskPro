@@ -8,7 +8,6 @@ from django.core import signing
 from django.core.exceptions import PermissionDenied, ValidationError
 
 from apps.accounts.models import User
-from apps.core.models import Department
 from apps.institution.models import OrganizationalUnit
 from .identity_services import InstitutionalIdentityError, resolve_common_identity
 
@@ -18,13 +17,13 @@ CONTRACT_FIELDS = frozenset({
     "name", "first_name", "last_name", "full_name", "email", "username",
     "document_number", "employee_number", "phone", "position", "location",
     "organizational_unit", "organizational_path", "employment_relationship",
-    "employment_type", "photo_url", "source", "local_user_id", "rrhh_id",
+    "employment_type", "photo_url", "source", "source_label", "sources", "status", "branch", "local_user_id", "rrhh_id",
 })
 SUMMARY_FIELDS = frozenset({"full_name", "email", "employee_number", "source"})
 ACCOUNT_FORM_FIELDS = frozenset({
     "email", "username", "first_name", "last_name", "document_number",
     "employee_number", "phone", "position", "employment_type",
-    "department", "organizational_unit",
+    "organizational_unit",
 })
 REFERENCE_SALT = "directory.identity.v1"
 REFERENCE_MAX_AGE = 1800
@@ -58,6 +57,32 @@ class IdentityPolicy:
 
 
 def authorize_identity_context(request, context, object_id=""):
+    if isinstance(context, str) and context.startswith("inventory."):
+        from apps.accounts.access import can_manage_inventory
+        from apps.inventory.models import Asset, StockDelivery, ToolLoan
+        parts = context.split(".")
+        admin_context = len(parts) == 4 and parts[1] == "admin"
+        kind = parts[-2] if len(parts) in (3, 4) else ""
+        operation = parts[-1]
+        model = {"asset": Asset, "delivery": StockDelivery, "loan": ToolLoan}.get(kind)
+        if model is None or operation not in {"add", "change"} or (len(parts) != 3 and not admin_context):
+            raise PermissionDenied
+        try:
+            obj = model.objects.filter(pk=object_id).first() if object_id else None
+        except (ValueError, ValidationError):
+            obj = None
+        if operation == "add" and object_id or operation == "change" and obj is None:
+            raise PermissionDenied
+        if admin_context:
+            model_admin = admin.site._registry[model]
+            allowed = admin.site.has_permission(request) and (
+                model_admin.has_add_permission(request) if operation == "add" else model_admin.has_change_permission(request, obj))
+        else:
+            allowed = can_manage_inventory(request.user)
+        if not allowed or (kind == "delivery" and obj and obj.status != "DRAFT"):
+            raise PermissionDenied
+        fields = frozenset({"full_name", "email", "username", "source", "local_user_id"})
+        return IdentityPolicy(context, str(object_id or ""), fields, fields, auto_resolve=False, selection_requirement="institutional")
     if not request.user.is_authenticated or not admin.site.has_permission(request):
         raise PermissionDenied
     user_admin = admin.site._registry[User]
@@ -127,13 +152,8 @@ def account_form_values(identity):
         values["username"] = identity["email"].split("@", 1)[0]
     elif identity.get("username"):
         values["username"] = identity["username"]
-    location = str(identity.get("location") or "").strip()
-    if location:
-        departments = list(Department.objects.filter(name__iexact=location, is_active=True)[:2])
-        if len(departments) == 1:
-            values["department"] = {"value": str(departments[0].pk), "label": str(departments[0])}
     unit = identity.get("organizational_unit")
-    if unit and unit.get("code"):
+    if unit and unit.get("code") and not identity.get("organization_conflicts"):
         units = list(OrganizationalUnit.objects.filter(code=unit["code"], is_active=True)[:2])
         if len(units) == 1:
             values["organizational_unit"] = {"value": str(units[0].pk), "label": str(units[0])}
@@ -149,7 +169,7 @@ def serialize_identity(request, policy, identity, *, summary=False):
 
 
 def identity_form_values(policy, identity):
-    if policy.context.startswith("printing."):
+    if policy.context.startswith(("printing.", "inventory.")):
         user = associated_local_user(identity)
         return {"local_user_id": {"value": str(user.pk) if user else "", "label": str(user) if user else ""}}
     return account_form_values(identity)

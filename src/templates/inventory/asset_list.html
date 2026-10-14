@@ -240,7 +240,7 @@ Inventario
                         <th>Marca</th>
                         <th>Modelo</th>
                         <th>Sede</th>
-                        <th>Departamento</th>
+                        <th>Área descriptiva del activo</th>
                         <th>Patrimonio</th>
                         <th>N° Serie</th>
                         <th>Usuario</th>
@@ -299,13 +299,7 @@ Inventario
                         </td>
 
                         <td>
-                            {% if asset.assigned_user and asset.assigned_user.department %}
-                                {{ asset.assigned_user.department.name }}
-                            {% elif asset.department %}
-                                {{ asset.department }}
-                            {% else %}
-                                —
-                            {% endif %}
+                            {{ asset.department|default:"—" }}
                         </td>
 
                         <td>
@@ -317,8 +311,8 @@ Inventario
                         </td>
 
                         <td>
-                            {% if asset.assigned_user %}
-                                {{ asset.assigned_user.get_full_name|default:asset.assigned_user.username }}
+                            {% if asset.custodian_display_name %}
+                                {{ asset.custodian_display_name }}
 
                             {% else %}
                                 —
@@ -337,7 +331,7 @@ Inventario
                             <div class="asset-status-container">
                                 {% if asset.pk in assets_in_custody_process %}
                                     <span class="custody-status-badge">En proceso de entrega</span>
-                                {% elif asset.assigned_user %}
+                                {% elif asset.custodian_display_name %}
                                     <span class="assignment-status-badge assignment-status-assigned">Asignado</span>
                                 {% else %}
                                     <span class="assignment-status-badge assignment-status-available">Disponible</span>

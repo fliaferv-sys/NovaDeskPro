@@ -65,6 +65,7 @@ def directory_employee_search_api(request):
             "is_active": employee["is_active"],
             "organizational_unit": employee.get("organizational_unit"),
             "organizational_path": employee.get("organizational_path", []),
+            "branch": employee.get("branch"),
 	    "photo_url": employee.get("photo_url", ""),
         }
         for employee in active_directory_identities(directory_employees)

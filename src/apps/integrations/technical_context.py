@@ -11,7 +11,7 @@ from .ip_lookup import (
 
 
 PERSON_KEYS = {"Nombre completo": "full_name", "Username": "username", "Correo": "email", "Telefono": "phone",
-               "Cargo": "position", "Dependencia": "department", "Ubicacion institucional": "location"}
+               "Cargo": "position", "Dependencia": "organizational_unit", "Ubicacion institucional": "location"}
 DEVICE_KEYS = {"Tipo": "type", "Nombre del equipo": "name", "Hostname / nombre de red": "hostname",
                "MAC": "mac", "Serie": "serial", "Ubicacion GLPI": "location", "Usuario GLPI": "glpi_user",
                "Contacto GLPI": "contact", "Ultima modificacion": "last_modified"}
@@ -36,18 +36,31 @@ def normalized_people(result):
 
 def public_user(user):
     return {"full_name": user.get_full_name().strip() or user.username, "username": user.username,
-            "email": user.email or None, "phone": user.phone or None, "position": user.position or None}
+            "email": user.email or None, "phone": user.phone or None, "position": user.position or None,
+            "department": str(user.department) if user.department_id else None,
+            "organizational_unit": str(user.organizational_unit) if user.organizational_unit_id else None,
+            "branch": user.branch.name if user.branch_id else None}
+
+
+def public_custodian(asset):
+    from apps.directory.person_references import person_name
+    result = public_user(asset.assigned_user) if asset.assigned_user_id else {}
+    if asset.custodian_identity:
+        result.update(full_name=person_name(asset.custodian_identity),
+                      email=asset.custodian_identity.get("email"),
+                      username=asset.custodian_identity.get("username"))
+    return result or None
 
 
 def local_assets(serial, requester, index=None):
     if not serial_key(serial):
         return []
     assets = index.get(serial_key(serial), []) if index is not None else list(Asset.objects.annotate(context_serial=Upper(Trim("serial_number"))).filter(
-        context_serial=serial_key(serial)).select_related("assigned_user").order_by("pk"))
+        context_serial=serial_key(serial)).select_related("assigned_user__department", "assigned_user__organizational_unit", "assigned_user__branch").order_by("pk"))
     return [{"id": str(asset.pk), "code": asset.internal_code, "source": "NovaDesk Asset",
              "confidence": "CONFIRMADA" if len(assets) == 1 else "DESCONOCIDA",
              "can_select": bool(requester and asset.assigned_user_id == requester.pk),
-             "responsible": public_user(asset.assigned_user) if asset.assigned_user_id else None} for asset in assets]
+             "responsible": public_custodian(asset)} for asset in assets]
 
 
 def resolve_technical_context(*, requester=None, username=None, email=None, identity=None,
@@ -120,7 +133,7 @@ def resolve_technical_context(*, requester=None, username=None, email=None, iden
     serials.discard("")
     if serials:
         for matched_asset in Asset.objects.annotate(context_serial=Upper(Trim("serial_number"))).filter(
-            context_serial__in=serials).select_related("assigned_user").order_by("pk"):
+            context_serial__in=serials).select_related("assigned_user__department", "assigned_user__organizational_unit", "assigned_user__branch").order_by("pk"):
             asset_index.setdefault(matched_asset.context_serial, []).append(matched_asset)
     for candidate in candidates:
         device = normalized_fields(candidate["fields"], DEVICE_KEYS)

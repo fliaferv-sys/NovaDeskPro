@@ -311,3 +311,63 @@ class InstitutionalSyncTests(TestCase):
         self.actor.role = "CLIENT"
         with self.assertRaises(Exception):
             apply_user_institutional_sync(self.user, actor=self.actor)
+
+    def make_assignment(self, **identifiers):
+        from apps.institution.models import InstitutionalIdentityAssignment, OrganizationalUnit
+        unit = OrganizationalUnit.objects.create(code="SYNC-UNIT", name="Dependencia", unit_type="UNIT")
+        InstitutionalIdentityAssignment.objects.create(organizational_unit=unit, **(identifiers or {"id_personal": 33}))
+        return unit
+
+    def test_confirmed_person_syncs_exact_explicit_unit_but_never_branch_or_department(self):
+        from apps.accounts.models import Branch
+        from apps.core.models import Department
+        Branch.objects.create(code="LOCATION", name="Ubicación RRHH")
+        Department.objects.create(code="LOCATION", name="Ubicación RRHH")
+        self.row["Ubicacion"] = "Ubicación RRHH"
+        unit = self.make_assignment()
+        self.apply()
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.organizational_unit, unit)
+        self.assertIsNone(self.user.branch_id)
+        self.assertIsNone(self.user.department_id)
+        self.assertIn("organizational_unit_id", ActivityLog.objects.get().description)
+        self.assertFalse(self.apply()["proposed_changes"])
+        self.assertEqual(ActivityLog.objects.count(), 1)
+
+    def test_complete_personal_fields_can_sync_new_unit_during_login_hook(self):
+        self.apply()
+        unit = self.make_assignment()
+        try_sync_user_institutional_data(self.user, actor=self.user)
+        self.assertEqual(self.user.organizational_unit_id, unit.pk)
+        self.assertEqual(ActivityLog.objects.count(), 2)
+
+    def test_existing_local_unit_is_preserved(self):
+        from apps.institution.models import OrganizationalUnit
+        self.make_assignment()
+        other = OrganizationalUnit.objects.create(code="LOCAL-UNIT", name="Local", unit_type="UNIT")
+        self.user.organizational_unit = other; self.user.save(update_fields=["organizational_unit"])
+        result = self.apply()
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.organizational_unit, other)
+        self.assertIn("organizational_unit:valor_local_conservado", result["conflicts"])
+
+    def test_contradictory_and_inactive_mapping_do_not_assign_unit(self):
+        from apps.institution.models import InstitutionalIdentityAssignment, OrganizationalUnit
+        self.make_assignment()
+        other = OrganizationalUnit.objects.create(code="OTHER-UNIT", name="Otra", unit_type="UNIT")
+        InstitutionalIdentityAssignment.objects.create(email=self.user.email, organizational_unit=other)
+        self.apply(); self.user.refresh_from_db()
+        self.assertIsNone(self.user.organizational_unit_id)
+        self.assertEqual(self.user.employee_number, "2100")
+        InstitutionalIdentityAssignment.objects.all().update(is_active=False)
+        try_sync_user_institutional_data(self.user, actor=self.user)
+        self.user.refresh_from_db(); self.assertIsNone(self.user.organizational_unit_id)
+
+    def test_ad_failure_in_bridge_does_not_block_login_or_write(self):
+        from apps.directory.ad_services import ActiveDirectoryError
+        self.row["Mail"] = ""
+        self.user.phone = self.row["Telefono"]; self.user.save(update_fields=["phone"])
+        with patch("apps.accounts.institutional_sync.search_ad_users", side_effect=ActiveDirectoryError("unavailable")):
+            self.login()
+        self.user.refresh_from_db(); self.assertIsNone(self.user.id_personal)
+        self.assertFalse(ActivityLog.objects.filter(action=ActivityLog.ACTION_UPDATE).exists())

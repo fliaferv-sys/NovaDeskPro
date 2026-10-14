@@ -19,7 +19,7 @@ from apps.directory.services import (
     get_directory_employees,
     search_directory_employees,
 )
-from apps.institution.models import InstitutionalIdentityAssignment
+from apps.institution.identity_organization import enrich_organization, organization_scope
 
 
 class InstitutionalIdentityError(Exception):
@@ -90,6 +90,7 @@ def build_institutional_kpis(identities):
     }
 
 
+@organization_scope
 def get_institutional_directory(limit=DIRECTORY_DEFAULT_LIMIT):
     """RRHH base list enriched only by safely corresponding AD identities."""
     rows = get_directory_employees(limit=limit)
@@ -102,6 +103,7 @@ def get_institutional_directory(limit=DIRECTORY_DEFAULT_LIMIT):
     return _directory_consolidation(rrhh, [_normalize_ad_user(user) for user in ad], anchors, include_local=False)
 
 
+@organization_scope
 def _directory_consolidation(rrhh, ad, local_users=(), *, include_local=True):
     """Adapt the legacy directory contract to the shared safe identity merges."""
     identities = []
@@ -145,63 +147,13 @@ def _directory_consolidation(rrhh, ad, local_users=(), *, include_local=True):
         if item["source"] == SOURCE_ACTIVE_DIRECTORY and item.get("email") and not item.get("employment_type"):
             item["employment_type"] = "Tercerizado"
         # Internal locators/identifiers are never part of the directory display contract.
-        result.append(_enrich_with_organizational_unit({key: value for key, value in item.items() if not key.startswith("_") and key not in {"local_user_id", "rrhh_id"}}))
+        enriched = _enrich_with_organizational_unit(item)
+        result.append({key: value for key, value in enriched.items() if not key.startswith("_") and key not in {"local_user_id", "rrhh_id"}})
     return result
 
 
 def _enrich_with_organizational_unit(identity):
-    if identity is None:
-        return None
-
-    enriched_identity = identity.copy()
-    assignment_query = InstitutionalIdentityAssignment.objects.filter(
-        is_active=True,
-    ).select_related("organizational_unit")
-    assignment = None
-
-    id_personal = enriched_identity.get("id_personal")
-    if id_personal is not None:
-        assignment = assignment_query.filter(id_personal=id_personal).first()
-
-    email = enriched_identity.get("email")
-    normalized_email = email.strip().lower() if email else ""
-    if assignment is None and normalized_email:
-        assignment = assignment_query.filter(email=normalized_email).first()
-
-    username = enriched_identity.get("username")
-    normalized_username = username.strip().lower() if username else ""
-    if assignment is None and normalized_username:
-        assignment = assignment_query.filter(username=normalized_username).first()
-
-    if assignment is None:
-        enriched_identity["organizational_unit"] = None
-        enriched_identity["organizational_path"] = []
-        return enriched_identity
-
-    unit = assignment.organizational_unit
-    enriched_identity["organizational_unit"] = {
-        "code": unit.code,
-        "name": unit.name,
-        "type": unit.unit_type,
-        "type_display": unit.get_unit_type_display(),
-    }
-
-    organizational_path = []
-    current_unit = unit
-    while current_unit is not None:
-        organizational_path.append(
-            {
-                "code": current_unit.code,
-                "name": current_unit.name,
-                "type": current_unit.unit_type,
-                "type_display": current_unit.get_unit_type_display(),
-            }
-        )
-        current_unit = current_unit.parent
-    organizational_path.reverse()
-    enriched_identity["organizational_path"] = organizational_path
-
-    return enriched_identity
+    return enrich_organization(identity)
 
 
 def _build_employee_photo_url(employee_number):
@@ -382,7 +334,8 @@ def _normalize_local_user(user):
         if callable(employment_type_display)
         else ""
     )
-    department = getattr(user, "department", None)
+    unit = getattr(user, "organizational_unit", None)
+    branch = getattr(user, "branch", None)
 
     return {
         "source": SOURCE_LOCAL,
@@ -393,7 +346,9 @@ def _normalize_local_user(user):
         "last_name": user.last_name or "",
         "email": user.email or "",
         "phone": user.phone or "",
-        "location": str(department) if department else "",
+        "location": "",
+        "_local_unit_id": unit.pk if unit else None,
+        "branch": {"code": branch.code, "name": branch.name} if branch else None,
         "position": user.position or "",
         "employment_type": employment_type or "",
         "status": "Activo" if user.is_active else "Inactivo",
@@ -403,6 +358,7 @@ def _normalize_local_user(user):
     }
 
 
+@organization_scope
 def resolve_institutional_identity(*, id_personal=None, email=None, local_user=None):
     try:
         if id_personal is not None:
@@ -410,6 +366,8 @@ def resolve_institutional_identity(*, id_personal=None, email=None, local_user=N
                 employee = get_directory_employee_by_id_personal(id_personal)
             except DirectoryDatabaseError:
                 employee = None
+            if employee and email and employee.get("Mail") and employee["Mail"].strip().casefold() != email.strip().casefold():
+                raise InstitutionalIdentityError("El identificador y el correo son contradictorios.")
             if employee:
                 return _enrich_with_organizational_unit(
                     _normalize_rrhh_employee(employee)
@@ -426,15 +384,12 @@ def resolve_institutional_identity(*, id_personal=None, email=None, local_user=N
                 employees = []
 
             normalized_email_key = normalized_email.casefold()
-            for employee in employees or []:
-                employee_email = employee.get("Mail") or ""
-                if (
-                    isinstance(employee_email, str)
-                    and employee_email.strip().casefold() == normalized_email_key
-                ):
-                    return _enrich_with_organizational_unit(
-                        _normalize_rrhh_employee(employee)
-                    )
+            exact_employees = [employee for employee in employees or []
+                               if str(employee.get("Mail") or "").strip().casefold() == normalized_email_key]
+            if len(exact_employees) > 1 or len(employees) >= 20:
+                raise InstitutionalIdentityError("El correo institucional es ambiguo o incompleto.")
+            if len(exact_employees) == 1:
+                return _enrich_with_organizational_unit(_normalize_rrhh_employee(exact_employees[0]))
 
             try:
                 ad_user = get_ad_user_by_email(normalized_email)
@@ -466,17 +421,28 @@ def resolve_institutional_identity(*, id_personal=None, email=None, local_user=N
         ) from exc
 
 
+@organization_scope
 def resolve_identity_for_user(user):
+    """Read-only account enrichment uses the same confirmed matching as sync."""
     if user is None:
         raise ValueError("user no puede ser None.")
+    from apps.accounts.institutional_sync import resolve_sync_identity
+    try:
+        identity, evidence, conflicts = resolve_sync_identity(user)
+    except Exception:
+        identity = None
+    if identity:
+        identity["username"] = user.username
+        identity["email"] = identity.get("email") or user.email
+        identity["_local_unit_id"] = user.organizational_unit_id
+        if user.branch_id:
+            identity["branch"] = {"code": user.branch.code, "name": user.branch.name}
+        identity["source_label"] = " + ".join({SOURCE_RRHH: "RR.HH.", SOURCE_ACTIVE_DIRECTORY: "AD"}.get(source, source) for source in identity["sources"])
+        return _enrich_with_organizational_unit(identity)
+    return _enrich_with_organizational_unit(_normalize_local_user(user))
 
-    return resolve_institutional_identity(
-        id_personal=user.id_personal,
-        email=user.email,
-        local_user=user,
-    )
 
-
+@organization_scope
 def search_institutional_identities(query="", limit=20):
     if not isinstance(query, str):
         raise ValueError("query debe ser una cadena.")
@@ -514,7 +480,7 @@ def search_institutional_identities(query="", limit=20):
         if query.isdecimal():
             local_filter |= Q(id_personal=int(query))
 
-        local_users = list(User.objects.filter(local_filter).distinct()[:limit])
+        local_users = list(User.objects.filter(local_filter).select_related("organizational_unit", "branch").distinct()[:limit])
         missing_ids = [item["id_personal"] for item in rrhh if not item["email"] and item["id_personal"] is not None]
         anchors = list(User.objects.filter(id_personal__in=missing_ids)) if missing_ids else []
         try:
@@ -595,6 +561,11 @@ def _common_identity(identity, locator, local_user=None, document_number=""):
         employment_type=normalize_identity_employment(relationship),
         organizational_unit=identity.get("organizational_unit"),
         organizational_path=identity.get("organizational_path", []),
+        branch=identity.get("branch"),
+        status=identity.get("status"),
+        source_label=identity.get("source_label") or {SOURCE_RRHH: "RR.HH.", SOURCE_ACTIVE_DIRECTORY: "AD", SOURCE_LOCAL: "NovaDesk"}.get(identity.get("source"), identity.get("source")),
+        organization_conflicts=identity.get("organization_conflicts", []),
+        _local_unit_id=identity.get("_local_unit_id"),
         local_user_id=str(local_user.pk) if local_user else None,
         rrhh_id=identity.get("id_personal"),
         _locator=locator,
@@ -670,6 +641,10 @@ def _merge_linked_identities(identities):
                 linked.extend(matches)
         if not linked:
             continue
+        # A local anchor cannot make conflicting institutional identifiers agree.
+        if any(len({str(item.get(key)).strip().casefold() for item in linked + [local] if item.get(key)}) > 1
+               for key in ("rrhh_id", "employee_number", "document_number")):
+            continue
         primary = next((item for item in linked if item["source"] == SOURCE_RRHH), linked[0])
         merged = primary.copy()
         for item in linked + [local]:
@@ -681,9 +656,12 @@ def _merge_linked_identities(identities):
         merged["is_technical"] = any(item.get("is_technical") for item in linked)
         merged["is_shared"] = any(item.get("is_shared") for item in linked)
         merged["is_person"] = False if any(item.get("is_person") is False for item in linked) else primary.get("is_person")
+        merged["sources"] = sorted({locator["source"] for item in linked + [local] for locator in [item["_locator"], *(item.get("_linked") or [])]})
         merged["local_user_id"] = local["local_user_id"]
         merged["_locator"] = {"source": SOURCE_LOCAL, "id": local["local_user_id"]}
-        merged["_linked"] = [item["_locator"] for item in linked]
+        merged["_linked"] = [locator for item in linked for locator in
+                             [item["_locator"], *(item.get("_linked") or [])]]
+        merged["_local_unit_id"] = local.get("_local_unit_id")
         if local in result:
             result.remove(local)
         for item in linked:
@@ -752,6 +730,7 @@ def consolidate_institutional_identities(identities):
     return result
 
 
+@organization_scope
 def search_common_identities(query, field="email", *, exact=False):
     """Bounded searches with explicit completeness and ambiguity information."""
     if field not in IDENTITY_SEARCH_FIELDS or not isinstance(query, str):
@@ -801,34 +780,38 @@ def search_common_identities(query, field="email", *, exact=False):
         users = User.objects.annotate(identity_full_name=Concat("first_name", Value(" "), "last_name")).filter(**{f"identity_full_name__{lookup}": query})
     else:
         users = User.objects.filter(**{f"{field}__{lookup}": query})
-    local_users = list(users.select_related("department")[:limit])
+    local_users = list(users.select_related("department", "organizational_unit", "branch")[:limit])
     incomplete |= len(local_users) >= limit
     for user in local_users:
         identities.append(_common_identity(_normalize_local_user(user), {"source": SOURCE_LOCAL, "id": str(user.pk)}, user, user.document_number))
-    # Resolve explicit local links also when the local row did not match the term.
-    for item in list(identities):
+    links = Q(pk__in=[])
+    for item in identities:
         if item["source"] == SOURCE_RRHH and item["rrhh_id"]:
-            linked_users = User.objects.filter(id_personal=item["rrhh_id"])
+            links |= Q(id_personal=item["rrhh_id"])
         elif item["source"] in {SOURCE_ACTIVE_DIRECTORY, SOURCE_OUTSOURCED} and item["email"] and item["username"]:
-            linked_users = User.objects.filter(email__iexact=item["email"], username__iexact=item["username"])
-        else:
-            continue
-        for user in linked_users.select_related("department")[:2]:
-            if not any(candidate.get("local_user_id") == str(user.pk) for candidate in identities):
-                identities.append(_common_identity(_normalize_local_user(user), {"source": SOURCE_LOCAL, "id": str(user.pk)}, user, user.document_number))
+            links |= Q(email__iexact=item["email"], username__iexact=item["username"])
+    for user in User.objects.filter(links).select_related("organizational_unit", "branch"):
+        if not any(candidate.get("local_user_id") == str(user.pk) for candidate in identities):
+            identities.append(_common_identity(_normalize_local_user(user), {"source": SOURCE_LOCAL, "id": str(user.pk)}, user, user.document_number))
     identities = _merge_linked_identities(identities)
+    identities = consolidate_institutional_identities(identities)
+    for item in identities:
+        item.update(_enrich_with_organizational_unit(item))
+        sources = item.get("sources") or [item["source"]]
+        item["source_label"] = " + ".join({SOURCE_RRHH: "RR.HH.", SOURCE_ACTIVE_DIRECTORY: "AD", SOURCE_LOCAL: "NovaDesk"}.get(source, source) for source in sources)
     identities = [item for item in identities if _identity_matches(item, field, query, exact)]
     exact_matches = [item for item in identities if _identity_matches(item, field, query, True)]
     incomplete |= len(identities) > IDENTITY_RESULT_LIMIT
     return {"identities": identities[:IDENTITY_RESULT_LIMIT], "incomplete": incomplete, "exact_unique": not incomplete and len(exact_matches) == 1, "exact_identity": exact_matches[0] if not incomplete and len(exact_matches) == 1 else None}
 
 
+@organization_scope
 def resolve_common_identity(locator, linked=None):
     """Re-read selected source keys. No posted personal fields are trusted."""
     source = locator.get("source")
     try:
         if source == SOURCE_LOCAL:
-            user = User.objects.select_related("department").filter(pk=locator.get("id")).first()
+            user = User.objects.select_related("department", "organizational_unit", "branch").filter(pk=locator.get("id")).first()
             identity = _common_identity(_normalize_local_user(user), locator, user, user.document_number) if user else None
         elif source == SOURCE_RRHH:
             rows = search_directory_employees(str(locator.get("id") or ""), limit=2, search_field="rrhh_id", exact=True)
@@ -867,13 +850,14 @@ def resolve_common_identity(locator, linked=None):
         if identity is None:
             raise InstitutionalIdentityError("La identidad seleccionada ya no está disponible.")
         if linked:
-            if source != SOURCE_LOCAL:
-                raise InstitutionalIdentityError("Vínculo de identidad inválido.")
-            identities = [identity] + [resolve_common_identity(item) for item in linked]
-            merged = _merge_linked_identities(identities)
+            identities = [identity] + [resolve_common_identity(item) for item in linked if item != locator]
+            merged = consolidate_institutional_identities(_merge_linked_identities(identities))
             if len(merged) != 1:
                 raise InstitutionalIdentityError("El vínculo institucional cambió; seleccione nuevamente.")
             identity = merged[0]
+        identity = _enrich_with_organizational_unit(identity)
+        sources = identity.get("sources") or [identity["source"]]
+        identity["source_label"] = " + ".join({SOURCE_RRHH: "RR.HH.", SOURCE_ACTIVE_DIRECTORY: "AD", SOURCE_LOCAL: "NovaDesk"}.get(value, value) for value in sources)
         return identity
     except (DirectoryDatabaseError, ActiveDirectoryError, ValueError, ValidationError) as exc:
         raise InstitutionalIdentityError("No fue posible validar la identidad seleccionada.") from exc

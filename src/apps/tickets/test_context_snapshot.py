@@ -147,3 +147,22 @@ class ContextSnapshotTests(TestCase):
         html = render_to_string("tickets/context_snapshot_detail.html", {"snapshot": self.resolve()})
         self.assertIn("pc-test", html)
         self.assertIn("Persona sin cuenta", html)
+
+    def test_new_snapshot_separates_institutional_unit_operational_team_and_branch(self):
+        data = self.context["person"]["candidates"][0]["data"]
+        data.update(organizational_unit="Dependencia institucional", department="Equipo de soporte", branch="Sede explícita")
+        snapshot = self.resolve()
+        self.assertEqual(snapshot["metadata"]["resolver_version"], "2")
+        self.assertEqual(snapshot["requester_identity"]["organizational_unit"], "Dependencia institucional")
+        self.assertEqual(snapshot["requester_identity"]["department"], "Equipo de soporte")
+        html = render_to_string("tickets/context_snapshot_detail.html", {"snapshot": snapshot})
+        self.assertIn("Dependencia institucional: Dependencia institucional", html)
+        self.assertIn("Equipo de atención: Equipo de soporte", html)
+
+    def test_historical_snapshot_is_presented_without_reinterpreting_or_modifying_department(self):
+        snapshot = {"metadata": {"resolver_version": "1"}, "requester_identity": {"department": "Dato histórico"}}
+        before = deepcopy(snapshot)
+        html = render_to_string("tickets/context_snapshot_detail.html", {"snapshot": snapshot})
+        self.assertIn("Referencia histórica de dependencia: Dato histórico", html)
+        self.assertNotIn("Equipo de atención: Dato histórico", html)
+        self.assertEqual(snapshot, before)
