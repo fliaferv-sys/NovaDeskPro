@@ -35,15 +35,19 @@ def person_name(snapshot, user=None):
 
 def enrich_person_records(records, snapshot_field, user_field):
     """One external directory load for a list; failures retain historical references."""
-    from .identity_services import get_institutional_directory
+    from .identity_services import get_institutional_directory, resolve_identities_for_users
     from apps.accounts.institutional_sync import phone_key, text_key
     records = list(records)
     if not records:
         return records
-    try:
-        identities = get_institutional_directory()
-    except Exception:
-        identities = []
+    local_users = {user.pk: user for record in records if (user := getattr(record, user_field)) is not None}
+    resolved_users = resolve_identities_for_users(local_users.values()) if local_users else {}
+    identities = []
+    if any(getattr(record, snapshot_field) and getattr(record, user_field) is None for record in records):
+        try:
+            identities = get_institutional_directory()
+        except Exception:
+            identities = []
     by_id, by_account = {}, {}
     for identity in identities:
         if identity.get("is_active") is not True:
@@ -73,6 +77,11 @@ def enrich_person_records(records, snapshot_field, user_field):
         if identity and user and any(getattr(user, field) and identity.get(field) and normalize(getattr(user, field)) != normalize(identity[field])
                                     for field, normalize in (("employee_number", text_key), ("phone", phone_key))):
             identity = {}
+        if user:
+            # Linked accounts share Accounts/Profile/Tickets resolution; no second matcher.
+            identity = resolved_users.get(user.pk) or {}
+            if identity.get("source") == "LOCAL":
+                identity = {}
         unit = identity.get("organizational_unit") or {}
         record.person_identity = identity
         record.person_unit = (str(user.organizational_unit) if user and user.organizational_unit_id else "") or unit.get("name") or ""

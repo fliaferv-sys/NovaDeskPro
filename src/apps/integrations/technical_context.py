@@ -82,8 +82,22 @@ def resolve_technical_context(*, requester=None, username=None, email=None, iden
             people_cache[key] = institutional_people(user, emails, contact, context_fields=True)
         return people_cache[key]
     try:
-        result["person"] = normalized_people(people(
-            {"name": person_username} if person_username else None, [person_email] if person_email else [], ""))
+        if requester and not explicit_person and (requester.id_personal is not None or requester.employee_number):
+            from apps.directory.identity_services import resolve_identity_for_user, SOURCE_LOCAL
+            from apps.directory.identity_policies import technical_context_identity_payload
+            resolved = resolve_identity_for_user(requester)
+            if resolved.get("source") != SOURCE_LOCAL:
+                payload = technical_context_identity_payload({**resolved, "full_name": resolved.get("name")})
+                unit = payload.get("organizational_unit") or {}
+                payload["organizational_unit"] = unit.get("name")
+                result["person"] = {"confidence": "CONFIRMADA", "incomplete": False,
+                                    "candidates": [{"data": payload, "provenance": {key: resolved.get("source_label") for key in payload},
+                                                    "sources": resolved.get("sources", [resolved["source"]]), "confidence": "CONFIRMADA"}]}
+            else:
+                result["person"] = {"confidence": "DESCONOCIDA", "incomplete": True, "candidates": []}
+        else:
+            result["person"] = normalized_people(people(
+                {"name": person_username} if person_username else None, [person_email] if person_email else [], ""))
     except Exception:
         result["person"] = {"confidence": "DESCONOCIDA", "incomplete": True, "candidates": []}
         result["warnings"].append("Directorio Institucional no disponible.")
