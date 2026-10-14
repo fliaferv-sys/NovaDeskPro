@@ -50,7 +50,7 @@ def enrich_user_list(users):
         unit = identity.get("organizational_unit") or {}
         user.display_unit = user.organizational_unit or (unit.get("name", "") if isinstance(unit, dict) else "")
         user.display_department = user.department or ""
-        user.display_location = user.display_department  # Compatibility for existing consumers.
+        user.display_location = str(identity.get("location") or "").strip()
         user.display_branch = user.branch or ""
         user.display_name = user.get_full_name().strip() or identity.get("name") or user.username
         user.display_employment_type = identity.get("employment_type") or user.get_employment_type_display()

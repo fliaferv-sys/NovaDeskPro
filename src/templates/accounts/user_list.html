@@ -317,7 +317,7 @@ Gestión de Usuarios
                     <th>Usuario</th>
                     <th>Rol</th>
                     <th>Vínculo</th>
-                    <th>Sede o planta</th>
+                    <th>Ubicación</th>
                     <th>Dependencia institucional</th>
                     <th>Equipo de atención</th>
                     <th>Estado</th>
@@ -342,7 +342,7 @@ Gestión de Usuarios
                             {{ system_user.organizational_unit }}
                             {{ system_user.department }}
                             {{ system_user.external_company }}
-                            {{ system_user.branch.name }}
+                            {{ system_user.display_location }}
                         "
                         data-role="{{ system_user.get_role_display }}"
                         data-status="{{ system_user.get_approval_status_display }}">
@@ -413,13 +413,7 @@ Gestión de Usuarios
 
                         <td>
 
-                            {% if system_user.branch %}
-                                {{ system_user.branch.name }}
-                            {% else %}
-                                <span class="text-muted">
-                                    Sin asignar
-                                </span>
-                            {% endif %}
+                            {{ system_user.display_location|default:"Sin registrar" }}
 
                         </td>
 
