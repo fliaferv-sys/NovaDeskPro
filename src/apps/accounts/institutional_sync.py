@@ -1,5 +1,6 @@
 """Conservative, individual institutional synchronization; never writes on resolution."""
 import re
+import logging
 import unicodedata
 
 from django.conf import settings
@@ -139,7 +140,7 @@ def build_user_institutional_sync_plan(user):
 @transaction.atomic
 def apply_user_institutional_sync(user, plan=None, *, actor):
     """Discard supplied plans and rebuild under lock immediately before saving."""
-    if not user_has_role(actor, {"ADMIN", "SUPERVISOR"}):
+    if not (actor.is_authenticated and (actor.pk == user.pk or user_has_role(actor, {"ADMIN", "SUPERVISOR"}))):
         raise PermissionDenied
     locked = User.objects.select_for_update().get(pk=user.pk)
     result = build_user_institutional_sync_plan(locked)
@@ -148,7 +149,26 @@ def apply_user_institutional_sync(user, plan=None, *, actor):
     for field, value in result["proposed_changes"].items():
         setattr(locked, field, value)
     locked.save(update_fields=list(result["proposed_changes"]))
-    ActivityLog.objects.create(user=actor, action=ActivityLog.ACTION_UPDATE, module="accounts",
-        object_type="User", object_id=str(locked.pk),
-        description="Sincronización institucional. Campos completados: " + ", ".join(sorted(result["proposed_changes"])))
+    record_sync_activity(locked, actor, result["proposed_changes"])
     return result
+
+
+def record_sync_activity(user, actor, changes):
+    ActivityLog.objects.create(user=actor, action=ActivityLog.ACTION_UPDATE, module="accounts",
+        object_type="User", object_id=str(user.pk),
+        description="Sincronización institucional. Campos completados: " + ", ".join(sorted(changes)))
+
+
+def try_sync_user_institutional_data(user, *, actor):
+    """Controlled login/admin hooks. Failures never escape into those workflows."""
+    try:
+        # Fully populated accounts need neither external reads nor duplicate writes.
+        if all(getattr(user, field) not in (None, "") for field in SYNC_FIELDS):
+            return None
+        result = apply_user_institutional_sync(user, actor=actor)
+        if "fuente_no_disponible" in result["conflicts"]:
+            logging.getLogger(__name__).warning("Institutional sync unavailable; normal workflow continues.")
+        return result
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Institutional sync failed (%s); normal workflow continues.", type(exc).__name__)
+        return None

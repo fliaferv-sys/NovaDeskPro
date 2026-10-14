@@ -716,3 +716,8 @@ class CustomUserAdmin(UserAdmin):
             form,
             change,
         )
+
+    def save_related(self, request, form, formsets, change):
+        super().save_related(request, form, formsets, change)
+        from .institutional_sync import try_sync_user_institutional_data
+        try_sync_user_institutional_data(form.instance, actor=request.user)
