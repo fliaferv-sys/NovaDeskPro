@@ -27,13 +27,15 @@ def phone_key(value):
     return re.sub(r"[\s().+-]", "", str(value or ""))
 
 
-def resolve_sync_identity(user):
+def resolve_sync_identity(user, *, rrhh_search=None, ad_search=None):
     """Use existing source search rules; no name-only or phone-only links."""
+    rrhh_search = rrhh_search or search_directory_employees
+    ad_search = ad_search or search_ad_users
     evidence, rows, cache = [], [], {}
     def rrhh(value, field):
         key = (str(value), field)
         if key not in cache:
-            cache[key] = search_directory_employees(str(value), limit=100, search_field=field, exact=field != "name")
+            cache[key] = rrhh_search(str(value), limit=100, search_field=field, exact=field != "name")
             if len(cache[key]) >= 100:
                 raise ValueError("Incomplete source")
         return cache[key]
@@ -62,8 +64,8 @@ def resolve_sync_identity(user):
             rows = email_rows
             evidence.append("correo_username_institucional")
     if not rows and account_safe:
-        by_email = search_ad_users(email, limit=100, search_field="email", exact=True)
-        by_username = search_ad_users(username, limit=100, search_field="username", exact=True)
+        by_email = ad_search(email, limit=100, search_field="email", exact=True)
+        by_username = ad_search(username, limit=100, search_field="username", exact=True)
         if len(by_email) != 1 or len(by_username) != 1:
             return None, evidence, ["cuenta_ad_ambigua_o_ausente"]
         for account in (by_email[0], by_username[0]):

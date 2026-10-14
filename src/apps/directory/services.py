@@ -181,6 +181,44 @@ def search_directory_employees(query="", limit=100, *, exact_email=False, search
 		) from exc
 
 
+def search_directory_employees_batch(terms):
+    """One connection, bounded sets of 40 searches, preserving per-term ambiguity.
+
+    Each subquery is the same TOP(100) search as individual identity resolution.
+    UNION ALL retains source duplicates and isolates results by term, including
+    empty results. It does not truncate a global alphabetical directory listing.
+    """
+    terms = list(dict.fromkeys((str(value).strip(), field) for value, field in terms if str(value).strip()))
+    columns_by_field = {"email": "Mail", "employee_number": "LegajoNro",
+                        "name": "NombresApellidos", "rrhh_id": "IdPersonal"}
+    if any(field not in columns_by_field for value, field in terms):
+        raise ValueError("Campo de búsqueda RRHH inválido.")
+    result = {term: [] for term in terms}
+    if not terms:
+        return result
+    columns = ", ".join(_DIRECTORY_COLUMNS)
+    try:
+        with closing(_open_directory_connection()) as connection:
+            with closing(connection.cursor()) as cursor:
+                for offset in range(0, len(terms), 40):
+                    queries, parameters = [], []
+                    for index, (value, field) in enumerate(terms[offset:offset + 40], offset):
+                        expression = f"LOWER(LTRIM(RTRIM(CAST({columns_by_field[field]} AS NVARCHAR(255)))))"
+                        operator = "LIKE" if field == "name" else "="
+                        if field == "name":
+                            value = "%" + value.replace("[", "[[]").replace("%", "[%]").replace("_", "[_]") + "%"
+                        queries.append(f"SELECT {index} AS query_index, employee.* FROM "
+                                       f"(SELECT TOP (100) {columns} FROM dbo.FuncionariosFotosVista "
+                                       f"WHERE {expression} {operator} LOWER(?) ORDER BY NombresApellidos) AS employee")
+                        parameters.append(value)
+                    cursor.execute(" UNION ALL ".join(queries), *parameters)
+                    for row in cursor.fetchall():
+                        result[terms[int(row[0])]].append(dict(zip(_DIRECTORY_COLUMNS, row[1:])))
+        return result
+    except pyodbc.Error as exc:
+        raise DirectoryDatabaseError("No fue posible consultar el directorio institucional por lotes.") from exc
+
+
 def get_directory_employee_by_id_personal(id_personal):
     if isinstance(id_personal, bool):
         raise ValueError("IdPersonal debe ser un entero positivo.")

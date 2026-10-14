@@ -733,7 +733,7 @@ class AccountAccessTests(TestCase):
         def photo_for(user, **kwargs):
             return "/media/funcionarios/testF.jpg" if user.pk == institutional.pk else ""
 
-        with patch("apps.accounts.user_presentation.get_institutional_directory", return_value=[]), patch("apps.accounts.user_presentation.get_user_photo_url", side_effect=photo_for) as lookup:
+        with patch("apps.accounts.user_presentation.resolve_identities_for_users", return_value={}), patch("apps.accounts.user_presentation.get_user_photo_url", side_effect=photo_for) as lookup:
             response = self.client.get(reverse("user_list"))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, uploaded.profile_image.url)

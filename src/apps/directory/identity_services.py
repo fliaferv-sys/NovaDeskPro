@@ -422,13 +422,17 @@ def resolve_institutional_identity(*, id_personal=None, email=None, local_user=N
 
 
 @organization_scope
-def resolve_identity_for_user(user):
+def resolve_identity_for_user(user, *, sources=None):
     """Read-only account enrichment uses the same confirmed matching as sync."""
     if user is None:
         raise ValueError("user no puede ser None.")
     from apps.accounts.institutional_sync import resolve_sync_identity
     try:
-        identity, evidence, conflicts = resolve_sync_identity(user)
+        if sources is None:
+            identity, evidence, conflicts = resolve_sync_identity(user)
+        else:
+            identity, evidence, conflicts = resolve_sync_identity(
+                user, rrhh_search=sources.search_rrhh, ad_search=sources.search_ad)
     except Exception:
         identity = None
     if identity:
@@ -440,6 +444,19 @@ def resolve_identity_for_user(user):
         identity["source_label"] = " + ".join({SOURCE_RRHH: "RR.HH.", SOURCE_ACTIVE_DIRECTORY: "AD"}.get(source, source) for source in identity["sources"])
         return _enrich_with_organizational_unit(identity)
     return _enrich_with_organizational_unit(_normalize_local_user(user))
+
+
+@organization_scope
+def resolve_identities_for_users(users):
+    """Same individual resolver and organizational contract, with batched I/O."""
+    from django.db.models import prefetch_related_objects
+    from .user_resolution import UserResolutionSources
+    users = list(users)
+    if not users:
+        return {}
+    prefetch_related_objects(users, "branch", "organizational_unit")
+    sources = UserResolutionSources.load(users)
+    return {user.pk: resolve_identity_for_user(user, sources=sources) for user in users}
 
 
 @organization_scope

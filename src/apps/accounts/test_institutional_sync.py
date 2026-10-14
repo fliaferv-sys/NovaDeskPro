@@ -195,7 +195,7 @@ class InstitutionalSyncTests(TestCase):
         for role in ("ADMIN", "SUPERVISOR", "AUDITOR"):
             self.actor.role = role; self.actor.save(update_fields=["role"])
             self.client.force_login(self.actor)
-            with patch("apps.accounts.user_presentation.get_institutional_directory", return_value=[]), patch("apps.accounts.institutional_sync.resolve_sync_identity") as sync:
+            with patch("apps.accounts.user_presentation.resolve_identities_for_users", return_value={}), patch("apps.accounts.institutional_sync.resolve_sync_identity") as sync:
                 response = self.client.get(reverse("user_list"))
             self.assertEqual(response.status_code, 200)
             self.assertNotIn("Sincronizar datos", response.content.decode())

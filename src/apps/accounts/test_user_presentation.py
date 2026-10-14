@@ -47,21 +47,33 @@ class UserPresentationTests(TestCase):
                              phone="123456", position="Cargo institucional", location="Secretaría",
                              source="RRHH", source_label="AD + RR.HH.", is_active=True)
 
+    def batch_rows(self, terms, identities=None):
+        identities = [self.identity] if identities is None else identities
+        columns = {"rrhh_id": "id_personal", "employee_number": "employee_number", "email": "email", "name": "name"}
+        def row(identity):
+            return dict(IdPersonal=identity.get("id_personal"), LegajoNro=identity.get("employee_number"),
+                        Mail=identity.get("email"), NombresApellidos=identity.get("name"),
+                        Telefono=identity.get("phone"), Cargo=identity.get("position"), Ubicacion=identity.get("location"),
+                        Estado="Activo" if identity.get("is_active") else "Inactivo")
+        return {term: [row(identity) for identity in identities
+                       if str(identity.get(columns[term[1]]) or "").strip().casefold() == term[0].strip().casefold()] for term in terms}
+
     def enrich(self, identities=None):
-        with patch("apps.accounts.user_presentation.get_institutional_directory",
-                   return_value=[self.identity] if identities is None else identities) as lookup:
+        with patch("apps.directory.user_resolution.search_directory_employees_batch",
+                   side_effect=lambda terms: self.batch_rows(terms, identities)) as lookup, patch(
+                   "apps.directory.user_resolution.search_ad_users_batch", side_effect=lambda terms: {term: [] for term in terms}):
             enrich_user_list([self.user])
-            lookup.assert_called_once_with()
+            lookup.assert_called_once()
 
     def test_fallback_fields_and_no_writes(self):
         before = User.objects.values().get(pk=self.user.pk)
-        with self.assertNumQueries(0):
+        with self.assertNumQueries(2):
             self.enrich()
         self.assertEqual(self.user.display_employee_number, "1002")
         self.assertEqual(self.user.display_phone, "123456")
         self.assertEqual(self.user.display_position, "Cargo institucional")
         self.assertEqual(self.user.display_location, "Secretaría")
-        self.assertEqual(self.user.institutional_source, "AD + RR.HH.")
+        self.assertEqual(self.user.institutional_source, "RR.HH.")
         self.assertEqual(User.objects.values().get(pk=self.user.pk), before)
         self.assertEqual(User.objects.count(), 1)
         self.assertEqual(self.user.role, "ADMIN")
@@ -86,7 +98,7 @@ class UserPresentationTests(TestCase):
         self.assertEqual(self.user.display_phone, "")
 
     def test_source_unavailable_retains_local_data(self):
-        with patch("apps.accounts.user_presentation.get_institutional_directory", side_effect=DirectoryDatabaseError("Unavailable")):
+        with patch("apps.directory.user_resolution.search_directory_employees_batch", side_effect=DirectoryDatabaseError("Unavailable")):
             enrich_user_list([self.user])
         self.assertEqual(self.user.display_phone, "")
 
@@ -110,7 +122,7 @@ class UserPresentationTests(TestCase):
 
     def test_list_loads_with_enrichment_and_local_login(self):
         self.client.force_login(self.user)
-        with patch("apps.accounts.user_presentation.get_institutional_directory", return_value=[self.identity]):
+        with patch("apps.directory.user_resolution.search_directory_employees_batch", side_effect=self.batch_rows):
             response = self.client.get(reverse("user_list"))
         self.assertEqual(response.status_code, 200)
         for value in ("123456", "1002", "Cargo institucional", self.user.email, self.user.username):
@@ -118,9 +130,9 @@ class UserPresentationTests(TestCase):
 
     def test_batch_load_once_for_multiple_accounts(self):
         other = User.objects.create_user(username="other", email="other@example.test")
-        with patch("apps.accounts.user_presentation.get_institutional_directory", return_value=[self.identity]) as lookup:
+        with patch("apps.directory.user_resolution.search_directory_employees_batch", side_effect=self.batch_rows) as lookup:
             enrich_user_list([self.user, other])
-        lookup.assert_called_once_with()
+        lookup.assert_called_once()
         self.assertEqual(other.display_phone, "")
 
     def test_three_columns_never_use_each_other_as_fallback(self):
@@ -144,7 +156,7 @@ class UserPresentationTests(TestCase):
         self.assertEqual(self.user.display_location, "Secretaría")
 
     def test_inactive_or_identifier_conflicting_person_is_not_presented(self):
-        for identity in (dict(self.identity, is_active=False), dict(self.identity, username="otra")):
+        for identity in (dict(self.identity, is_active=False), dict(self.identity, email="otra@petropar.gov.py")):
             self.enrich([identity])
             self.assertEqual(self.user.display_phone, "")
             self.assertEqual(self.user.institutional_source, "")
@@ -166,7 +178,7 @@ class UserPresentationTests(TestCase):
                                    (None, "Sin registrar"), ("   ", "Sin registrar")):
             identity = dict(self.identity, location=location, organizational_unit={"name": "Mapping institucional"})
             with self.subTest(location=location), patch(
-                "apps.accounts.user_presentation.get_institutional_directory", return_value=[identity]
+                "apps.directory.user_resolution.search_directory_employees_batch", side_effect=lambda terms: self.batch_rows(terms, [identity])
             ), patch("apps.accounts.institutional_sync.try_sync_user_institutional_data") as sync, CaptureQueriesContext(connection) as queries:
                 response = self.client.get(reverse("user_list"))
             self.assertEqual(response.status_code, 200)
@@ -184,7 +196,9 @@ class UserPresentationTests(TestCase):
             sync.assert_not_called()
 
     def test_location_does_not_replace_safe_institutional_unit_mapping(self):
-        self.identity["organizational_unit"] = {"name": "Dependencia por mapping"}
+        from apps.institution.models import OrganizationalUnit, InstitutionalIdentityAssignment
+        unit = OrganizationalUnit.objects.create(code="MAPPING-UNIT", name="Dependencia por mapping", unit_type="UNIT")
+        InstitutionalIdentityAssignment.objects.create(id_personal=12, organizational_unit=unit)
         self.enrich()
         self.assertEqual(self.user.display_location, "Secretaría")
         self.assertEqual(self.user.display_unit, "Dependencia por mapping")

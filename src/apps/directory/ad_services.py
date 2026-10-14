@@ -370,6 +370,36 @@ def search_ad_users_by_emails(emails):
     return result
 
 
+def search_ad_users_batch(terms):
+    """Exact email/username sets; saturated or failed batches never prove uniqueness."""
+    terms = list(dict.fromkeys((str(value).strip(), field) for value, field in terms if str(value).strip()))
+    attributes = {"email": "mail", "username": "sAMAccountName"}
+    if any(field not in attributes for value, field in terms):
+        raise ValueError("Campo de búsqueda AD inválido.")
+    result = {term: [] for term in terms}
+    def load_batch(batch):
+        clauses = "".join(f"({attributes[field]}={escape_filter_chars(value)})" for value, field in batch if len(value) >= 2)
+        if not clauses:
+            return
+        try:
+            rows = _search_ad_filter(f"(&(objectCategory=person)(objectClass=user)(|{clauses}))", 100, allow_partial=True)
+            if len(rows) >= 100:
+                if len(batch) > 1:
+                    middle = len(batch) // 2
+                    load_batch(batch[:middle])
+                    load_batch(batch[middle:])
+                    return
+                raise ActiveDirectoryError("El lote de Active Directory está incompleto.")
+            for value, field in batch:
+                result[value, field] = [row for row in rows if str(row.get(field) or "").strip().casefold() == value.casefold()]
+        except ActiveDirectoryError as exc:
+            for term in batch:
+                result[term] = exc
+    for offset in range(0, len(terms), 40):
+        load_batch(terms[offset:offset + 40])
+    return result
+
+
 def authenticate_windows_credentials(identifier, password):
     if not isinstance(identifier, str):
         raise ValueError("identifier debe ser una cadena no vacía.")
