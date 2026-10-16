@@ -22,6 +22,7 @@ class PrintingDevice(models.Model):
     last_checked_at = models.DateTimeField(null=True, blank=True, editable=False)
     last_online_at = models.DateTimeField(null=True, blank=True, editable=False)
     last_status_change_at = models.DateTimeField(null=True, blank=True, editable=False)
+    last_recovery_attempt_at = models.DateTimeField(null=True, blank=True, editable=False)
     monitor_method = models.CharField(max_length=20, blank=True, editable=False)
     monitor_error = models.CharField(max_length=100, blank=True, editable=False)
     monitor_evidence = models.JSONField(default=dict, blank=True, editable=False)

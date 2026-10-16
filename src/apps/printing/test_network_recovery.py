@@ -56,7 +56,7 @@ class NetworkRecoveryTests(EWSResponses, SimpleTestCase):
         result = recover_network_identity(SUBNET, "0021b7ef1daa")
         self.assertEqual(result, dict(expected_mac=MAC, subnet=SUBNET, found_ip="10.11.42.241",
             found_mac=MAC, hostname="ET0021B7EF1DAA", status="FOUND", scanned_hosts=254,
-            responsive_hosts=2, error="", source="LEXMARK_EWS"))
+            responsive_hosts=2, match_count=1, error="", source="LEXMARK_EWS"))
         self.assertTrue(all(call.kwargs["timeout"] == 0.4 for call in self.opener.open.call_args_list))
 
     def test_only_usable_hosts_of_explicit_ipv4_24_are_consulted(self):
