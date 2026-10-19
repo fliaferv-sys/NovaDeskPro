@@ -113,13 +113,21 @@ def apply_recovery(candidate, result, *, subnet, automatic=False):
     if any(d.pk != device.pk and d.is_active and d.ip_address == new_ip for d in devices):
         return {**unchanged, "error": "IP_ALREADY_ASSIGNED"}
 
-    detection.is_current = False
-    detection.save(update_fields=["is_current"])
+    _write_ip_change(device, detection, new_ip, candidate.expected_mac,
+                     source="LEXMARK_EWS_AUTO_RECOVERY", reason="Recuperación automática por coincidencia exacta de MAC.")
+    return dict(updated=True, history_created=True, unchanged=False, error="")
+
+
+def _write_ip_change(device, detection, new_ip, mac, *, source, reason):
+    """Shared write path; caller must hold device/detection locks in atomic()."""
+    old_ip = device.ip_address
+    if detection is not None:
+        detection.is_current = False
+        detection.save(update_fields=["is_current"])
     PrintingDeviceNetworkDetection.objects.create(
-        printing_device=device, detected_ip=new_ip, detected_mac=candidate.expected_mac,
-        detection_source="LEXMARK_EWS_AUTO_RECOVERY", is_current=True,
-        notes=f"IP anterior: {candidate.old_ip or '-'}; IP nueva: {new_ip}. "
-              "Recuperación automática por coincidencia exacta de MAC.")
+        printing_device=device, detected_ip=new_ip, detected_mac=mac,
+        detection_source=source, is_current=True,
+        notes=f"IP anterior: {old_ip or '-'}; IP nueva: {new_ip}. {reason}")
     fields = ["ip_address", "connection_status", "monitored_ip", "monitor_method", "monitor_error",
               "monitor_evidence", "updated_at"]
     if device.connection_status != "UNKNOWN":
@@ -132,4 +140,58 @@ def apply_recovery(candidate, result, *, subnet, automatic=False):
     device.monitor_error = ""
     device.monitor_evidence = {}
     device.save(update_fields=fields)
-    return dict(updated=True, history_created=True, unchanged=False, error="")
+
+
+@dataclass(frozen=True)
+class DiscoveryCandidate:
+    device_id: object
+    old_ip: str
+    serial: str
+    detections: tuple
+
+    @classmethod
+    def capture(cls, device, detections):
+        snapshots = tuple(detection_snapshot(d) for d in sorted(detections, key=lambda d: str(d.pk)))
+        return cls(device.pk, device.ip_address, device.serial_number, snapshots)
+
+
+@transaction.atomic
+def apply_discovery_change(candidate, finding):
+    """Discovery adds serial evidence but shares all history/reset writes above."""
+    from .network_map import authorized_network
+    from .network_reconciliation import reconcile_findings
+
+    failed = dict(updated=False, error="INVALID_DISCOVERY_EVIDENCE")
+    try:
+        entry = authorized_network(finding["subnet"])
+        network = ipaddress.ip_network(entry.subnet, strict=True)
+        address = ipaddress.IPv4Address(finding["ip"])
+        valid = (finding["status"] == "IP_CHANGED" and finding.get("network_unique")
+                 and finding.get("scan_complete") and finding.get("source") == "LEXMARK_EWS"
+                 and finding.get("supported") and valid_ip(str(address)) and address in network
+                 and address not in (network.network_address, network.broadcast_address)
+                 and finding.get("device_id") == str(candidate.device_id)
+                 and (finding.get("serial") or normalize_mac(finding.get("mac"))))
+    except (ValueError, TypeError, KeyError):
+        valid = False
+    if not valid:
+        return failed
+    devices = list(PrintingDevice.objects.select_for_update().order_by("pk"))
+    device = next((d for d in devices if d.pk == candidate.device_id), None)
+    if (device is None or not device.is_active or device.ip_address != candidate.old_ip
+            or device.serial_number != candidate.serial):
+        return {**failed, "error": "DEVICE_CHANGED"}
+    detections = list(PrintingDeviceNetworkDetection.objects.select_for_update().filter(is_current=True).order_by("pk"))
+    by_device = {}
+    for detection in detections:
+        by_device.setdefault(detection.printing_device_id, []).append(detection)
+    current = by_device.get(device.pk, [])
+    captured = tuple(detection_snapshot(d) for d in sorted(current, key=lambda d: str(d.pk)))
+    if captured != candidate.detections:
+        return {**failed, "error": "DETECTION_CHANGED"}
+    fresh = reconcile_findings([finding], devices, by_device)[0]
+    if fresh["status"] != "IP_CHANGED" or fresh["device_id"] != str(candidate.device_id):
+        return {**failed, "error": fresh["reason"] or "IDENTITY_CHANGED"}
+    _write_ip_change(device, current[0] if current else None, str(address), normalize_mac(finding.get("mac")),
+                     source="LEXMARK_EWS_DISCOVERY", reason="Conciliación por identidad exacta de serial/MAC obtenida de EWS.")
+    return dict(updated=True, error="")
