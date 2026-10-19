@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 
 from django.core.management import call_command, CommandError
 from django.db import connection, IntegrityError
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 
 from .models import PrintingDevice, PrintingDeviceNetworkDetection
@@ -67,6 +67,7 @@ class AuthorizedMapTests(SimpleTestCase):
         probe.assert_not_called()
 
 
+@override_settings(PRINTING_SNMP_COMMUNITY_SECRET="")
 class LexmarkAdapterTests(SimpleTestCase):
     def setUp(self):
         self.network_patch = patch("apps.printing.network_identity.build_opener")
@@ -230,13 +231,17 @@ class DiscoveryCommandTests(ReconciliationFixtures, TestCase):
         self.temp = TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.output = Path(self.temp.name) / "discovery.csv"
+        self.live_patch = patch("apps.printing.recovery_application.identify_host", return_value=changed_finding(
+            serial=self.device.serial_number, serial_source="SNMPV2C", identity_verified=True))
+        self.live_mock = self.live_patch.start()
+        self.addCleanup(self.live_patch.stop)
 
     def snapshot(self):
         return (list(PrintingDevice.objects.order_by("pk").values()),
                 list(PrintingDeviceNetworkDetection.objects.order_by("pk").values()))
 
     def run_command(self, findings=None, **options):
-        findings = [finding()] if findings is None else findings
+        findings = [changed_finding(serial=self.device.serial_number)] if findings is None else findings
         scan = dict(subnet=SUBNET, site="VILLA_ELISA", sector="Informática", status="COMPLETE", scanned_hosts=254,
                     findings=findings, error="")
         output = StringIO()
@@ -277,11 +282,12 @@ class DiscoveryCommandTests(ReconciliationFixtures, TestCase):
         self.assertTrue({key for key in before if before[key] != after[key]} <= allowed)
         self.assertEqual(PrintingDevice.objects.count(), 1)
 
-    def test_serial_only_match_with_no_detection_uses_same_history_write_path(self):
+    def test_serial_only_match_without_confirmed_mac_cannot_update(self):
         self.detection.delete()
         output, _ = self.run_command([changed_finding(serial="SERIAL-21")], apply=True)
-        self.assertIn("ACTUALIZADAS=1", output)
-        self.assertEqual(self.device.network_detections.filter(is_current=True).count(), 1)
+        self.assertIn("ACTUALIZADAS=0", output)
+        self.assertEqual(self.device.network_detections.count(), 0)
+        self.live_mock.assert_not_called()
 
     def test_new_matched_unidentified_and_ambiguous_findings_never_write(self):
         cases = ([changed_finding(mac=OTHER_MAC)], [changed_finding(ip=self.device.ip_address)],
@@ -320,7 +326,7 @@ class DiscoveryCommandTests(ReconciliationFixtures, TestCase):
     def test_changed_detection_and_device_after_scan_abort_transaction(self):
         devices, detections = load_records()
         candidate = DiscoveryCandidate.capture(devices[0], detections[self.device.pk])
-        row = reconcile_findings([finding()], devices, detections)[0]
+        row = reconcile_findings([changed_finding(serial=self.device.serial_number)], devices, detections)[0]
         PrintingDeviceNetworkDetection.objects.filter(pk=self.detection.pk).update(notes="Changed")
         before = self.snapshot()
         self.assertEqual(apply_discovery_change(candidate, row)["error"], "DETECTION_CHANGED")

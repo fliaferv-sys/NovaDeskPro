@@ -35,8 +35,9 @@ def reconcile_findings(findings, devices, detections):
         row = {**finding, "status": "UNIDENTIFIED", "device_id": "", "photocopier_id": "",
                "novadesk_ip": "", "action": "REVIEW", "reason": "", "network_unique": False}
         rows.append(row)
-        if finding.get("error") == "MANUFACTURER_CONFLICT":
-            row.update(status="CONFLICT", reason="MANUFACTURER_CONFLICT")
+        if finding.get("error") in ("MANUFACTURER_CONFLICT", "SERIAL_SOURCE_CONFLICT",
+                                   "NETWORK_IDENTITY_CHANGED", "NETWORK_IDENTITY_UNVERIFIED"):
+            row.update(status="CONFLICT", reason=finding["error"])
             continue
         if not finding.get("supported"):
             continue
@@ -75,8 +76,12 @@ def reconcile_findings(findings, devices, detections):
             row.update(status="CONFLICT", reason="INCOMPLETE_SCAN")
         elif device.ip_address == finding["ip"]:
             row.update(status="MATCHED", action="NONE")
+        elif finding.get("serial_source") == "SNMPV2C" and mac not in known_macs:
+            # A newly learned serial must not introduce automatic MAC enrollment.
+            row.update(status="CONFLICT", reason="MAC_NOT_PREVIOUSLY_CONFIRMED")
         else:
-            row.update(status="IP_CHANGED", action="UPDATE_EXISTING_IP")
+            action = "UPDATE_EXISTING_IP" if serial and device.serial_number == serial and mac in known_macs else "REVIEW_IDENTITY"
+            row.update(status="IP_CHANGED", action=action)
     # Different strong identities must not propose distinct IPs for one record.
     target_counts = Counter(row["device_id"] for row in rows if row["status"] in ("MATCHED", "IP_CHANGED"))
     for row in rows:

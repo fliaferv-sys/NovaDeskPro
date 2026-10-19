@@ -18,6 +18,8 @@ CSV_FIELDS = (
     ("PRINTING_DEVICE_ID", "device_id"), ("ID_FOTOCOPIADORA", "photocopier_id"),
     ("IP_NOVADESK", "novadesk_ip"), ("ACCION_PROPUESTA", "action"),
     ("MOTIVO", "reason"), ("ERROR", "error"), ("ACTUALIZADO", "updated"),
+    ("ESTADO_SNMP", "snmp_status"), ("ERROR_SNMP", "snmp_error"),
+    ("ORIGEN_SERIAL", "serial_source"),
 )
 
 
@@ -83,7 +85,7 @@ class Command(BaseCommand):
                 row["updated"] = False
                 if options["apply"] and row["status"] == "IP_CHANGED":
                     try:
-                        applied = apply_discovery_change(candidates[row["device_id"]], row)
+                        applied = apply_discovery_change(candidates[row["device_id"]], row, timeout=options["timeout"])
                         row["updated"] = applied["updated"]
                         if not applied["updated"]:
                             row.update(reason=applied["error"], action="ABORTED")
