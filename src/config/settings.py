@@ -368,3 +368,8 @@ STORAGES = {
 # Printer connectivity: schedule monitor_printers separately from web requests.
 PRINTING_MONITOR_TIMEOUT_SECONDS = float(os.environ.get("PRINTING_MONITOR_TIMEOUT_SECONDS", "1"))
 PRINTING_MONITOR_MAX_AGE_SECONDS = int(os.environ.get("PRINTING_MONITOR_MAX_AGE_SECONDS", "900"))
+
+# Optional read-only serial discovery. Empty community disables SNMP entirely.
+PRINTING_SNMP_COMMUNITY_SECRET = os.environ.get("PRINTING_SNMP_COMMUNITY", "")
+PRINTING_SNMP_TIMEOUT_SECONDS = os.environ.get("PRINTING_SNMP_TIMEOUT_SECONDS", "0.5")
+PRINTING_SNMP_RETRIES = os.environ.get("PRINTING_SNMP_RETRIES", "0")

@@ -2,6 +2,7 @@
 from dataclasses import dataclass, replace
 from datetime import timedelta
 import ipaddress
+from time import monotonic
 
 from django.db import transaction
 from django.db.models import Prefetch, Q
@@ -10,6 +11,7 @@ from django.utils import timezone
 from .connectivity import valid_ip, with_connectivity
 from .models import PrintingDevice, PrintingDeviceNetworkDetection
 from .network_identity import normalize_mac
+from .discovery_adapters import identify_host
 
 COOLDOWN = timedelta(minutes=30)
 
@@ -155,16 +157,15 @@ class DiscoveryCandidate:
         return cls(device.pk, device.ip_address, device.serial_number, snapshots)
 
 
-@transaction.atomic
-def apply_discovery_change(candidate, finding):
-    """Discovery adds serial evidence but shares all history/reset writes above."""
+def apply_discovery_change(candidate, finding, *, timeout=1):
+    """Read-only physical revalidation, then a short atomic inventory update."""
     from .network_map import authorized_network
-    from .network_reconciliation import reconcile_findings
+    from .network_recovery import validate_scan_options
 
     failed = dict(updated=False, error="INVALID_DISCOVERY_EVIDENCE")
     try:
         entry = authorized_network(finding["subnet"])
-        network = ipaddress.ip_network(entry.subnet, strict=True)
+        network, timeout = validate_scan_options(entry.subnet, timeout, 1)
         address = ipaddress.IPv4Address(finding["ip"])
         valid = (finding["status"] == "IP_CHANGED" and finding.get("network_unique")
                  and finding.get("scan_complete") and finding.get("source") == "LEXMARK_EWS"
@@ -176,6 +177,30 @@ def apply_discovery_change(candidate, finding):
         valid = False
     if not valid:
         return failed
+    if not candidate.serial or finding.get("serial") != candidate.serial:
+        return {**failed, "error": "PHYSICAL_SERIAL_REQUIRED"}
+    expected_mac = normalize_mac(finding.get("mac"))
+    if (len(candidate.detections) != 1 or not expected_mac
+            or normalize_mac(candidate.detections[0].get("detected_mac")) != expected_mac):
+        return {**failed, "error": "CONFIRMED_MAC_REQUIRED"}
+    try:
+        live = identify_host(str(address), timeout=timeout)
+    except Exception:
+        return {**failed, "error": "PHYSICAL_REVALIDATION_FAILED"}
+    if (not live or not live.get("supported") or not live.get("identity_verified")
+            or live.get("ip") != str(address) or live.get("source") != "LEXMARK_EWS" or live.get("serial") != candidate.serial
+            or normalize_mac(live.get("mac")) != expected_mac or live.get("error") in (
+                "MANUFACTURER_CONFLICT", "SERIAL_SOURCE_CONFLICT", "NETWORK_IDENTITY_CHANGED",
+                "NETWORK_IDENTITY_UNVERIFIED")):
+        return {**failed, "error": "PHYSICAL_IDENTITY_CHANGED"}
+    return _apply_verified_discovery_change(candidate, finding, verified_at=monotonic())
+
+
+@transaction.atomic
+def _apply_verified_discovery_change(candidate, finding, *, verified_at):
+    from .network_reconciliation import reconcile_findings
+
+    failed = dict(updated=False, error="INVALID_DISCOVERY_EVIDENCE")
     devices = list(PrintingDevice.objects.select_for_update().order_by("pk"))
     device = next((d for d in devices if d.pk == candidate.device_id), None)
     if (device is None or not device.is_active or device.ip_address != candidate.old_ip
@@ -192,6 +217,8 @@ def apply_discovery_change(candidate, finding):
     fresh = reconcile_findings([finding], devices, by_device)[0]
     if fresh["status"] != "IP_CHANGED" or fresh["device_id"] != str(candidate.device_id):
         return {**failed, "error": fresh["reason"] or "IDENTITY_CHANGED"}
-    _write_ip_change(device, current[0] if current else None, str(address), normalize_mac(finding.get("mac")),
-                     source="LEXMARK_EWS_DISCOVERY", reason="Conciliación por identidad exacta de serial/MAC obtenida de EWS.")
+    if monotonic() - verified_at > 10:
+        return {**failed, "error": "PHYSICAL_REVALIDATION_EXPIRED"}
+    _write_ip_change(device, current[0], finding["ip"], normalize_mac(finding.get("mac")),
+                     source="LEXMARK_EWS_DISCOVERY", reason="Conciliación por serial y MAC confirmados mediante consultas de identificación de solo lectura.")
     return dict(updated=True, error="")

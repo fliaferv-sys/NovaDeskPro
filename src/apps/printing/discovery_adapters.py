@@ -5,6 +5,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, ProxyHandler, build_opener
 
 from .network_identity import fetch_network_identity, normalize_mac, _NoRedirect, MAX_RESPONSE_BYTES, _setting_value
+from .snmp_identity import fetch_printer_serial
 
 
 def _safe_text(value, limit=150):
@@ -53,7 +54,8 @@ class LexmarkEWSAdapter:
         if error in ("NETWORK_ERROR", "INVALID_IP", "INVALID_TIMEOUT"):
             return None
         result = dict(ip=ip, mac="", hostname="", manufacturer="", model="", serial="",
-                      supported=False, source="", error=error)
+                      supported=False, source="", error=error, snmp_status="NOT_ATTEMPTED",
+                      snmp_error="", serial_source="", identity_verified=False)
         mac = normalize_mac(identity["mac"])
         if not mac or not identity["hostname"]:
             # HTTP answered, but the Lexmark identity contract was not met.
@@ -68,6 +70,28 @@ class LexmarkEWSAdapter:
         result.update(mac=mac, hostname=identity["hostname"], manufacturer="Lexmark",
                       serial=info.get("serial", ""), model=info.get("model", ""), supported=True,
                       source=self.source, error=info_error)
+        snmp = fetch_printer_serial(ip, timeout=timeout)
+        result["snmp_status"] = snmp["status"]
+        result["snmp_error"] = snmp["error"]
+        result["serial_source"] = "LEXMARK_EWS" if result["serial"] else ""
+        if snmp["status"] == "CONFIRMED":
+            if result["serial"] and result["serial"] != snmp["serial"]:
+                result["error"] = "SERIAL_SOURCE_CONFLICT"
+                return result
+            else:
+                result["serial"] = snmp["serial"]
+                result["serial_source"] = "SNMPV2C"
+        if result["serial"]:
+            # Bracket the serial query with two independent EWS MAC reads.
+            # The stored serial/MAC pair is additionally required for --apply.
+            after = fetch_network_identity(ip, timeout=timeout)
+            after_mac = normalize_mac(after.get("mac"))
+            if not after_mac or not after.get("hostname"):
+                result.update(error="NETWORK_IDENTITY_UNVERIFIED", serial="", serial_source="")
+            elif after_mac != mac:
+                result.update(error="NETWORK_IDENTITY_CHANGED", serial="", serial_source="")
+            else:
+                result["identity_verified"] = True
         return result
 
 

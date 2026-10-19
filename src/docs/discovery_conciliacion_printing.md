@@ -48,9 +48,12 @@ entrega. Firmware con otros esquemas o rutas requiere una muestra y una prueba d
 parser antes de usar su serial como evidencia. La cobertura actual verifica el
 esquema explícito descrito mediante respuestas simuladas.
 
-Ambas consultas usan solamente GET, con respuestas acotadas a 1 MiB, sin
-redirecciones ni proxies de entorno. No usan SNMP, POST, credenciales ni cambian
-configuraciones. No se almacenan payloads completos o mensajes de excepciones.
+Ambas consultas HTTP usan solamente GET, con respuestas acotadas a 1 MiB, sin
+redirecciones ni proxies de entorno. No usan POST ni cambian configuraciones.
+Opcionalmente, después de identificar EWS, SNMPv2c aporta el serial del OID
+estándar con validación ASN.1/BER y comunidad configurada de solo lectura.
+Véase [configuración y restricciones SNMP](printing_snmp_serial.md).
+No se almacenan payloads completos, comunidades o mensajes de excepciones.
 
 ## Conciliación
 
@@ -82,17 +85,23 @@ Solo --apply aplica IP_CHANGED. Sin esa opción, incluida --dry-run, no se escri
 en la base de datos, aunque siempre se genera un reporte CSV.
 
 `apply_discovery_change()` captura IP, serial y detecciones antes del discovery;
-dentro de transaction.atomic vuelve a bloquear/releer registros y detecciones.
+exige que ya existan el serial y una única detección actual con MAC confirmada.
+Repite la identificación física únicamente del host propuesto antes de tomar
+bloqueos: serial y MAC deben coincidir exactamente con el hallazgo y con los
+identificadores locales. No ejecuta otro escaneo /24. Dentro de transaction.atomic
+vuelve a bloquear/releer registros y detecciones.
 Repite la conciliación con los datos actuales y verifica ámbito autorizado,
 evidencia única, ausencia de cambios concurrentes y disponibilidad de la IP.
-Si cambia la identidad o la detección, aborta sin escribir.
+Si cambia la identidad o la detección, aborta sin escribir. La comprobación física
+vence a los diez segundos: una espera prolongada por bloqueos obliga a abortar.
+IP_CHANGED con identidad local incompleta se informa para revisión, sin aplicar.
 
 Se reutiliza `_write_ip_change()` extraído de recovery_application.py: cierra la
 detección anterior si existe, crea una detección con LEXMARK_EWS_DISCOVERY,
 actualiza únicamente IP y campos de conectividad y deja estado UNKNOWN. Conserva
-last_online_at y las fechas históricas de comprobación. Si existe serial exacto
-pero nunca hubo detección, crea la primera detección solo para ese PrintingDevice
-ya existente. No rellena automáticamente serial, modelo o ubicación locales.
+last_online_at y las fechas históricas de comprobación. Si falta serial o MAC
+confirmada localmente, no crea la primera detección ni aplica la IP; requiere
+revisión. No rellena automáticamente serial, MAC, modelo o ubicación locales.
 
 El bloqueo ordenado de PrintingDevice se comparte con la recuperación existente
 para serializar sus aplicaciones de IP. No se mantiene durante HTTP. Si falla
@@ -122,7 +131,8 @@ Sin --output se crea un CSV con fecha UTC y sufijo único bajo
 Se reserva el archivo antes del discovery/aplicación. Nunca sobrescribe un
 archivo existente salvo --overwrite explícito. El CSV UTF-8 con BOM contiene los
 campos requeridos de sede, sector, red, identidad, clasificación, registro local
-y acción, además de motivo, error seguro y resultado de aplicación.
+y acción, además de motivo, error seguro y resultado de aplicación. Incluye
+ESTADO_SNMP, ERROR_SNMP y ORIGEN_SERIAL, sin comunidades o respuestas binarias.
 Las celdas que podrían ejecutarse como fórmulas al abrir en Excel se escapan.
 
 Si una aplicación se aborta por cambios concurrentes, conserva la clasificación
