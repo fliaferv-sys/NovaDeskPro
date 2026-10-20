@@ -9,6 +9,7 @@ from unittest.mock import patch
 from django.core.management import call_command, CommandError
 from django.db import IntegrityError, connection
 from django.test import TestCase
+from django.utils import timezone
 
 from .initial_identity import load_inventory, snapshot, evaluate, apply_initial_binding
 from .models import PrintingDevice, PrintingDeviceNetworkDetection
@@ -159,6 +160,21 @@ class InitialIdentityTests(TestCase):
                 PrintingDevice.objects.filter(pk=self.device.pk).update(ip_address=self.device.ip_address,
                     serial_number=self.device.serial_number, is_active=True)
 
+    def test_monitoring_timestamp_does_not_block_binding(self):
+        PrintingDevice.objects.filter(
+            pk=self.device.pk
+        ).update(last_checked_at=timezone.now())
+
+        self.assertEqual(self.apply(), "BOUND")
+    def test_concurrent_monitored_ip_change_blocks_binding(self):
+        PrintingDevice.objects.filter(
+            pk=self.device.pk
+        ).update(monitored_ip="10.11.42.242")
+
+        self.assertEqual(self.apply(), "INVENTORY_CHANGED")
+        self.assertEqual(
+            PrintingDeviceNetworkDetection.objects.count(), 1
+        )
     def test_concurrent_mac_insertion_aborts(self):
         def concurrent(*args, **kwargs):
             other = PrintingDevice.objects.create(serial_number="OTHER")

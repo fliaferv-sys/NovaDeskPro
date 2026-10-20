@@ -23,7 +23,18 @@ def load_inventory(*, locked=False):
 
 
 def snapshot(devices, detections):
-    return ([{f.attname: getattr(d, f.attname) for f in d._meta.concrete_fields} for d in devices],
+    operational_fields = {
+        "connection_status",
+        "last_checked_at",
+        "last_online_at",
+        "last_status_change_at",
+        "monitor_method",
+        "monitor_error",
+        "monitor_evidence",
+    }
+    return ([{f.attname: getattr(d, f.attname)
+              for f in d._meta.concrete_fields
+              if f.attname not in operational_fields} for d in devices],
             [detection_snapshot(d) for d in detections])
 
 
