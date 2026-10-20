@@ -29,6 +29,9 @@
 
     .psline-model-page {
         padding: 24px;
+        min-width: 0;
+        max-width: 100%;
+        box-sizing: border-box;
     }
 
     .model-header {
@@ -115,10 +118,31 @@
         border-radius: 16px;
         border: 1px solid #e5e7eb;
         box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+        min-width: 0;
+        max-width: 100%;
+        box-sizing: border-box;
     }
 
     .table-wrapper {
         overflow-x: auto;
+        max-width: 100%;
+        box-sizing: border-box;
+        overscroll-behavior-x: contain;
+        scrollbar-gutter: stable;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+    }
+
+    .table-wrapper:focus-visible {
+        outline: 2px solid #1f5d99;
+        outline-offset: 3px;
+    }
+
+    .table-scroll-hint {
+        margin: 0 0 12px;
+        color: #667085;
+        font-size: 13px;
+        line-height: 1.5;
     }
 
     .equipment-brand {
@@ -126,9 +150,9 @@
         color: #344054;
     }
 
-    .equipment-model {
-        font-size: 17px;
-        font-weight: 800;
+    .model-table .equipment-model {
+        font-size: 15px;
+        font-weight: 700;
         color: #123a63;
     }
 
@@ -137,28 +161,91 @@
         margin-top: 4px;
         color: #667085;
         font-size: 12px;
+        line-height: 1.6;
+        white-space: normal;
     }
 
     .model-table {
         width: 100%;
-        min-width: 1100px;
+        min-width: 1680px;
         border-collapse: collapse;
+        font-size: 14px;
+        line-height: 1.6;
     }
 
     .model-table th,
     .model-table td {
-        padding: 12px 14px;
+        padding: 16px 18px;
         text-align: left;
         border-bottom: 1px solid #eef2f7;
-        vertical-align: middle;
+        vertical-align: top;
     }
 
     .model-table th {
         background: #f8fafc;
         color: #344054;
-        white-space: nowrap;
+        white-space: normal;
+        word-break: normal;
+        overflow-wrap: normal;
         font-weight: 600;
         font-size: 13px;
+        line-height: 1.5;
+        padding-top: 14px;
+        padding-bottom: 14px;
+    }
+
+    .model-table td:nth-child(-n+8) {
+        white-space: nowrap;
+        word-break: normal;
+        overflow-wrap: normal;
+    }
+
+    .model-table th:nth-child(1) { min-width: 115px; }
+    .model-table th:nth-child(2) { min-width: 110px; }
+    .model-table th:nth-child(3) { min-width: 155px; }
+    .model-table th:nth-child(4) { min-width: 165px; }
+    .model-table th:nth-child(6) { min-width: 135px; }
+    .model-table th:nth-child(7) { min-width: 145px; }
+    .model-table th:nth-child(8) { min-width: 185px; }
+    .model-table th:nth-child(9) { min-width: 205px; }
+    .model-table th:nth-child(10) { min-width: 260px; }
+    .model-table th:nth-child(11) { min-width: 220px; }
+
+    .model-table td:nth-child(4),
+    .model-table td:nth-child(7),
+    .model-table td:nth-child(8),
+    .detected-address {
+        font-variant-numeric: tabular-nums;
+    }
+
+    .detected-address {
+        white-space: nowrap;
+    }
+
+    .person-name {
+        display: block;
+        font-weight: 600;
+    }
+
+    .person-detail,
+    .model-table td:nth-child(11) {
+        max-width: 280px;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        line-height: 1.6;
+    }
+
+    .person-detail {
+        display: block;
+        margin-top: 6px;
+        color: #667085;
+        font-size: 12px;
+    }
+
+    .person-detail-label {
+        display: block;
+        font-weight: 600;
+        color: #475467;
     }
 
     .model-table tbody tr {
@@ -224,6 +311,8 @@
         .filters-bar input,
         .filters-bar select {
             width: 100%;
+            min-width: 0;
+            box-sizing: border-box;
         }
 
         .model-btn {
@@ -250,13 +339,10 @@
 
         .model-table th,
         .model-table td {
-            padding: 8px 10px;
+            padding: 12px 14px;
             font-size: 13px;
         }
 
-        .model-table {
-            min-width: 800px;
-        }
     }
 </style>
 {% endblock %}
@@ -319,7 +405,8 @@
 
     <div class="model-card">
         {% if devices %}
-            <div class="table-wrapper">
+            <p class="table-scroll-hint" id="equipment-scroll-hint">Desplazá la tabla horizontalmente para consultar todas las columnas.</p>
+            <div class="table-wrapper" tabindex="0" role="region" aria-label="Inventario de impresoras" aria-describedby="equipment-scroll-hint">
                 <table class="model-table">
                     <thead>
                         <tr>
@@ -377,7 +464,7 @@
                                 </td>
                                 <td>
                                     {% for detection in device.current_network_detections %}
-                                        {{ detection.detected_ip|default:"Sin registrar" }}
+                                        <span class="detected-address">{{ detection.detected_ip|default:"Sin registrar" }}</span>
                                         <span class="identity-note">Registrada el {{ detection.detected_at|date:"d/m/Y H:i" }}. No indica conexión en tiempo real.</span>
                                     {% empty %}
                                         <span class="identity-note">Sin detección vigente</span>
@@ -385,8 +472,10 @@
                                 </td>
                                 <td>
                                     {% if device.responsible_display_name %}
-                                        {{ device.responsible_display_name }}
-                                        {% if device.responsible_display_email %}<br><small>{{ device.responsible_display_email }}</small>{% endif %}<br><small>Dependencia institucional: {{ device.person_unit|default:"Sin asignar" }} · Sede de la persona: {{ device.person_branch|default:"Sin asignar" }}</small>
+                                        <span class="person-name">{{ device.responsible_display_name }}</span>
+                                        {% if device.responsible_display_email %}<span class="person-detail">{{ device.responsible_display_email }}</span>{% endif %}
+                                        <span class="person-detail"><span class="person-detail-label">Dependencia institucional:</span>{{ device.person_unit|default:"Sin asignar" }}</span>
+                                        <span class="person-detail"><span class="person-detail-label">Sede de la persona:</span>{{ device.person_branch|default:"Sin asignar" }}</span>
                                     {% else %}
                                         <span style="color:#667085;">Sin asignar</span>
                                     {% endif %}
