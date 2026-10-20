@@ -121,6 +121,24 @@
         overflow-x: auto;
     }
 
+    .equipment-brand {
+        font-weight: 700;
+        color: #344054;
+    }
+
+    .equipment-model {
+        font-size: 17px;
+        font-weight: 800;
+        color: #123a63;
+    }
+
+    .identity-note {
+        display: block;
+        margin-top: 4px;
+        color: #667085;
+        font-size: 12px;
+    }
+
     .model-table {
         width: 100%;
         min-width: 1100px;
@@ -308,9 +326,12 @@
                             <th>ID de fotocopiadora</th>
                             <th>Marca</th>
                             <th>Modelo</th>
+                            <th>Número de serie</th>
                             <th>Tipo</th>
-                            <th>Estado</th>
-                            <th>IP</th>
+                            <th>Estado de conexión</th>
+                            <th>IP registrada</th>
+                            <th>Identidad / MAC vinculada</th>
+                            <th>Última IP detectada</th>
                             <th>Responsable</th>
                             <th>Ubicación</th>
                         </tr>
@@ -320,8 +341,9 @@
                             <tr class="clickable-row"
                                 data-href="/psline/equipo/{{ device.pk }}/">
                                 <td>{{ device.photocopier_id|default:"—" }}</td>
-                                <td>{{ device.effective_brand }}</td>
-                                <td>{{ device.effective_model }}</td>
+                                <td class="equipment-brand">{{ device.effective_brand|default:"Sin marca" }}</td>
+                                <td class="equipment-model">{{ device.effective_model|default:"Sin modelo" }}</td>
+                                <td>{{ device.effective_serial_number|default:"Sin registrar" }}</td>
                                 <td>{{ device.get_device_type_display }}</td>
                                 <td>
                                     {% if device.effective_connection_status == "ONLINE" %}
@@ -340,6 +362,26 @@
                                     {% else %}
                                         —
                                     {% endif %}
+                                </td>
+                                <td>
+                                    {% for detection in device.current_network_detections %}
+                                        {% if detection.detected_mac %}
+                                            <span class="status-chip neutral">{{ detection.detected_mac }}</span>
+                                            <span class="identity-note">Identidad vinculada</span>
+                                        {% else %}
+                                            <span class="identity-note">Identidad pendiente de verificar</span>
+                                        {% endif %}
+                                    {% empty %}
+                                        <span class="identity-note">Identidad pendiente de verificar</span>
+                                    {% endfor %}
+                                </td>
+                                <td>
+                                    {% for detection in device.current_network_detections %}
+                                        {{ detection.detected_ip|default:"Sin registrar" }}
+                                        <span class="identity-note">Registrada el {{ detection.detected_at|date:"d/m/Y H:i" }}. No indica conexión en tiempo real.</span>
+                                    {% empty %}
+                                        <span class="identity-note">Sin detección vigente</span>
+                                    {% endfor %}
                                 </td>
                                 <td>
                                     {% if device.responsible_display_name %}

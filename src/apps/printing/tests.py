@@ -150,7 +150,7 @@ class PrintingDeviceListLocationTests(TestCase):
 
         row = re.search(r'<tr class="clickable-row".*?</tr>', response.content.decode(), re.DOTALL)
         self.assertIsNotNone(row)
-        cells = re.findall(r'<td>(.*?)</td>', row.group(), re.DOTALL)
+        cells = re.findall(r'<td\b[^>]*>(.*?)</td>', row.group(), re.DOTALL)
         return cells[index].strip()
 
     def test_list_shows_device_organizational_location_without_asset(self):
@@ -187,7 +187,7 @@ class PrintingDeviceListLocationTests(TestCase):
         PrintingDevice.objects.create(ip_address="192.0.2.55")
         response = self.client.get(reverse("printing:devices_by_model"))
         self.assertEqual(response.status_code, 200)
-        self.assertInHTML('<span class="status-chip neutral">192.0.2.55</span>', self.location_cell(response, 5))
+        self.assertInHTML('<span class="status-chip neutral">192.0.2.55</span>', self.location_cell(response, 6))
 
     def test_list_without_structured_ip_shows_dash_even_with_asset_ip(self):
         from apps.inventory.models import Asset
@@ -197,7 +197,7 @@ class PrintingDeviceListLocationTests(TestCase):
         PrintingDevice.objects.create(asset=asset, ip_address=None)
         response = self.client.get(reverse("printing:devices_by_model"))
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(self.location_cell(response, 5), "\u2014")
+        self.assertEqual(self.location_cell(response, 6), "\u2014")
 
 
 class PrintingAdminSearchFieldsTests(TestCase):

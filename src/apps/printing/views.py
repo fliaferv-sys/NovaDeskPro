@@ -2,7 +2,7 @@ from apps.directory.person_references import enrich_person_records
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db.models import Count, Q
+from django.db.models import Count, Prefetch, Q
 from django.shortcuts import redirect, render, get_object_or_404
 
 from apps.tickets.models import Ticket
@@ -11,6 +11,7 @@ from .models import (
     Consumable,
     ConsumableCompatibility,
     PrintingDevice,
+    PrintingDeviceNetworkDetection,
 )
 from apps.accounts.access import roles_required
 from .forms import PrintingTicketStockUsageForm
@@ -224,6 +225,11 @@ def printing_devices_by_model(request):
             "organizational_location",
         )
         .filter(is_active=True)
+        .prefetch_related(Prefetch(
+            "network_detections",
+            queryset=PrintingDeviceNetworkDetection.objects.filter(is_current=True).order_by("-detected_at", "pk"),
+            to_attr="current_network_detections",
+        ))
     )
 
     if brand:
