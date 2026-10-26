@@ -1,0 +1,43 @@
+<section class="model-card" style="margin-top:24px" aria-labelledby="device-users-title">
+  <h2 id="device-users-title">Usuarios de esta impresora</h2>
+  <p>El departamento del usuario puede ser diferente del departamento de instalación del equipo.</p>
+  <ul>
+  {% for assignment in active_assignments %}
+    <li>{{ assignment.user.get_full_name|default:assignment.user.username }} · Departamento: {{ assignment.user.department|default:"Sin asignar" }} · Dependencia institucional: {{ assignment.user.organizational_unit|default:"Sin asignar" }}
+      <br><small>Asignado el {{ assignment.assigned_at|date:"d/m/Y H:i" }} por {{ assignment.assigned_by }}</small>
+      {% if can_manage_users %}
+      <form method="post" action="{% url 'printing:manage_device_user' device.pk %}" style="display:inline">
+        {% csrf_token %}<input type="hidden" name="action" value="remove"><input type="hidden" name="assignment_id" value="{{ assignment.pk }}">
+        <button type="submit" class="btn btn-outline-danger">Quitar usuario</button>
+      </form>
+      {% endif %}
+    </li>
+  {% empty %}<li>Sin usuarios asociados.</li>{% endfor %}
+  </ul>
+  {% if can_manage_users and device.is_active %}
+    <form method="get">
+      <label for="person-search">Buscar usuario registrado por nombre, apellido o departamento</label>
+      <input id="person-search" type="search" name="person_search" value="{{ person_search }}" required maxlength="150">
+      <button type="submit" class="btn btn-primary">Buscar usuario</button>
+    </form>
+    {% if person_search %}
+      <p>Se muestran hasta 30 coincidencias. Si falta una persona, afiná la búsqueda o solicitá su registro previo por el procedimiento existente. Esta pantalla no crea cuentas de acceso.</p>
+      {% for person in person_candidates %}
+        <form method="post" action="{% url 'printing:manage_device_user' device.pk %}">
+          {% csrf_token %}<input type="hidden" name="action" value="add"><input type="hidden" name="user_id" value="{{ person.pk }}">
+          {{ person.get_full_name|default:person.username }} · {{ person.department|default:"Sin departamento" }}
+          <button type="submit" class="btn btn-primary">Agregar usuario</button>
+        </form>
+      {% empty %}<p>No hay usuarios disponibles para asociar con esa búsqueda.</p>{% endfor %}
+    {% endif %}
+  {% elif not device.is_active %}<p>Equipo archivado: no admite nuevas asignaciones.</p>{% endif %}
+  <h3>Historial de asociaciones finalizadas</h3>
+  <ul>{% for assignment in assignment_history %}
+    <li>{{ assignment.user.get_full_name|default:assignment.user.username }} · {{ assignment.user.department|default:"Sin departamento" }}
+      <br>Alta: {{ assignment.assigned_at|date:"d/m/Y H:i" }} por {{ assignment.assigned_by }}.
+      Baja: {{ assignment.ended_at|date:"d/m/Y H:i" }} por {{ assignment.ended_by }}.</li>
+  {% empty %}<li>No hay asociaciones finalizadas.</li>{% endfor %}</ul>
+  {% if assignment_history.has_previous %}<a href="?history_page={{ assignment_history.previous_page_number }}">Historial anterior</a>{% endif %}
+  {% if assignment_history.has_other_pages %}Página {{ assignment_history.number }} de {{ assignment_history.paginator.num_pages }}{% endif %}
+  {% if assignment_history.has_next %}<a href="?history_page={{ assignment_history.next_page_number }}">Historial siguiente</a>{% endif %}
+</section>

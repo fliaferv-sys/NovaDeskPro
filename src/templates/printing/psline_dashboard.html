@@ -151,9 +151,16 @@
 
     <!-- TABLA -->
     <div class="psline-table-card">
-        <div class="psline-table-header">
-            <h2>Resumen por modelo</h2>
-            <p>Equipos agrupados por marca y modelo.</p>
+        <div class="psline-table-header psline-summary-header">
+            <div>
+                <h2>Resumen por modelo</h2>
+                <p>Equipos agrupados por marca y modelo.</p>
+            </div>
+            <form method="get" action="{% url 'printing:devices_by_model' %}" class="psline-inventory-search" role="search" aria-label="Buscar en el inventario de impresoras">
+                <input id="inventory-search" name="search" type="search" aria-label="Buscar en el inventario de impresoras" placeholder="ID, usuario, departamento…" title="Buscar por ID, persona, departamento, ubicación, modelo, serie, MAC o IP">
+                <button type="submit" class="btn btn-primary">Buscar</button>
+                <a href="{% url 'printing:devices_by_model' %}" class="psline-inventory-link">Ver inventario y filtros</a>
+            </form>
         </div>
 
         <div class="psline-table-wrapper">
@@ -287,6 +294,83 @@
 .neutral { border-left: 5px solid #6b7280; }
 
 /* TABLA */
+.psline-summary-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px 20px;
+    margin-bottom: 16px;
+}
+
+.psline-summary-header h2 {
+    margin: 0 0 4px;
+}
+
+.psline-summary-header p {
+    margin: 0;
+    color: #667085;
+}
+
+.psline-inventory-search {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-width: 0;
+    max-width: 100%;
+    margin-left: auto;
+}
+
+.psline-inventory-search input {
+    flex: 1 1 220px;
+    width: 260px;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+    padding: 8px 10px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    background: #fff;
+    font-size: 14px;
+}
+
+.psline-inventory-search .btn {
+    padding: 8px 12px;
+    white-space: nowrap;
+}
+
+.psline-inventory-link {
+    font-size: 13px;
+    white-space: nowrap;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+@media (max-width: 900px) {
+    .psline-summary-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .psline-inventory-search {
+        width: 100%;
+        margin-left: 0;
+        justify-content: flex-start;
+    }
+}
+
+@media (max-width: 540px) {
+    .psline-inventory-search input {
+        flex-basis: 160px;
+    }
+
+    .psline-inventory-link {
+        flex-basis: 100%;
+    }
+}
+
 .psline-table-card {
     background: #fff;
     border-radius: 14px;

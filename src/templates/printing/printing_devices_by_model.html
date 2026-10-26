@@ -381,16 +381,38 @@
             <input type="hidden" name="brand" value="{{ brand }}">
             <input type="hidden" name="model" value="{{ model }}">
 
-            <select name="status">
+            <label>Inventario
+            <select name="lifecycle">
+                <option value="active">Activos</option>
+                <option value="archived" {% if request.GET.lifecycle == 'archived' %}selected{% endif %}>Archivados</option>
+                <option value="all" {% if request.GET.lifecycle == 'all' %}selected{% endif %}>Activos y archivados</option>
+            </select></label>
+            <label>Departamento operativo de los usuarios
+            <select name="department"><option value="">Todos</option>
+            {% for department in departments %}<option value="{{ department.pk }}" {% if request.GET.department == department.pk|stringformat:'s' %}selected{% endif %}>{{ department.name }}</option>{% endfor %}
+            </select></label>
+            <label>Dependencia institucional de los usuarios
+            <select name="user_unit"><option value="">Todas</option>
+            {% for unit in user_units %}<option value="{{ unit.pk }}" {% if request.GET.user_unit == unit.pk|stringformat:'s' %}selected{% endif %}>{{ unit.name }}</option>{% endfor %}
+            </select></label>
+            <label>Departamento de instalación (patrimonio)
+            <select name="installation"><option value="">Todos</option>
+            {% for department in installation_departments %}<option value="{{ department }}" {% if request.GET.installation == department %}selected{% endif %}>{{ department }}</option>{% endfor %}
+            </select></label>
+            <label>Ubicación del equipo
+            <select name="location"><option value="">Todas</option>
+            {% for location in locations %}<option value="{{ location.pk }}" {% if request.GET.location == location.pk|stringformat:'s' %}selected{% endif %}>{{ location.name }}</option>{% endfor %}
+            </select></label>
+            <label>Conexión <select name="status">
                 <option value="">Todos los estados</option>
                 <option value="ONLINE" {% if request.GET.status == "ONLINE" %}selected{% endif %}>En línea</option>
                 <option value="OFFLINE" {% if request.GET.status == "OFFLINE" %}selected{% endif %}>Fuera de línea</option>
                 <option value="UNKNOWN" {% if request.GET.status == "UNKNOWN" %}selected{% endif %}>Desconocido</option>
-            </select>
+            </select></label>
 
             <input type="text"
                    name="search"
-                   placeholder="Buscar ID de fotocopiadora..."
+                   aria-label="Buscar impresoras" placeholder="ID, persona, departamento, ubicación, modelo, serie, MAC o IP"
                    value="{{ request.GET.search|default:'' }}">
 
             <button type="submit" class="model-btn">
@@ -403,6 +425,7 @@
     <!--  TABLA DE EQUIPOS CON CLICK EN FILA -->
     <!-- ========================================================== -->
 
+    <p>{{ total }} equipos encontrados.</p>
     <div class="model-card">
         {% if devices %}
             <p class="table-scroll-hint" id="equipment-scroll-hint">Desplazá la tabla horizontalmente para consultar todas las columnas.</p>
@@ -419,7 +442,7 @@
                             <th>IP registrada</th>
                             <th>Identidad / MAC vinculada</th>
                             <th>Última IP detectada</th>
-                            <th>Responsable</th>
+                            <th>Responsable / Usuarios</th>
                             <th>Ubicación</th>
                         </tr>
                     </thead>
@@ -427,7 +450,7 @@
                         {% for device in devices %}
                             <tr class="clickable-row"
                                 data-href="/psline/equipo/{{ device.pk }}/">
-                                <td>{{ device.photocopier_id|default:"—" }}</td>
+                                <td><a href="{% url 'printing:device_detail' device.pk %}">{{ device.identifier }}</a><br>{% if not device.is_active %}<span class="status-chip neutral">Archivada</span>{% else %}<small>Activa</small>{% endif %}</td>
                                 <td class="equipment-brand">{{ device.effective_brand|default:"Sin marca" }}</td>
                                 <td class="equipment-model">{{ device.effective_model|default:"Sin modelo" }}</td>
                                 <td>{{ device.effective_serial_number|default:"Sin registrar" }}</td>
@@ -471,6 +494,8 @@
                                     {% endfor %}
                                 </td>
                                 <td>
+                                    {% for assignment in device.active_user_assignments %}<span class="person-name">{{ assignment.user.get_full_name|default:assignment.user.username }}</span><span class="person-detail">Departamento del usuario: {{ assignment.user.department|default:"Sin asignar" }}</span>{% empty %}<span class="person-detail">Sin usuarios asociados</span>{% endfor %}
+                                    <span class="person-detail-label">Responsable del equipo:</span>
                                     {% if device.responsible_display_name %}
                                         <span class="person-name">{{ device.responsible_display_name }}</span>
                                         {% if device.responsible_display_email %}<span class="person-detail">{{ device.responsible_display_email }}</span>{% endif %}
@@ -481,8 +506,8 @@
                                     {% endif %}
                                 </td>
                                 <td>
-                                    {% if device.organizational_location %}
-                                        {{ device.organizational_location.name }}
+                                    {% if device.effective_location %}
+                                        {{ device.effective_location.name }}
                                     {% else %}
                                         —
                                     {% endif %}
@@ -497,6 +522,11 @@
         {% endif %}
     </div>
 
+{% if page_obj.has_other_pages %}<nav aria-label="Páginas del inventario">
+{% if page_obj.has_previous %}<a href="?{{ query_params }}&amp;page={{ page_obj.previous_page_number }}">Anterior</a>{% endif %}
+ Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}
+{% if page_obj.has_next %}<a href="?{{ query_params }}&amp;page={{ page_obj.next_page_number }}">Siguiente</a>{% endif %}
+</nav>{% endif %}
 </div>
 
 <!-- ========================================================== -->

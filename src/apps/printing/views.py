@@ -2,7 +2,7 @@ from apps.directory.person_references import enrich_person_records
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db.models import Count, Prefetch, Q
+from django.db.models import Count
 from django.shortcuts import redirect, render, get_object_or_404
 
 from apps.tickets.models import Ticket
@@ -11,7 +11,6 @@ from .models import (
     Consumable,
     ConsumableCompatibility,
     PrintingDevice,
-    PrintingDeviceNetworkDetection,
 )
 from apps.accounts.access import roles_required
 from .forms import PrintingTicketStockUsageForm
@@ -207,77 +206,8 @@ def psline_dashboard(request):
 @login_required
 @roles_required("ADMIN", "SUPERVISOR", "AUDITOR", "TECHNICIAN")
 def printing_devices_by_model(request):
-    brand = request.GET.get("brand", "").strip()
-    model = request.GET.get("model", "").strip()
-
-    status = request.GET.get("status")
-    search = request.GET.get("search")
-
-    devices = (
-        PrintingDevice.objects
-        .select_related(
-            "asset",
-            "responsible_user__organizational_unit",
-            "responsible_user__branch",
-            "asset__branch",
-            "asset__physical_location",
-            "branch",
-            "organizational_location",
-        )
-        .filter(is_active=True)
-        .prefetch_related(Prefetch(
-            "network_detections",
-            queryset=PrintingDeviceNetworkDetection.objects.filter(is_current=True).order_by("-detected_at", "pk"),
-            to_attr="current_network_detections",
-        ))
-    )
-
-    if brand:
-        devices = devices.filter(Q(brand=brand) | Q(brand="", asset__brand=brand))
-
-    if model:
-        devices = devices.filter(Q(model=model) | Q(model="", asset__model=model))
-
-    if search:
-        devices = devices.filter(
-            Q(photocopier_id__icontains=search)
-            | Q(serial_number__icontains=search)
-            | Q(brand__icontains=search)
-            | Q(model__icontains=search)
-            | Q(asset__internal_code__icontains=search)
-        )
-
-    # KPIs
-    devices = list(with_connectivity(devices))
-    if status in PrintingDevice.ConnectionStatus.values:
-        devices = [device for device in devices if device.effective_connection_status == status]
-    total = len(devices)
-    online = sum(d.effective_connection_status == "ONLINE" for d in devices)
-    offline = sum(d.effective_connection_status == "OFFLINE" for d in devices)
-    unknown = total - online - offline
-
-    # Alertas
-    has_offline = offline > 0
-    has_unknown = unknown > 0
-
-    devices = enrich_person_records(devices, "responsible_identity", "responsible_user")
-    context = {
-        "devices": devices,
-        "brand": brand,
-        "model": model,
-        "total": total,
-        "online": online,
-        "offline": offline,
-        "unknown": unknown,
-        "has_offline": has_offline,
-        "has_unknown": has_unknown,
-    }
-
-    return render(
-        request,
-        "printing/printing_devices_by_model.html",
-        context,
-    )
+    from .inventory_users import inventory_context
+    return render(request, "printing/printing_devices_by_model.html", inventory_context(request))
 
 
 # ==========================================================
@@ -301,7 +231,10 @@ def printing_device_detail(request, pk):
     )
 
     enrich_person_records([device], "responsible_identity", "responsible_user")
+    from .inventory_users import assignment_context
     context = {
+        **assignment_context(request, device),
+        "current_network_detections": device.network_detections.filter(is_current=True),
         "device": device,
         "devices": [device],
         "brand": device.effective_brand,

@@ -1860,3 +1860,20 @@ class ConsumableStockMigrationItem(models.Model):
 
     def __str__(self):
         return f"{self.printing_reference_snapshot} - {self.printing_name_snapshot}"
+
+
+class PrintingDeviceUserAssignment(models.Model):
+    """Usage association; technical inventory and monitoring remain independent."""
+    device = models.ForeignKey(PrintingDevice, on_delete=models.PROTECT, related_name="user_assignments")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="printer_assignments")
+    assigned_at = models.DateTimeField(default=timezone.now, editable=False)
+    assigned_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="printer_assignments_created")
+    ended_at = models.DateTimeField(null=True, blank=True, editable=False)
+    ended_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="printer_assignments_ended")
+
+    class Meta:
+        ordering = ["-assigned_at", "-pk"]
+        constraints = [
+            models.UniqueConstraint(fields=["device", "user"], condition=models.Q(ended_at__isnull=True), name="printing_unique_active_device_user"),
+            models.CheckConstraint(condition=(models.Q(ended_at__isnull=True, ended_by__isnull=True) | models.Q(ended_at__isnull=False, ended_by__isnull=False, ended_at__gte=models.F("assigned_at"))), name="printing_assignment_end_consistent"),
+        ]

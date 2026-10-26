@@ -7,9 +7,12 @@ from .views import (
     register_ticket_consumable,
 )
 
+from .inventory_users import manage_device_user
+
 app_name = "printing"
 
 urlpatterns = [
+    path("equipo/<uuid:pk>/usuarios/", manage_device_user, name="manage_device_user"),
     path(
         "",
         psline_dashboard,

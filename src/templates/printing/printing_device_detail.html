@@ -7,7 +7,7 @@
 
     <div class="model-header">
         <div>
-            <h1>Equipos por modelo</h1>
+            <h1>Impresora {{ device.identifier }} {% if not device.is_active %}· Archivada{% endif %}</h1>
             <p>
                 {% if brand or model %}
                     {{ brand|default:"Todas las marcas" }} · {{ model|default:"Todos los modelos" }}
@@ -23,6 +23,8 @@
     </div>
 
     <div class="model-card">
+        <p>Serie: {{ device.effective_serial_number|default:"Sin registrar" }} · Departamento de instalación (patrimonio): {{ device.asset.department|default:"Sin registrar" }}</p>
+        <p>MAC vinculada: {% for detection in current_network_detections %}{{ detection.detected_mac|default:"Sin registrar" }} (IP detectada: {{ detection.detected_ip|default:"Sin registrar" }}) {% empty %}Sin registrar{% endfor %}</p>
         {% if devices %}
             <div class="table-wrapper">
                 <table class="model-table">
@@ -74,6 +76,7 @@
         {% endif %}
     </div>
 
+    {% include "printing/device_users.html" %}
 </div>
 
 <style>
