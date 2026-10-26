@@ -20,6 +20,7 @@ from apps.institution.models import OrganizationalUnit
 from apps.directory.person_references import enrich_person_records
 from .connectivity import with_connectivity
 from .models import PrintingDevice, PrintingDeviceNetworkDetection, PrintingDeviceUserAssignment
+from .historical_notes import historical_search_pattern, with_historical_labels
 
 
 def inventory_context(request):
@@ -52,6 +53,9 @@ def inventory_context(request):
     installation = params.get("installation", "").strip()
     if installation:
         devices = devices.filter(asset__department=installation)
+    historical_dependency = params.get("historical_dependency", "").strip()[:200]
+    for term in historical_dependency.split():
+        devices = devices.filter(notes__iregex=historical_search_pattern(term, dependency_only=True))
     location = params.get("location", "")
     if location:
         import uuid
@@ -76,7 +80,8 @@ def inventory_context(request):
                  | Q(responsible_user__username__icontains=term)
                  | Q(responsible_user__department__name__icontains=term)
                  | Q(responsible_user__organizational_unit__name__icontains=term)
-                 | Q(responsible_identity__name__icontains=term))
+                 | Q(responsible_identity__name__icontains=term)
+                 | Q(notes__iregex=historical_search_pattern(term)))
         for field in ("photocopier_id", "serial_number", "brand", "model", "ip_address", "monitored_ip",
                       "asset__internal_code", "asset__brand", "asset__model", "asset__serial_number",
                       "asset__department", "asset__location", "organizational_location__name",
@@ -110,6 +115,8 @@ def inventory_context(request):
         Prefetch("user_assignments", queryset=PrintingDeviceUserAssignment.objects.filter(ended_at__isnull=True).select_related("user__department"), to_attr="active_user_assignments"))
     page = Paginator(devices.order_by("photocopier_id", "pk"), 50).get_page(params.get("page"))
     page.object_list = enrich_person_records(page.object_list, "responsible_identity", "responsible_user")
+    for device in page.object_list:
+        with_historical_labels(device)
     query_params = params.copy()
     query_params.pop("page", None)
     return dict(devices=page, page_obj=page, total=page.paginator.count, query_params=query_params.urlencode(),

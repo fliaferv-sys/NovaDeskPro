@@ -399,6 +399,11 @@
             <select name="installation"><option value="">Todos</option>
             {% for department in installation_departments %}<option value="{{ department }}" {% if request.GET.installation == department %}selected{% endif %}>{{ department }}</option>{% endfor %}
             </select></label>
+            <label>Dependencia histórica de instalación
+                <input type="text" name="historical_dependency" maxlength="200"
+                       value="{{ request.GET.historical_dependency|default:'' }}"
+                       placeholder="Ej.: Comercial" title="Solo líneas Dependencia: de las observaciones; no filtra departamentos de cuentas">
+            </label>
             <label>Ubicación del equipo
             <select name="location"><option value="">Todas</option>
             {% for location in locations %}<option value="{{ location.pk }}" {% if request.GET.location == location.pk|stringformat:'s' %}selected{% endif %}>{{ location.name }}</option>{% endfor %}
@@ -504,12 +509,22 @@
                                     {% else %}
                                         <span style="color:#667085;">Sin asignar</span>
                                     {% endif %}
+                                    {% if device.historical_responsibles %}
+                                        <span class="person-detail"><span class="person-detail-label">Responsable histórico (observaciones):</span>
+                                        {% for name in device.historical_responsibles %}<span class="person-name">{{ name }}</span>{% endfor %}
+                                        Sin vínculo institucional verificado.</span>
+                                    {% endif %}
                                 </td>
                                 <td>
                                     {% if device.effective_location %}
                                         {{ device.effective_location.name }}
                                     {% else %}
                                         —
+                                    {% endif %}
+                                    {% if device.historical_dependencies %}
+                                        <span class="person-detail"><span class="person-detail-label">Dependencia histórica de instalación (observaciones):</span>
+                                        {% for dependency in device.historical_dependencies %}{{ dependency }}{% if not forloop.last %}<br>{% endif %}{% endfor %}
+                                        <br>No equivale al departamento institucional del usuario.</span>
                                     {% endif %}
                                 </td>
                             </tr>

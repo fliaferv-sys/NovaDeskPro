@@ -77,6 +77,17 @@
     </div>
 
     {% include "printing/device_users.html" %}
+    {% if device.historical_responsibles or device.historical_dependencies %}
+    <section class="model-card" style="margin-top:24px" aria-labelledby="historical-identity-title">
+        <h2 id="historical-identity-title">Datos históricos de las observaciones</h2>
+        <p>Información de lectura, sin vínculo institucional verificado ni asignación automática de usuarios.</p>
+        {% if device.historical_responsibles %}<p><strong>Responsable histórico:</strong>
+            {% for name in device.historical_responsibles %}{{ name }}{% if not forloop.last %}; {% endif %}{% endfor %}</p>{% endif %}
+        {% if device.historical_dependencies %}<p><strong>Dependencia histórica de instalación:</strong>
+            {% for dependency in device.historical_dependencies %}{{ dependency }}{% if not forloop.last %}; {% endif %}{% endfor %}</p>
+            <p>No equivale al departamento institucional del usuario.</p>{% endif %}
+    </section>
+    {% endif %}
 </div>
 
 <style>
