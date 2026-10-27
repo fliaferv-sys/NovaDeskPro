@@ -1,5 +1,5 @@
 <section class="model-card" style="margin-top:24px" aria-labelledby="device-users-title">
-  <h2 id="device-users-title">Usuarios de esta impresora</h2>
+  <h2 id="device-users-title">Usuarios del equipo</h2>
   <p>El departamento del usuario puede ser diferente del departamento de instalación del equipo.</p>
   <ul>
   {% for assignment in active_assignments %}
@@ -12,8 +12,18 @@
       </form>
       {% endif %}
     </li>
-  {% empty %}<li>Sin usuarios asociados.</li>{% endfor %}
+  {% empty %}{% if not device.responsible_display_name and not device.historical_responsibles %}<li>Sin usuarios registrados.</li>{% endif %}{% endfor %}
   </ul>
+  {% if device.responsible_display_name %}
+    <p><strong>Responsable registrado:</strong> {{ device.responsible_display_name }}
+    {% if device.responsible_display_email %} · {{ device.responsible_display_email }}{% endif %}
+    <br><small>Dependencia institucional: {{ device.person_unit|default:"Sin asignar" }} · Sede de la persona: {{ device.person_branch|default:"Sin asignar" }}</small></p>
+  {% endif %}
+  {% if device.historical_responsibles %}
+    <p><strong>Responsable histórico (observaciones):</strong>
+    {% for name in device.historical_responsibles %}{{ name }}{% if not forloop.last %}; {% endif %}{% endfor %}
+    <br>Sin vínculo institucional verificado.</p>
+  {% endif %}
   {% if can_manage_users and device.is_active %}
     <form method="get">
       <label for="person-search">Buscar usuario registrado por nombre, apellido o departamento</label>

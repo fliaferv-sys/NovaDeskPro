@@ -204,7 +204,7 @@
     .model-table th:nth-child(2) { min-width: 110px; }
     .model-table th:nth-child(3) { min-width: 155px; }
     .model-table th:nth-child(4) { min-width: 165px; }
-    .model-table th:nth-child(6) { min-width: 135px; }
+    .model-table th:nth-child(6) { min-width: 250px; }
     .model-table th:nth-child(7) { min-width: 145px; }
     .model-table th:nth-child(8) { min-width: 185px; }
     .model-table th:nth-child(9) { min-width: 205px; }
@@ -434,6 +434,7 @@
     <div class="model-card">
         {% if devices %}
             <p class="table-scroll-hint" id="equipment-scroll-hint">Desplazá la tabla horizontalmente para consultar todas las columnas.</p>
+            <p class="table-scroll-hint">La última respuesta positiva es un dato histórico. La falta de respuesta no confirma un retiro ni un traslado.</p>
             <div class="table-wrapper" tabindex="0" role="region" aria-label="Inventario de impresoras" aria-describedby="equipment-scroll-hint">
                 <table class="model-table">
                     <thead>
@@ -447,7 +448,7 @@
                             <th>IP registrada</th>
                             <th>Identidad / MAC vinculada</th>
                             <th>Última IP detectada</th>
-                            <th>Responsable / Usuarios</th>
+                            <th>Usuarios del equipo</th>
                             <th>Ubicación</th>
                         </tr>
                     </thead>
@@ -461,13 +462,15 @@
                                 <td>{{ device.effective_serial_number|default:"Sin registrar" }}</td>
                                 <td>{{ device.get_device_type_display }}</td>
                                 <td>
-                                    {% if device.effective_connection_status == "ONLINE" %}
+                                    {% if device.monitoring_display.status == "ONLINE" %}
                                         <span class="status-chip success">En línea</span>
-                                    {% elif device.effective_connection_status == "OFFLINE" %}
+                                    {% elif device.monitoring_display.status == "OFFLINE" %}
                                         <span class="status-chip danger">Fuera de línea</span>
                                     {% else %}
-                                        <span class="status-chip neutral">Desconocido</span>
+                                        <span class="status-chip neutral">Sin estado vigente</span>
                                     {% endif %}
+                                    <span class="person-detail">{{ device.monitoring_display.note }}</span>
+                                    {% include "printing/_monitoring_dates.html" %}
                                 </td>
                                 <td>
                                     {% if device.ip_address %}
@@ -499,21 +502,7 @@
                                     {% endfor %}
                                 </td>
                                 <td>
-                                    {% for assignment in device.active_user_assignments %}<span class="person-name">{{ assignment.user.get_full_name|default:assignment.user.username }}</span><span class="person-detail">Departamento del usuario: {{ assignment.user.department|default:"Sin asignar" }}</span>{% empty %}<span class="person-detail">Sin usuarios asociados</span>{% endfor %}
-                                    <span class="person-detail-label">Responsable del equipo:</span>
-                                    {% if device.responsible_display_name %}
-                                        <span class="person-name">{{ device.responsible_display_name }}</span>
-                                        {% if device.responsible_display_email %}<span class="person-detail">{{ device.responsible_display_email }}</span>{% endif %}
-                                        <span class="person-detail"><span class="person-detail-label">Dependencia institucional:</span>{{ device.person_unit|default:"Sin asignar" }}</span>
-                                        <span class="person-detail"><span class="person-detail-label">Sede de la persona:</span>{{ device.person_branch|default:"Sin asignar" }}</span>
-                                    {% else %}
-                                        <span style="color:#667085;">Sin asignar</span>
-                                    {% endif %}
-                                    {% if device.historical_responsibles %}
-                                        <span class="person-detail"><span class="person-detail-label">Responsable histórico (observaciones):</span>
-                                        {% for name in device.historical_responsibles %}<span class="person-name">{{ name }}</span>{% endfor %}
-                                        Sin vínculo institucional verificado.</span>
-                                    {% endif %}
+                                    {% include "printing/_device_people.html" %}
                                 </td>
                                 <td>
                                     {% if device.effective_location %}

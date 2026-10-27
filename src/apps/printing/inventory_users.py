@@ -21,6 +21,7 @@ from apps.directory.person_references import enrich_person_records
 from .connectivity import with_connectivity
 from .models import PrintingDevice, PrintingDeviceNetworkDetection, PrintingDeviceUserAssignment
 from .historical_notes import historical_search_pattern, with_historical_labels
+from .presentation import with_monitoring_display
 
 
 def inventory_context(request):
@@ -117,6 +118,7 @@ def inventory_context(request):
     page.object_list = enrich_person_records(page.object_list, "responsible_identity", "responsible_user")
     for device in page.object_list:
         with_historical_labels(device)
+        with_monitoring_display(device, now=now)
     query_params = params.copy()
     query_params.pop("page", None)
     return dict(devices=page, page_obj=page, total=page.paginator.count, query_params=query_params.urlencode(),

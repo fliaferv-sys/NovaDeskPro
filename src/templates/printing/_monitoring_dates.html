@@ -1,0 +1,9 @@
+{% load tz %}
+<div class="person-detail monitoring-dates">
+    <div><strong>Última comprobación:</strong> {{ device.monitoring_display.checked_at|localtime|date:"d/m/Y H:i:s O"|default:"Sin datos" }}</div>
+    <div><strong>Última vez en línea:</strong> {{ device.monitoring_display.online_at|localtime|date:"d/m/Y H:i:s O"|default:"Sin datos" }}</div>
+    <div><strong>Desde la última respuesta positiva:</strong> {{ device.monitoring_display.elapsed }}</div>
+    <div><strong>Última actualización del registro:</strong> {{ device.monitoring_display.updated_at|localtime|date:"d/m/Y H:i:s O"|default:"Sin datos" }}</div>
+    <small>Fechas en hora local. La actualización del registro no es una comprobación de conectividad.</small>
+    {% if device.monitoring_display.target_changed %}<div>La IP registrada cambió respecto de la monitoreada. Las fechas conservadas no confirman respuesta de la IP actual.</div>{% endif %}
+</div>

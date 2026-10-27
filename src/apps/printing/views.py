@@ -233,6 +233,8 @@ def printing_device_detail(request, pk):
     enrich_person_records([device], "responsible_identity", "responsible_user")
     from .historical_notes import with_historical_labels
     with_historical_labels(device)
+    from .presentation import with_monitoring_display
+    with_monitoring_display(device)
     from .inventory_users import assignment_context
     context = {
         **assignment_context(request, device),

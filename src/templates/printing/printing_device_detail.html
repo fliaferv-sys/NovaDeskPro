@@ -1,4 +1,5 @@
 {% extends "layouts/base.html" %}
+{% load tz %}
 
 {% block title %}Equipos por modelo{% endblock %}
 
@@ -24,6 +25,7 @@
 
     <div class="model-card">
         <p>Serie: {{ device.effective_serial_number|default:"Sin registrar" }} · Departamento de instalación (patrimonio): {{ device.asset.department|default:"Sin registrar" }}</p>
+        <p>La última respuesta positiva es un dato histórico. La falta de respuesta no confirma un retiro ni un traslado.</p>
         <p>MAC vinculada: {% for detection in current_network_detections %}{{ detection.detected_mac|default:"Sin registrar" }} (IP detectada: {{ detection.detected_ip|default:"Sin registrar" }}) {% empty %}Sin registrar{% endfor %}</p>
         {% if devices %}
             <div class="table-wrapper">
@@ -36,7 +38,6 @@
                             <th>Tipo</th>
                             <th>Estado</th>
                             <th>IP</th>
-                            <th>Responsable</th>
                             <th>Ubicación</th>
                             <th>Acción</th>
                         </tr>
@@ -48,17 +49,15 @@
                                 <td>{{ device.effective_brand }}</td>
                                 <td>{{ device.effective_model }}</td>
                                 <td>{{ device.get_device_type_display }}</td>
-                                <td>{{ device.connection_status_label }}</td>
+                                <td>{{ device.monitoring_display.label }}<br><small>{{ device.monitoring_display.note }}</small></td>
                                 <td>{{ device.ip_address|default:"—" }}<br>
                                     <small>IP monitoreada: {{ device.monitored_ip|default:"Sin comprobar" }}<br>
-                                    Última comprobación: {{ device.last_checked_at|date:"d/m/Y H:i:s"|default:"Nunca" }}<br>
-                                    Última vez en línea: {{ device.last_online_at|date:"d/m/Y H:i:s"|default:"Nunca" }}<br>
-                                    {% if device.monitor_error %}Motivo: {{ device.monitor_error }}<br>{% endif %}
-                                    {% if device.monitor_evidence.host_reachable %}
-                                        Host alcanzable. {% if device.monitor_evidence.print_port_reachable %}Puerto de impresión accesible.{% else %}Puerto de impresión sin confirmar.{% endif %}
-                                    {% endif %}</small>
+                                    </small>
+                                    {% include "printing/_monitoring_dates.html" %}
+                                    <small>Último cambio de estado registrado: {{ device.monitoring_display.status_changed_at|localtime|date:"d/m/Y H:i:s O"|default:"Sin datos" }}. No indica una respuesta positiva.
+                                    {% if device.monitor_error %}<br>Resultado registrado del sondeo: {{ device.monitor_error }}.{% endif %}
+                                    {% if device.monitoring_display.status == "ONLINE" and device.monitor_evidence.host_reachable %}<br>Host alcanzable en la comprobación reciente. {% if device.monitor_evidence.print_port_reachable %}Puerto de impresión accesible.{% else %}Puerto de impresión sin confirmar.{% endif %}{% endif %}</small>
                                 </td>
-                                <td>{{ device.responsible_display_name|default:"—" }}{% if device.responsible_display_email %}<br><small>{{ device.responsible_display_email }}</small>{% endif %}<br><small>Dependencia institucional: {{ device.person_unit|default:"Sin asignar" }} · Sede de la persona: {{ device.person_branch|default:"Sin asignar" }}</small></td>
                                 <td>Sede del equipo: {{ device.effective_branch.name|default:"Sin asignar" }}{% if device.effective_location %}<br>{{ device.effective_location.full_path }}{% elif device.asset.location %}<br>{{ device.asset.location }}{% endif %}</td>
                                 <td>
                                     <a class="detail-link"
@@ -77,12 +76,10 @@
     </div>
 
     {% include "printing/device_users.html" %}
-    {% if device.historical_responsibles or device.historical_dependencies %}
+    {% if device.historical_dependencies %}
     <section class="model-card" style="margin-top:24px" aria-labelledby="historical-identity-title">
         <h2 id="historical-identity-title">Datos históricos de las observaciones</h2>
         <p>Información de lectura, sin vínculo institucional verificado ni asignación automática de usuarios.</p>
-        {% if device.historical_responsibles %}<p><strong>Responsable histórico:</strong>
-            {% for name in device.historical_responsibles %}{{ name }}{% if not forloop.last %}; {% endif %}{% endfor %}</p>{% endif %}
         {% if device.historical_dependencies %}<p><strong>Dependencia histórica de instalación:</strong>
             {% for dependency in device.historical_dependencies %}{{ dependency }}{% if not forloop.last %}; {% endif %}{% endfor %}</p>
             <p>No equivale al departamento institucional del usuario.</p>{% endif %}

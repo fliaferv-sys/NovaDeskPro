@@ -1,0 +1,19 @@
+{% for assignment in device.active_user_assignments %}
+    <span class="person-name">{{ assignment.user.get_full_name|default:assignment.user.username }}</span>
+    <span class="person-detail">Usuario asociado · Departamento del usuario: {{ assignment.user.department|default:"Sin asignar" }}</span>
+{% endfor %}
+{% if device.responsible_display_name %}
+    <span class="person-detail-label">Responsable registrado:</span>
+    <span class="person-name">{{ device.responsible_display_name }}</span>
+    {% if device.responsible_display_email %}<span class="person-detail">{{ device.responsible_display_email }}</span>{% endif %}
+    <span class="person-detail">Dependencia institucional: {{ device.person_unit|default:"Sin asignar" }}</span>
+    <span class="person-detail">Sede de la persona: {{ device.person_branch|default:"Sin asignar" }}</span>
+{% endif %}
+{% if device.historical_responsibles %}
+    <span class="person-detail"><span class="person-detail-label">Responsable histórico (observaciones):</span>
+    {% for name in device.historical_responsibles %}<span class="person-name">{{ name }}</span>{% endfor %}
+    Sin vínculo institucional verificado.</span>
+{% endif %}
+{% if not device.active_user_assignments and not device.responsible_display_name and not device.historical_responsibles %}
+    <span class="person-detail">Sin usuarios registrados.</span>
+{% endif %}
