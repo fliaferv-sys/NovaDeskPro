@@ -89,6 +89,11 @@ class DeliveryBatch(models.Model):
         verbose_name="Fuente institucional del receptor",
     )
 
+    recipient_locator = models.JSONField(
+        default=dict, blank=True,
+        verbose_name="Referencia institucional del receptor",
+    )
+
     recipient_employee_number = models.CharField(
         max_length=30,
         blank=True,
@@ -477,6 +482,11 @@ class AssetCustodyMovement(models.Model):
         max_length=30,
         blank=True,
         verbose_name="Fuente institucional del receptor",
+    )
+
+    recipient_locator = models.JSONField(
+        default=dict, blank=True,
+        verbose_name="Referencia institucional del receptor",
     )
 
     recipient_employee_number = models.CharField(

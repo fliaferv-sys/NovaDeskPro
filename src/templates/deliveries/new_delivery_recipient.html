@@ -1,6 +1,109 @@
-{% extends "layouts/base.html" %}{% block title %}Nueva entrega{% endblock %}{% block content %}
-<div class="delivery-wizard"><header class="delivery-wizard-header"><span class="delivery-wizard-kicker">Nueva entrega</span><h1>¿Quién recibirá los equipos?</h1><p>Seleccione al destinatario. NovaDesk completará los datos que ya conoce.</p></header>
-{% include "deliveries/delivery_wizard_steps.html" %}<form method="post" class="delivery-card">{% csrf_token %}{% if form.errors %}<div class="delivery-error">Revise la selección antes de continuar.</div>{% endif %}<div class="delivery-field"><label for="recipient-search">Buscar destinatario</label><input class="delivery-search" id="recipient-search" type="search" placeholder="Nombre, apellido, correo o legajo" autocomplete="off"><label for="{{ form.recipient.id_for_label }}">Seleccionar destinatario</label>{{ form.recipient }}{{ form.recipient.errors }}<small class="delivery-help" id="recipient-search-status" aria-live="polite">Puede buscar por nombre, correo o legajo.</small></div><div id="recipient-preview" class="delivery-facts" style="margin-top:18px" aria-live="polite"></div><div class="delivery-actions"><a class="delivery-secondary" href="{% url 'deliveries:custody_movement_list' %}">Cancelar</a><button class="delivery-primary" type="submit">Continuar a equipos</button></div></form></div>
-{{ recipient_data|json_script:"recipient-data" }}{% include "deliveries/delivery_wizard_styles.html" %}
-<script>const recipientData=JSON.parse(document.getElementById('recipient-data').textContent),recipientSelect=document.querySelector('[data-recipient-select]'),recipientPreview=document.getElementById('recipient-preview'),recipientSearch=document.getElementById('recipient-search'),recipientSearchStatus=document.getElementById('recipient-search-status'),recipientOptions=[...recipientSelect.options].slice(1);function showRecipient(){const d=recipientData[recipientSelect.value];recipientPreview.innerHTML=d?Object.entries({Nombre:d.name,Legajo:d.employee_number||'No registrado',Cargo:d.position||'No registrado',Sede:d.branch||'No registrada',Dependencia:d.organizational_unit||'No registrada','Equipo operativo':d.department||'No registrado'}).map(([k,v])=>`<div class="delivery-fact"><small>${k}</small><strong class="${v.startsWith('No registrad')?'is-missing':''}">${v}</strong></div>`).join(''):''}function filterRecipients(){const term=recipientSearch.value.trim().toLocaleLowerCase(),matches=recipientOptions.filter(option=>{const d=recipientData[option.value]||{},searchable=[d.name,d.email,d.employee_number,option.textContent].join(' ').toLocaleLowerCase(),visible=!term||searchable.includes(term);option.hidden=!visible;option.disabled=!visible;return visible});recipientSearchStatus.textContent=term?`${matches.length} destinatario${matches.length===1?'':'s'} encontrado${matches.length===1?'':'s'}.`:'Puede buscar por nombre, correo o legajo.'}recipientSelect.addEventListener('change',showRecipient);recipientSearch.addEventListener('input',filterRecipients);showRecipient();</script>
+{% extends "layouts/base.html" %}
+{% block title %}Nueva entrega{% endblock %}
+{% block content %}
+<div class="delivery-wizard">
+  <header class="delivery-wizard-header">
+    <span class="delivery-wizard-kicker">Nueva entrega</span>
+    <h1>¿Quién recibirá los equipos?</h1>
+    <p>Busque un funcionario por nombre, apellido, legajo o sector y selecciónelo una sola vez.</p>
+  </header>
+  {% include "deliveries/delivery_wizard_steps.html" %}
+  <form method="post" class="delivery-card" id="delivery-recipient-form">
+    {% csrf_token %}
+    {% if recipient_error %}<div class="delivery-error" role="alert">{{ recipient_error }}</div>{% endif %}
+    <div class="delivery-field">
+      <label for="recipient-search">Buscar y seleccionar funcionario</label>
+      <input class="delivery-search" id="recipient-search" type="search" autocomplete="off" minlength="2"
+             placeholder="Nombre, apellido, legajo, sector o dependencia" role="combobox"
+             aria-autocomplete="list" aria-expanded="false" aria-controls="recipient-results">
+      <input type="hidden" name="recipient_token" id="recipient-token">
+      <small class="delivery-help" id="recipient-search-status" aria-live="polite">Escriba al menos dos caracteres.</small>
+    </div>
+    <div id="recipient-results" role="listbox" aria-label="Funcionarios coincidentes" class="delivery-asset-list" hidden></div>
+    <div id="recipient-preview" class="delivery-facts" style="margin-top:18px" aria-live="polite"></div>
+    <div class="delivery-actions">
+      <a class="delivery-secondary" href="{% url 'deliveries:custody_movement_list' %}">Cancelar</a>
+      <button class="delivery-primary" id="delivery-recipient-continue" type="submit" disabled>Continuar a equipos</button>
+    </div>
+  </form>
+</div>
+{% include "deliveries/delivery_wizard_styles.html" %}
+<script>
+(() => {
+  const search = document.getElementById('recipient-search');
+  const token = document.getElementById('recipient-token');
+  const status = document.getElementById('recipient-search-status');
+  const list = document.getElementById('recipient-results');
+  const preview = document.getElementById('recipient-preview');
+  const button = document.getElementById('delivery-recipient-continue');
+  const endpoint = "{% url 'deliveries:new_delivery_recipient_search' %}";
+  let delay, controller, serial = 0;
+  function clearSelection() { token.value = ''; button.disabled = true; preview.replaceChildren(); }
+  function fact(label, value) {
+    const item = document.createElement('div'); item.className = 'delivery-fact';
+    const small = document.createElement('small'); small.textContent = label;
+    const strong = document.createElement('strong'); strong.textContent = value || 'No registrado';
+    item.append(small, strong); return item;
+  }
+  function selectPerson(person) {
+    token.value = person.token;
+    search.value = person.name;
+    button.disabled = false;
+    list.hidden = true; list.replaceChildren(); search.setAttribute('aria-expanded','false');
+    preview.replaceChildren(
+      fact('Nombre', person.name), fact('Legajo', person.employee_number),
+      fact('Cargo', person.position), fact('Sector / dependencia', person.organizational_unit || person.department),
+      fact('Sede', person.branch), fact('Correo', person.email)
+    );
+    status.textContent = 'Funcionario seleccionado.';
+  }
+  async function lookUp(value, seq) {
+    controller?.abort(); controller = new AbortController();
+    try {
+      const response = await fetch(endpoint + '?q=' + encodeURIComponent(value), {
+        headers: { 'Accept': 'application/json' }, credentials: 'same-origin', signal: controller.signal
+      });
+      if (!response.ok) throw new Error('No se pudo consultar el directorio.');
+      const result = await response.json();
+      if (seq !== serial) return;
+      list.replaceChildren();
+      (result.results || []).forEach((person, index) => {
+        const option = document.createElement('button');
+        option.type = 'button'; option.className = 'delivery-asset';
+        option.setAttribute('role','option'); option.id = 'recipient-result-' + index;
+        option.style.width = '100%'; option.style.textAlign = 'left';
+        option.textContent = [person.name, person.employee_number && 'Legajo: ' + person.employee_number,
+          person.organizational_unit || person.department, person.position].filter(Boolean).join(' · ');
+        option.addEventListener('click', () => selectPerson(person)); list.appendChild(option);
+      });
+      list.hidden = !list.children.length;
+      search.setAttribute('aria-expanded', String(!list.hidden));
+      status.textContent = list.children.length
+        ? `${list.children.length} coincidencia(s)${result.more ? ' (refine la búsqueda para ver más)' : ''}.`
+        : 'No encontramos coincidencias. Pruebe con otro dato.';
+    } catch (err) {
+      if (err.name === 'AbortError' || seq !== serial) return;
+      status.textContent = 'No fue posible consultar el directorio. Intente nuevamente.';
+    }
+  }
+  search.addEventListener('input', () => {
+    clearTimeout(delay); controller?.abort(); serial += 1; const seq = serial;
+    clearSelection(); list.replaceChildren(); list.hidden = true; search.setAttribute('aria-expanded','false');
+    const value = search.value.trim();
+    if (value.length < 2) { status.textContent = 'Escriba al menos dos caracteres.'; return; }
+    status.textContent = 'Buscando funcionarios...';
+    delay = setTimeout(() => lookUp(value, seq), 450);
+  });
+  search.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') { list.hidden = true; search.setAttribute('aria-expanded','false'); }
+    if (event.key === 'ArrowDown' && !list.hidden && list.firstElementChild) { event.preventDefault(); list.firstElementChild.focus(); }
+  });
+  list.addEventListener('keydown', (event) => {
+    const active = document.activeElement;
+    if (event.key === 'ArrowDown' && active.nextElementSibling) { event.preventDefault(); active.nextElementSibling.focus(); }
+    if (event.key === 'ArrowUp') { event.preventDefault(); active.previousElementSibling ? active.previousElementSibling.focus() : search.focus(); }
+    if (event.key === 'Escape') { event.preventDefault(); list.hidden = true; search.focus(); }
+  });
+})();
+</script>
 {% endblock %}

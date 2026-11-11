@@ -45,7 +45,7 @@ def rrhh_recipient_identity(**overrides):
         "last_name": "",
         "email": "persona.rrhh@example.test",
         "phone": "0981000000",
-        "location": "Ubicación RRHH",
+        "location": "UbicaciÃ³n RRHH",
         "position": "Cargo RRHH",
         "employment_type": "Permanente",
         "status": "Activo",
@@ -137,7 +137,7 @@ class InstitutionalRecipientFormTestBase(TestCase):
             "authorizing_director": str(self.director.pk),
             "destination_branch": str(self.branch.pk),
             "department": "Departamento de prueba",
-            "location": "Ubicación de prueba",
+            "location": "UbicaciÃ³n de prueba",
             "delivery_date": "2026-10-02T10:00",
             "recipient_id_personal": "",
             "recipient_name": "Nombre falso",
@@ -173,7 +173,7 @@ class InstitutionalRecipientFormTestBase(TestCase):
             "authorizing_director": str(self.director.pk),
             "department": "Departamento manual",
             "destination_branch": str(self.branch.pk),
-            "location": "Ubicación manual",
+            "location": "UbicaciÃ³n manual",
             "movement_date": "2026-10-02T10:00",
         }
         data.update(recipient_fields)
@@ -453,7 +453,7 @@ class AssetCustodyMovementInstitutionalRecipientFormTests(
 
         self.assertFalse(form.is_valid())
         self.assertIn(
-            "En una reasignación, el custodio anterior y el nuevo receptor deben ser distintos.",
+            "En una reasignaciÃ³n, el custodio anterior y el nuevo receptor deben ser distintos.",
             form.errors["institutional_recipient"],
         )
         resolve.assert_called_once_with(
@@ -478,7 +478,7 @@ class AssetCustodyMovementInstitutionalRecipientFormTests(
 
         self.assertFalse(form.is_valid())
         self.assertIn(
-            "En una reasignación, el custodio anterior y el nuevo receptor deben ser distintos.",
+            "En una reasignaciÃ³n, el custodio anterior y el nuevo receptor deben ser distintos.",
             form.errors["institutional_recipient"],
         )
         resolve.assert_called_once_with(
@@ -843,7 +843,7 @@ class GroupedDeliveryWorkflowTests(TestCase):
                 "recipient_email": self.recipient.email,
                 "delivery_responsible": str(self.manager.pk),
                 "authorizing_director": str(self.manager.pk),
-                "department": "Administración",
+                "department": "AdministraciÃ³n",
                 "destination_branch": str(self.branch.pk),
                 "location": "Edificio Central",
                 "delivery_date": "2026-08-01T10:00",
@@ -857,7 +857,7 @@ class GroupedDeliveryWorkflowTests(TestCase):
         self.assertEqual(movement.recipient_name, resolved_name)
         self.assertEqual(movement.recipient_email, self.recipient.email)
         self.assertEqual(movement.recipient_source, "LOCAL")
-        self.assertEqual(movement.department, "Administración")
+        self.assertEqual(movement.department, "AdministraciÃ³n")
         resolve_recipient.assert_called_once_with(
             id_personal=None,
             email=self.recipient.email,
@@ -893,7 +893,7 @@ class GroupedDeliveryWorkflowTests(TestCase):
             status=DeliveryBatch.BatchStatus.PENDING_SIGNATURE,
             recipient=self.recipient,
             delivery_responsible=self.manager,
-            department="Administración",
+            department="AdministraciÃ³n",
             destination_branch=self.branch,
             location="Edificio Central",
             created_by=self.manager,
@@ -903,7 +903,7 @@ class GroupedDeliveryWorkflowTests(TestCase):
             asset=self.asset,
             recipient=self.recipient,
             delivery_responsible=self.manager,
-            department="Administración",
+            department="AdministraciÃ³n",
             destination_branch=self.branch,
             location="Edificio Central",
             status=AssetCustodyMovement.MovementStatus.PENDING_SIGNATURE,
@@ -928,13 +928,26 @@ class GroupedDeliveryWorkflowTests(TestCase):
         self.asset.refresh_from_db()
         delivery_batch.refresh_from_db()
         self.assertEqual(self.asset.assigned_user, self.recipient)
-        self.assertEqual(self.asset.department, "Administración")
+        self.assertEqual(self.asset.department, "AdministraciÃ³n")
         self.assertEqual(self.asset.branch, self.branch)
         self.assertEqual(delivery_batch.status, DeliveryBatch.BatchStatus.DELIVERED)
 
 # Create your tests here.
 
 
+from django.test import override_settings as _novadesk_override_settings
+
+# NOVADESK_STATIC_TEST_FIX
+@_novadesk_override_settings(
+    STORAGES={
+        "default": {
+            "BACKEND": "django.core.files.storage.FileSystemStorage",
+        },
+        "staticfiles": {
+            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+        },
+    }
+)
 class ConfigurableDeliveryPermissionTests(TestCase):
     def setUp(self):
         self.branch = Branch.objects.create(code="PERM-HQ", name="Sede permisos")
@@ -956,16 +969,16 @@ class ConfigurableDeliveryPermissionTests(TestCase):
             recipient=self.recipient,
             delivery_responsible=self.owner,
             destination_branch=self.branch,
-            department="Tecnología",
-            location="Mesa técnica",
+            department="TecnologÃ­a",
+            location="Mesa tÃ©cnica",
             created_by=self.owner,
         )
         self.batch = DeliveryBatch.objects.create(
             recipient=self.recipient,
             delivery_responsible=self.owner,
             destination_branch=self.branch,
-            department="Tecnología",
-            location="Mesa técnica",
+            department="TecnologÃ­a",
+            location="Mesa tÃ©cnica",
             created_by=self.owner,
         )
 
@@ -1144,7 +1157,7 @@ class NewDeliveryWizardTests(TestCase):
         return {
             "authorizing_director": str(self.manager.pk),
             "destination_branch": str(self.branch.pk),
-            "department": "Tecnología",
+            "department": "TecnologÃ­a",
             "location": "Piso 2",
             "observations": "Entrega de prueba",
         }
@@ -1165,9 +1178,9 @@ class NewDeliveryWizardTests(TestCase):
     def test_recipient_selection_autocompletes_known_data(self):
         response = self.client.get(reverse("deliveries:new_delivery_recipient"))
         self.assertContains(response, "Nueva entrega")
-        self.assertContains(response, "Nombre, apellido, correo o legajo")
-        self.assertContains(response, "Ana Receptora")
-        self.assertContains(response, "1234")
+        self.assertContains(response, "nombre, apellido, legajo o sector")
+        self.assertContains(response, 'id="recipient-search"')
+        self.assertNotContains(response, 'data-recipient-select="1"')
         self.assertRedirects(
             self.select_recipient(), reverse("deliveries:new_delivery_assets"),
             fetch_redirect_response=False,
@@ -1205,7 +1218,7 @@ class NewDeliveryWizardTests(TestCase):
         self.assertContains(response, "WIZ-1")
         self.assertContains(response, "WIZ-2")
         self.assertContains(response, "Preparar entrega")
-        self.assertContains(response, "Responsable de autorización")
+        self.assertContains(response, "Responsable de autorizaciÃ³n")
         self.assertNotContains(response, "Director DTI")
 
     def test_prepare_creates_one_batch_and_linked_movements_without_assignment(self):
@@ -1230,9 +1243,9 @@ class NewDeliveryWizardTests(TestCase):
         self.client.post(reverse("deliveries:new_delivery_review"), self.review_payload())
         batch = DeliveryBatch.objects.get()
         response = self.client.get(reverse("deliveries:delivery_batch_detail", args=[batch.pk]))
-        self.assertContains(response, "En preparación")
+        self.assertContains(response, "En preparaciÃ³n")
         self.assertContains(response, "Siguiente paso")
-        self.assertContains(response, "Registrar autorización")
+        self.assertContains(response, "Registrar autorizaciÃ³n")
         self.assertContains(response, "0 de 2 documentos completados")
         self.assertNotContains(response, "Director DTI")
         self.client.post(reverse("deliveries:delivery_batch_send_to_signature", args=[batch.pk]))

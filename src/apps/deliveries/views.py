@@ -4,10 +4,13 @@ from django.views.decorators.http import require_POST
 from django.core.exceptions import PermissionDenied
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models import Q
 
 from django.shortcuts import get_object_or_404, redirect, render
-from django.http import FileResponse, Http404
+from django.http import FileResponse, Http404, JsonResponse
 from django.urls import reverse
+from django.core import signing
+from django.views.decorators.http import require_GET
 from django.utils import timezone
 
 from .constants import ACTA_CERRADA_ERROR
@@ -15,6 +18,10 @@ from .constants import ACTA_CERRADA_ERROR
 from apps.activity.models import ActivityLog
 from apps.activity.services import register_activity
 from apps.accounts.models import User
+from apps.directory.identity_services import (
+    search_institutional_identities, resolve_common_identity, InstitutionalIdentityError,
+)
+from apps.directory.identity_selection import institutional_selection
 from apps.inventory.models import Asset
 
 
@@ -52,53 +59,182 @@ NEW_DELIVERY_REQUIRED_PERMISSIONS = (
 
 
 def _recipient_summary(recipient):
+    """Legacy local User rendering, retained for existing deliveries and tests."""
     return {
         "name": recipient.get_full_name() or recipient.username,
         "email": recipient.email,
         "employee_number": recipient.employee_number or "",
         "position": recipient.position or "",
         "branch": str(recipient.branch) if recipient.branch else "",
-        "organizational_unit": (
-            str(recipient.organizational_unit) if recipient.organizational_unit else ""
-        ),
+        "organizational_unit": str(recipient.organizational_unit) if recipient.organizational_unit else "",
         "department": str(recipient.department) if recipient.department else "",
     }
+
+
+RECIPIENT_SELECTION_SALT = "novadesk.deliveries.recipient.v1"
+
+
+def _identity_summary(identity):
+    """Never trust personal information supplied by the browser."""
+    unit = identity.get("organizational_unit") or ""
+    branch = identity.get("branch") or ""
+    path = identity.get("organizational_path") or []
+    return {
+        "name": str(identity.get("full_name") or identity.get("name") or ""),
+        "email": str(identity.get("email") or ""),
+        "employee_number": str(identity.get("employee_number") or ""),
+        "position": str(identity.get("position") or ""),
+        "branch": str(branch),
+        "organizational_unit": str(unit),
+        "department": str(identity.get("department") or identity.get("area") or ""),
+        "section": str(identity.get("section") or ""),
+        "location": str(identity.get("location") or ""),
+        "organizational_path": " / ".join(str(value) for value in path) if isinstance(path, (list, tuple)) else str(path),
+        "source": str(identity.get("source") or ""),
+    }
+
+
+def _is_valid_delivery_identity(identity):
+    # Require an existing, uniquely re-resolvable source; forbid technical accounts.
+    locator = identity.get("_locator") or {}
+    if not isinstance(locator, dict) or locator.get("source") not in {"RRHH", "ACTIVE_DIRECTORY", "TERCERIZADOS", "LOCAL"}:
+        return False
+    if identity.get("is_active") is False or identity.get("is_person") is False:
+        return False
+    if identity.get("is_technical") or identity.get("is_shared"):
+        return False
+    name = _identity_summary(identity)["name"].strip()
+    if not name or "@" in name:
+        return False
+    # Preserve the common institutional safety rules wherever the source has an
+    # institutional email. RRHH identities may legitimately have no email.
+    if identity.get("email") and locator.get("source") in {"ACTIVE_DIRECTORY", "TERCERIZADOS"}:
+        eligible, _ = institutional_selection(identity)
+        if not eligible:
+            return False
+    return True
+
+
+def _identity_to_wizard(identity):
+    return {
+        "locator": identity["_locator"],
+        "linked": identity.get("_linked") or [],
+        "summary": _identity_summary(identity),
+    }
+
+
+def _resolve_wizard_recipient(wizard):
+    """Return (local_user_or_none, trusted_summary, identity_or_none)."""
+    selection = wizard.get("recipient_identity")
+    if selection:
+        identity = resolve_common_identity(selection["locator"], selection.get("linked") or None)
+        if not _is_valid_delivery_identity(identity):
+            raise InstitutionalIdentityError("El destinatario ya no es válido.")
+        local_user = None
+        local_id = identity.get("local_user_id")
+        if local_id:
+            local_user = User.objects.filter(pk=local_id, is_active=True).first()
+        return local_user, _identity_summary(identity), identity
+    if wizard.get("recipient_id"):
+        user = get_object_or_404(User, pk=wizard["recipient_id"], is_active=True)
+        return user, _recipient_summary(user), None
+    raise InstitutionalIdentityError("Seleccione un funcionario.")
+
+
+@login_required
+@permission_required(NEW_DELIVERY_REQUIRED_PERMISSIONS, raise_exception=True)
+@require_GET
+def new_delivery_recipient_search_view(request):
+    query = " ".join(request.GET.get("q", "").split())[:100]
+    if len(query) < 2:
+        return JsonResponse({"results": [], "message": "Escriba al menos dos caracteres."})
+    fallback = False
+    try:
+        # Shared service supports combined terms and institutional identities.
+        identities = search_institutional_identities(query, complete=True, include_references=True)
+    except InstitutionalIdentityError:
+        # Local development can lack RRHH/AD; show bounded local matches without
+        # pretending the complete directory is available. Never use this to claim
+        # that all institutional sources were searched.
+        fallback = True
+        local_users = User.objects.filter(
+            Q(first_name__icontains=query) | Q(last_name__icontains=query)
+            | Q(employee_number__icontains=query) | Q(email__icontains=query)
+            | Q(organizational_unit__name__icontains=query)
+            | Q(department__name__icontains=query)
+            | Q(branch__name__icontains=query)
+        ).select_related("branch", "department", "organizational_unit")[:26]
+        identities = []
+        for user in local_users:
+            identities.append({
+                "source": "LOCAL", "_locator": {"source": "LOCAL", "id": str(user.pk)},
+                "_linked": [], "local_user_id": str(user.pk),
+                "name": user.get_full_name() or user.username,
+                "full_name": user.get_full_name() or user.username,
+                "employee_number": user.employee_number or "", "position": user.position or "",
+                "email": user.email or "", "branch": str(user.branch) if user.branch else "",
+                "organizational_unit": str(user.organizational_unit) if user.organizational_unit else "",
+                "department": str(user.department) if user.department else "",
+                "is_active": user.is_active,
+            })
+    results = []
+    for identity in identities:
+        if not _is_valid_delivery_identity(identity):
+            continue
+        summary = _identity_summary(identity)
+        token = signing.dumps({"locator": identity["_locator"], "linked": identity.get("_linked") or []}, salt=RECIPIENT_SELECTION_SALT, compress=True)
+        results.append({"token": token, **summary})
+        if len(results) >= 25:
+            break
+    return JsonResponse({
+        "results": results,
+        "more": len(identities) > len(results),
+        "unavailable_sources": (["RRHH", "ACTIVE_DIRECTORY"] if fallback else
+                                list(getattr(identities, "unavailable_sources", ()))),
+    })
 
 
 @login_required
 @permission_required(NEW_DELIVERY_REQUIRED_PERMISSIONS, raise_exception=True)
 def new_delivery_recipient_view(request):
     wizard = request.session.get(NEW_DELIVERY_SESSION_KEY, {})
+    error = ""
     if request.method == "POST":
-        form = NewDeliveryRecipientForm(request.POST)
-        if form.is_valid():
-            recipient = form.cleaned_data["recipient"]
-            request.session[NEW_DELIVERY_SESSION_KEY] = {
-                "recipient_id": str(recipient.pk),
-                "asset_ids": [],
-            }
-            return redirect("deliveries:new_delivery_assets")
-    else:
-        form = NewDeliveryRecipientForm(initial={"recipient": wizard.get("recipient_id")})
-
-    recipient_data = {
-        str(user.pk): _recipient_summary(user)
-        for user in form.fields["recipient"].queryset
-    }
-    return render(
-        request,
-        "deliveries/new_delivery_recipient.html",
-        {"form": form, "recipient_data": recipient_data, "wizard_step": 1, "wizard_steps": DELIVERY_WIZARD_STEPS},
-    )
+        token = request.POST.get("recipient_token", "")
+        if token:
+            try:
+                selection = signing.loads(token, salt=RECIPIENT_SELECTION_SALT, max_age=1800)
+                identity = resolve_common_identity(selection["locator"], selection.get("linked") or None)
+                if not _is_valid_delivery_identity(identity):
+                    raise InstitutionalIdentityError("Selección inválida.")
+                request.session[NEW_DELIVERY_SESSION_KEY] = {"recipient_identity": _identity_to_wizard(identity), "asset_ids": []}
+                return redirect("deliveries:new_delivery_assets")
+            except (signing.BadSignature, KeyError, TypeError, ValueError, InstitutionalIdentityError):
+                error = "No fue posible validar al funcionario. Busque y seleccione nuevamente."
+        else:
+            # Backwards compatibility for the original server-side local User form.
+            form = NewDeliveryRecipientForm(request.POST)
+            if form.is_valid():
+                recipient = form.cleaned_data["recipient"]
+                request.session[NEW_DELIVERY_SESSION_KEY] = {"recipient_id": str(recipient.pk), "asset_ids": []}
+                return redirect("deliveries:new_delivery_assets")
+            error = "Debe buscar y seleccionar un funcionario válido."
+    return render(request, "deliveries/new_delivery_recipient.html", {
+        "wizard_step": 1, "wizard_steps": DELIVERY_WIZARD_STEPS, "recipient_error": error,
+    })
 
 
 @login_required
 @permission_required(NEW_DELIVERY_REQUIRED_PERMISSIONS, raise_exception=True)
 def new_delivery_assets_view(request):
     wizard = request.session.get(NEW_DELIVERY_SESSION_KEY, {})
-    if not wizard.get("recipient_id"):
+    if not wizard.get("recipient_id") and not wizard.get("recipient_identity"):
         return redirect("deliveries:new_delivery_recipient")
-    recipient = get_object_or_404(User, pk=wizard.get("recipient_id"))
+    try:
+        recipient, summary, _ = _resolve_wizard_recipient(wizard)
+    except InstitutionalIdentityError:
+        messages.error(request, "No se pudo validar al destinatario. Selecciónelo nuevamente.")
+        return redirect("deliveries:new_delivery_recipient")
     if request.method == "POST":
         form = NewDeliveryAssetsForm(request.POST)
         if form.is_valid():
@@ -114,7 +250,7 @@ def new_delivery_assets_view(request):
         {
             "form": form,
             "recipient": recipient,
-            "recipient_summary": _recipient_summary(recipient),
+            "recipient_summary": summary,
             "wizard_step": 2,
             "wizard_steps": DELIVERY_WIZARD_STEPS,
         },
@@ -126,12 +262,13 @@ def new_delivery_assets_view(request):
 @transaction.atomic
 def new_delivery_review_view(request):
     wizard = request.session.get(NEW_DELIVERY_SESSION_KEY, {})
-    if not wizard.get("recipient_id"):
+    if not wizard.get("recipient_id") and not wizard.get("recipient_identity"):
         return redirect("deliveries:new_delivery_recipient")
-    recipient = get_object_or_404(
-        User.objects.select_related("branch", "organizational_unit", "department"),
-        pk=wizard.get("recipient_id"),
-    )
+    try:
+        recipient, summary, identity = _resolve_wizard_recipient(wizard)
+    except InstitutionalIdentityError:
+        messages.error(request, "No fue posible validar al destinatario. Selecciónelo nuevamente.")
+        return redirect("deliveries:new_delivery_recipient")
     asset_ids = wizard.get("asset_ids", [])
     if not asset_ids:
         messages.warning(request, "Seleccione al menos un equipo.")
@@ -145,11 +282,11 @@ def new_delivery_review_view(request):
         messages.error(request, "Uno de los equipos seleccionados ya no está disponible.")
         return redirect("deliveries:new_delivery_assets")
 
-    suggested_department = str(recipient.department) if recipient.department else ""
+    suggested_department = summary["department"] or summary["organizational_unit"]
     initial = {
-        "destination_branch": recipient.branch_id,
-        "department": suggested_department,
-        "location": recipient.branch.address if recipient.branch and recipient.branch.address else "",
+        "destination_branch": recipient.branch_id if recipient else None,
+        "department": suggested_department[:120],
+        "location": (recipient.branch.address if recipient and recipient.branch and recipient.branch.address else summary["location"])[:150],
     }
     form = NewDeliveryReviewForm(request.POST or None, initial=initial)
     if request.method == "POST" and form.is_valid():
@@ -178,10 +315,16 @@ def new_delivery_review_view(request):
                 batch = DeliveryBatch.objects.create(
                     status=DeliveryBatch.BatchStatus.PREPARED,
                     recipient=recipient,
-                    recipient_employee_number=recipient.employee_number or "",
-                    recipient_position=recipient.position or "",
-                    recipient_unit=str(recipient.organizational_unit or ""),
-                    recipient_area=str(recipient.department or ""),
+                    recipient_locator=(wizard.get("recipient_identity") or {}).get("locator", {}),
+                    recipient_id_personal=identity.get("rrhh_id") if identity else recipient.id_personal,
+                    recipient_name=summary["name"][:200],
+                    recipient_email=summary["email"],
+                    recipient_source=summary["source"] if identity else "LOCAL",
+                    recipient_employee_number=summary["employee_number"][:30],
+                    recipient_position=summary["position"][:120],
+                    recipient_unit=summary["organizational_unit"][:120],
+                    recipient_area=(summary["department"] or summary["organizational_unit"])[:120],
+                    recipient_section=summary.get("section", "")[:120],
                     delivery_responsible=current_user,
                     authorizing_director=form.cleaned_data["authorizing_director"],
                     origin_unit=str(current_user.organizational_unit or ""),
@@ -201,10 +344,16 @@ def new_delivery_review_view(request):
                         movement_type=AssetCustodyMovement.MovementType.DELIVERY,
                         status=AssetCustodyMovement.MovementStatus.PREPARED,
                         recipient=recipient,
+                        recipient_locator=batch.recipient_locator,
+                        recipient_id_personal=batch.recipient_id_personal,
+                        recipient_name=batch.recipient_name,
+                        recipient_email=batch.recipient_email,
+                        recipient_source=batch.recipient_source,
                         recipient_employee_number=batch.recipient_employee_number,
                         recipient_position=batch.recipient_position,
                         recipient_unit=batch.recipient_unit,
                         recipient_area=batch.recipient_area,
+                        recipient_section=batch.recipient_section,
                         delivery_responsible=current_user,
                         authorizing_director=batch.authorizing_director,
                         destination_branch=batch.destination_branch,
@@ -224,7 +373,7 @@ def new_delivery_review_view(request):
         {
             "form": form,
             "recipient": recipient,
-            "recipient_summary": _recipient_summary(recipient),
+            "recipient_summary": summary,
             "assets": assets,
             "wizard_step": 3,
             "wizard_steps": DELIVERY_WIZARD_STEPS,
@@ -329,9 +478,19 @@ def update_asset_custody(movement):
         AssetCustodyMovement.MovementType.REASSIGNMENT,
     }:
         asset.assigned_user = movement.recipient
-        # Explicit custody transfer replaces the current person, never historical acts.
+        # Store the verified institutional source locator even for a non-local recipient.
         asset.custodian_identity = {}
-        if movement.recipient_id_personal and movement.recipient_name and movement.recipient_email:
+        if movement.recipient_name and movement.recipient_locator:
+            asset.custodian_identity = {
+                "source": movement.recipient_source,
+                "locator": movement.recipient_locator,
+                "name": movement.recipient_name,
+                "email": movement.recipient_email,
+                "username": "",
+            }
+            if movement.recipient_id:
+                asset.custodian_identity["local_user_id"] = str(movement.recipient_id)
+        elif movement.recipient_id_personal and movement.recipient_name and movement.recipient_email:
             asset.custodian_identity = {
                 "source": "RRHH", "locator": {"source": "RRHH", "id": movement.recipient_id_personal},
                 "name": movement.recipient_name, "email": movement.recipient_email,
@@ -440,7 +599,7 @@ def custody_movement_list_view(request):
     for movement in movements:
         movement.batch_configured = bool(
             movement.delivery_batch_id
-            and movement.delivery_batch.recipient_id
+            and (movement.delivery_batch.recipient_id or (movement.delivery_batch.recipient_name and movement.delivery_batch.recipient_locator))
             and movement.delivery_batch.delivery_responsible_id
             and movement.delivery_batch.authorizing_director_id
             and movement.delivery_batch.destination_branch_id
@@ -994,7 +1153,7 @@ def delivery_batch_detail_view(request, pk):
     }
     documents_complete = required_document_types <= verified_document_types
     batch_configured = bool(
-        delivery_batch.recipient_id
+        (delivery_batch.recipient_id or (delivery_batch.recipient_name and delivery_batch.recipient_locator))
         and delivery_batch.delivery_responsible_id
         and delivery_batch.authorizing_director_id
         and delivery_batch.destination_branch_id
@@ -1154,7 +1313,7 @@ def delivery_batch_prepare_view(request, pk):
     batch = get_object_or_404(DeliveryBatch.objects.prefetch_related("movements"), pk=pk)
     if batch.status != DeliveryBatch.BatchStatus.DRAFT:
         raise PermissionDenied("Solo un acta en borrador puede marcarse como preparada.")
-    if not batch.recipient or not batch.delivery_responsible or not batch.authorizing_director or not batch.destination_branch or not batch.department or not batch.location:
+    if not (batch.recipient or (batch.recipient_name and batch.recipient_locator)) or not batch.delivery_responsible or not batch.authorizing_director or not batch.destination_branch or not batch.department or not batch.location:
         messages.error(
             request,
             "No se pudo confirmar la preparación. Complete receptor, responsable de autorización, sede, departamento y ubicación.",
@@ -1182,7 +1341,7 @@ def delivery_batch_send_to_signature_view(request, pk):
     batch = get_object_or_404(DeliveryBatch, pk=pk)
     if batch.status != DeliveryBatch.BatchStatus.PREPARED:
         raise PermissionDenied("El acta debe estar preparada antes de la autorización.")
-    if not batch.recipient or not batch.delivery_responsible or not batch.authorizing_director or not batch.destination_branch or not batch.department or not batch.location:
+    if not (batch.recipient or (batch.recipient_name and batch.recipient_locator)) or not batch.delivery_responsible or not batch.authorizing_director or not batch.destination_branch or not batch.department or not batch.location:
         messages.error(request, "Complete receptor, responsable de autorización, sede, departamento y ubicación.")
         return redirect("deliveries:delivery_batch_detail", pk=pk)
     if not batch.movements.exists():
@@ -1248,6 +1407,7 @@ def delivery_batch_complete_view(request, pk):
 
     for movement in batch.movements.all():
         movement.recipient = batch.recipient
+        movement.recipient_locator = batch.recipient_locator
         movement.recipient_id_personal = batch.recipient_id_personal
         movement.recipient_name = batch.recipient_name
         movement.recipient_email = batch.recipient_email
@@ -1348,6 +1508,7 @@ def delivery_batch_create_view(request):
                     )
                 movement.delivery_batch = batch
                 movement.recipient = batch.recipient
+                movement.recipient_locator = batch.recipient_locator
                 movement.recipient_id_personal = batch.recipient_id_personal
                 movement.recipient_name = batch.recipient_name
                 movement.recipient_email = batch.recipient_email
@@ -1570,6 +1731,7 @@ def delivery_batch_configure_view(request, pk):
             batch = form.save()
             batch.movements.update(
                 recipient=batch.recipient,
+                recipient_locator=batch.recipient_locator,
                 recipient_id_personal=batch.recipient_id_personal,
                 recipient_name=batch.recipient_name,
                 recipient_email=batch.recipient_email,

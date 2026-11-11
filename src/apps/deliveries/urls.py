@@ -4,6 +4,7 @@ from .pdf_views import delivery_batch_pdf_view
 
 from .views import (
     new_delivery_recipient_view,
+    new_delivery_recipient_search_view,
     new_delivery_assets_view,
     new_delivery_review_view,
     custody_movement_create_view,
@@ -43,6 +44,7 @@ urlpatterns = [
 
     # FLUJO GUIADO DE ENTREGA
     path("nueva/", new_delivery_recipient_view, name="new_delivery_recipient"),
+    path("nueva/buscar-destinatario/", new_delivery_recipient_search_view, name="new_delivery_recipient_search"),
     path("nueva/equipos/", new_delivery_assets_view, name="new_delivery_assets"),
     path("nueva/revisar/", new_delivery_review_view, name="new_delivery_review"),
 
