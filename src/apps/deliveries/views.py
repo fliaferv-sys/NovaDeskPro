@@ -74,23 +74,35 @@ def _recipient_summary(recipient):
 RECIPIENT_SELECTION_SALT = "novadesk.deliveries.recipient.v1"
 
 
+def _institutional_display_name(value):
+    """Same human-readable organizational name used by Funcionarios."""
+    if isinstance(value, dict):
+        return str(value.get("name") or "").strip()
+    if value is None:
+        return ""
+    return str(getattr(value, "name", value) or "").strip()
+
+
 def _identity_summary(identity):
-    """Never trust personal information supplied by the browser."""
-    unit = identity.get("organizational_unit") or ""
-    branch = identity.get("branch") or ""
+    """Present verified source fields; never infer sector/sede from location."""
     path = identity.get("organizational_path") or []
+    sources = identity.get("sources") or [identity.get("source")]
+    labels = {"RRHH": "RR.HH.", "ACTIVE_DIRECTORY": "Active Directory",
+              "LOCAL": "NovaDesk", "TERCERIZADOS": "Tercerizados"}
+    source_label = " + ".join(labels.get(s, s or "") for s in sources)
     return {
         "name": str(identity.get("full_name") or identity.get("name") or ""),
         "email": str(identity.get("email") or ""),
         "employee_number": str(identity.get("employee_number") or ""),
         "position": str(identity.get("position") or ""),
-        "branch": str(branch),
-        "organizational_unit": str(unit),
-        "department": str(identity.get("department") or identity.get("area") or ""),
-        "section": str(identity.get("section") or ""),
+        "branch": _institutional_display_name(identity.get("branch")),
+        "organizational_unit": _institutional_display_name(identity.get("organizational_unit")),
+        "department": _institutional_display_name(identity.get("department") or identity.get("area")),
+        "section": _institutional_display_name(identity.get("section")),
         "location": str(identity.get("location") or ""),
-        "organizational_path": " / ".join(str(value) for value in path) if isinstance(path, (list, tuple)) else str(path),
+        "organizational_path": " / ".join(_institutional_display_name(item) for item in path) if isinstance(path, (list, tuple)) else str(path),
         "source": str(identity.get("source") or ""),
+        "source_label": source_label,
     }
 
 
@@ -177,8 +189,15 @@ def new_delivery_recipient_search_view(request):
                 "department": str(user.department) if user.department else "",
                 "is_active": user.is_active,
             })
+    # Prefer authoritative RR.HH. records in the list, never merge by name.
+    # Preserve source-backed locators for validation at selection/submission.
+    priority = {"RRHH": 0, "ACTIVE_DIRECTORY": 1, "TERCERIZADOS": 2, "LOCAL": 3}
+    ordered = sorted(identities, key=lambda item: (
+        priority.get(item.get("source"), 4),
+        str(item.get("name") or item.get("full_name") or "").casefold(),
+    ))
     results = []
-    for identity in identities:
+    for identity in ordered:
         if not _is_valid_delivery_identity(identity):
             continue
         summary = _identity_summary(identity)
@@ -188,7 +207,7 @@ def new_delivery_recipient_search_view(request):
             break
     return JsonResponse({
         "results": results,
-        "more": len(identities) > len(results),
+        "more": len(ordered) > len(results),
         "unavailable_sources": (["RRHH", "ACTIVE_DIRECTORY"] if fallback else
                                 list(getattr(identities, "unavailable_sources", ()))),
     })

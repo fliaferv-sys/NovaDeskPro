@@ -53,7 +53,8 @@
     preview.replaceChildren(
       fact('Nombre', person.name), fact('Legajo', person.employee_number),
       fact('Cargo', person.position), fact('Sector / dependencia', person.organizational_unit || person.department),
-      fact('Sede', person.branch), fact('Correo', person.email)
+      fact('Sede', person.branch), fact('Correo', person.email),
+      fact('Referencia RR.HH. / ubicación', person.location), fact('Fuente', person.source_label)
     );
     status.textContent = 'Funcionario seleccionado.';
   }
@@ -72,8 +73,10 @@
         option.type = 'button'; option.className = 'delivery-asset';
         option.setAttribute('role','option'); option.id = 'recipient-result-' + index;
         option.style.width = '100%'; option.style.textAlign = 'left';
-        option.textContent = [person.name, person.employee_number && 'Legajo: ' + person.employee_number,
-          person.organizational_unit || person.department, person.position].filter(Boolean).join(' · ');
+        option.textContent = [person.name, person.source_label,
+          person.employee_number && 'Legajo: ' + person.employee_number,
+          person.organizational_unit || person.department || person.location,
+          person.position].filter(Boolean).join(' · ');
         option.addEventListener('click', () => selectPerson(person)); list.appendChild(option);
       });
       list.hidden = !list.children.length;

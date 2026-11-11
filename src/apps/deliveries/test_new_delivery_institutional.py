@@ -60,6 +60,33 @@ class NewDeliveryInstitutionalSearchTests(TestCase):
         self.assertNotIn("recipient_id", selection)
         self.assertEqual(selection["recipient_identity"]["locator"]["id"], 12345)
 
+    @patch("apps.deliveries.views.search_institutional_identities")
+    def test_rrhh_before_ad_and_organization_names(self, search):
+        ad = {
+            "source": "ACTIVE_DIRECTORY",
+            "_locator": {"source": "ACTIVE_DIRECTORY", "username": "silvio", "email": "silvio@petropar.gov.py"},
+            "_linked": [], "name": "Silvio Prueba", "first_name": "Silvio", "last_name": "Prueba", "email": "silvio@petropar.gov.py",
+            "employee_number": "", "position": "", "is_active": True,
+            "is_person": True, "is_technical": False, "is_shared": False,
+        }
+        rrhh = dict(self.person)
+        rrhh["location"] = "Ubicacion informada en RRHH"
+        rrhh["organizational_unit"] = {"name": "Tecnologia"}
+        rrhh["branch"] = {"name": "Villa Elisa"}
+        search.return_value = [ad, rrhh]
+        response = self.client.get(reverse("deliveries:new_delivery_recipient_search"), {"q": "silvio"})
+        self.assertEqual(response.status_code, 200)
+        results = response.json()["results"]
+        self.assertEqual(results[0]["source"], "RRHH")
+        self.assertEqual(results[0]["employee_number"], "9001")
+        self.assertEqual(results[0]["position"], "Analista")
+        self.assertEqual(results[0]["organizational_unit"], "Tecnologia")
+        self.assertEqual(results[0]["branch"], "Villa Elisa")
+        self.assertEqual(results[0]["location"], "Ubicacion informada en RRHH")
+        self.assertEqual(results[1]["source"], "ACTIVE_DIRECTORY")
+        self.assertEqual(results[1]["employee_number"], "")
+        self.assertNotEqual(results[0]["token"], results[1]["token"])
+
     def test_invalid_token_is_rejected(self):
         response = self.client.post(
             reverse("deliveries:new_delivery_recipient"),
